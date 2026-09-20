@@ -39,6 +39,21 @@
       "markerOverlaps": 55,
       "missingPartitions": 1,
       "note": "电气事实已通过；15区文字/视觉标记仍需作为独立样例继续迭代，不能用DRC=0覆盖"
+    },
+    "u3RecoveryAfterRebindTimeout": {
+      "status": "live-verified",
+      "data": "schematic-u3-recovery-live.json",
+      "trigger": "schematic.rebind.footprint 超时，并在完成重建前删除了原 U3",
+      "recovery": "用原器件参数化 sch place 恢复 U3，随后保存、typed doc reload 和 schematic.read",
+      "checks": {
+        "componentCountRestored": 69,
+        "pinNetCountCompared": 13,
+        "positionFootprintAndPinNetsMatch": true,
+        "primitiveIdChanged": true,
+        "uniqueIdChanged": true,
+        "pcbImportChangesRun": false
+      },
+      "restriction": "在 typed 重绑定能够保持组件身份并完成原理图/PCB 实例对账前，禁止从当前原理图执行 PCB import-changes"
     }
   },
   "pcbMechanics": {
@@ -74,13 +89,27 @@
       "independentReview": {
         "status": "completed-with-findings",
         "passedSummary": "69件/BOM/全TOP/0重叠/固定件/15区/按键等距通过",
-        "findings": [
+        "initialFindings": [
           "LED1不在板边",
           "部分去耦和LDO输出电容偏远",
           "晶振守护区受侵入",
           "CAN ESD未对齐信号脚",
           "LCD component-keepout未被快照证明",
           "7组bbox间隙<12mil"
+        ],
+        "resolvedSinceReview": [
+          "LED1板边模块 candidate-01 已保存重载并回读",
+          "U6三只去耦已按明确供电脚 candidate-01 保存重载并回读",
+          "LDO第二轮局部布局与TOP回流已有独立现场记录",
+          "晶振左右次序已修正并回读",
+          "CAN D1/CN1支路关系已改善，但整组仍只作为负例",
+          "CAN、SD、USB-UART 与 LCD 的 11 个外围已按逐脚关系候选保存重载并回读",
+          "LCD no-components region 已在个人库可写副本中保存并回读"
+        ],
+        "remaining": [
+          "CAN R12 最终布局正例",
+          "LCD component-keepout 个人库副本与当前原理图/PCB U3 实例的绑定",
+          "12mil不是题定门槛；只保留真实6mil/装配空间与后续通道逐项判断"
         ]
       }
     }
@@ -116,11 +145,374 @@
     },
     "verifiedAfterFullBrowserReload": true
   },
+  "pcbModuleCandidateLayout": {
+    "status": "live-verified",
+    "verificationScope": "RGB LED、U6逐脚去耦、CAN/SD/USB-UART去耦与LCD供电/背光外围的候选生成、typed apply、保存、真实重载和回读；不包含这些模块的实际布线或 LCD region 实例绑定",
+    "data": "layout-after-led-mcu-live.json",
+    "secondBatchData": "layout-after-peripherals-live.json",
+    "browserReopenData": "layout-after-browser-reopen-verification-live.json",
+    "method": "AI 声明模块/逐脚归属/板边关系与 LCD 机械代理；pcb layout-plan 离线有限枚举；AI 选择 candidate-01；easyeda apply 串行写入",
+    "rgbLed": {
+      "movedRefs": [
+        "C1",
+        "C2",
+        "LED1",
+        "R3",
+        "U1"
+      ],
+      "edgeDistanceMil": 20,
+      "minInternalGapMil": 8,
+      "minExternalComponentGapMil": 35.6755,
+      "minLcdKeepoutProxyGapMil": 35.6755,
+      "closestGaps": {
+        "internal": {
+          "from": "C2",
+          "to": "LED1",
+          "distanceMil": 8
+        },
+        "external": {
+          "from": "R3",
+          "to": "U3",
+          "distanceMil": 35.6755
+        },
+        "keepout": {
+          "from": "R3",
+          "to": "U3-LCD-measured-footprint-bbox",
+          "distanceMil": 35.6755
+        }
+      },
+      "pinOwnership": [
+        "U1.4 -> LED1.4",
+        "C2.1 -> LED1.1",
+        "C1.1 -> U1.5",
+        "R3.2 -> U1.2"
+      ],
+      "limitations": [
+        "题目只要求 RGB 靠近 TYPE-C；未声明 localFacing，不能把板边距离外推成侧向光学开口证明",
+        "LCD keepout 是 U3 rendered bbox 的强几何代理，不证明封装 region 已保存并绑定"
+      ]
+    },
+    "mcuDecoupling": {
+      "fixedCore": "U6",
+      "movedRefs": [
+        "C14",
+        "C15",
+        "C16"
+      ],
+      "pinOwnership": [
+        "C14.1 -> U6.1",
+        "C15.1 -> U6.5",
+        "C16.1 -> U6.17"
+      ],
+      "minInternalGapMil": 8,
+      "minExternalComponentGapMil": 10.451,
+      "closestGaps": {
+        "internal": {
+          "from": "C15",
+          "to": "U6",
+          "distanceMil": 8
+        },
+        "external": {
+          "from": "C14",
+          "to": "X1",
+          "distanceMil": 10.451
+        }
+      }
+    },
+    "secondBatch": {
+      "status": "live-verified",
+      "selectedCandidate": "candidate-01",
+      "modules": {
+        "canDecoupling": {
+          "fixedCore": "U5",
+          "movedRefs": [
+            "C12",
+            "C13"
+          ],
+          "pinOwnership": [
+            "C13.1 -> U5.3",
+            "C12.1 -> C13.1"
+          ],
+          "minInternalGapMil": 8,
+          "minExternalComponentGapMil": 105.744,
+          "closestGaps": {
+            "internal": {
+              "from": "C12",
+              "to": "C13",
+              "distanceMil": 8
+            },
+            "external": {
+              "from": "U5",
+              "to": "CN1",
+              "distanceMil": 105.744
+            }
+          },
+          "scopeLimit": "只验证收发器供电电容布局，不证明 R12/D1/CN1 的有序 CAN 主路径"
+        },
+        "sdDecoupling": {
+          "fixedCore": "CARD1",
+          "movedRefs": [
+            "C18",
+            "C19"
+          ],
+          "pinOwnership": [
+            "C19.1 -> CARD1.4",
+            "C18.1 -> C19.1"
+          ],
+          "minInternalGapMil": 13.546,
+          "minExternalComponentGapMil": 26.502,
+          "closestGaps": {
+            "internal": {
+              "from": "C18",
+              "to": "CARD1",
+              "distanceMil": 13.546
+            },
+            "external": {
+              "from": "CARD1",
+              "to": "R9",
+              "distanceMil": 26.502
+            }
+          }
+        },
+        "usbUartDecoupling": {
+          "fixedCore": "U4",
+          "movedRefs": [
+            "C9",
+            "C10"
+          ],
+          "pinOwnership": [
+            "C9.1 -> U4.8",
+            "C10.1 -> U4.5"
+          ],
+          "minInternalGapMil": 8,
+          "minExternalComponentGapMil": 12.003,
+          "closestGaps": {
+            "internal": {
+              "from": "C10",
+              "to": "U4",
+              "distanceMil": 8
+            },
+            "external": {
+              "from": "U4",
+              "to": "C3",
+              "distanceMil": 12.003
+            }
+          }
+        },
+        "lcdPeripherals": {
+          "fixedCore": "U3",
+          "movedRefs": [
+            "C7",
+            "R6",
+            "Q1",
+            "R4",
+            "R5"
+          ],
+          "pinOwnership": [
+            "C7.1 -> U3.10",
+            "R6.2 -> U3.11",
+            "Q1.3 -> R6.1",
+            "R4.2 -> Q1.1",
+            "R5.1 -> Q1.1"
+          ],
+          "minInternalGapMil": 18.217,
+          "minExternalComponentGapMil": 35.6755,
+          "minKeepoutProxyGapMil": 20,
+          "closestGaps": {
+            "internal": {
+              "from": "R4",
+              "to": "R5",
+              "distanceMil": 18.217
+            },
+            "external": {
+              "from": "U3",
+              "to": "R3",
+              "distanceMil": 35.6755
+            },
+            "keepout": {
+              "from": "C7",
+              "to": "U3-LCD-measured-footprint-bbox",
+              "distanceMil": 20
+            }
+          },
+          "scopeLimit": "U3 rendered bbox/声明代理参与候选计算；个人库 region 尚未绑定当前实例"
+        },
+        "canTerminalProtection": {
+          "status": "live-verified-current-pose",
+          "selectedCandidate": "candidate-01 / keep-current-pad-order",
+          "movedRefs": [],
+          "placements": {
+            "R12": {
+              "xMil": 2630,
+              "yMil": 1510,
+              "rotationDeg": 0
+            },
+            "D1": {
+              "xMil": 2791.5,
+              "yMil": 1528.151,
+              "rotationDeg": 270
+            }
+          },
+          "minInternalGapMil": 40.882,
+          "minExternalComponentGapMil": 10.056,
+          "closestGaps": {
+            "internal": {
+              "from": "D1",
+              "to": "R12",
+              "distanceMil": 40.882
+            },
+            "external": {
+              "from": "D1",
+              "to": "CN1",
+              "distanceMil": 10.056
+            }
+          },
+          "decision": "当前位置与方向满足6mil几何间隙并保持H左/L右出口顺序；零位移候选只保存检查点，不移动器件",
+          "scopeLimit": "只接受Layout位置与方向；U5→R12→CN1有序主路径和D1支路仍须由实际铜证明，最短飞线相交不作为Layout门禁"
+        }
+      },
+      "persistedReadback": {
+        "componentCount": 69,
+        "changedRefsExactly": 11,
+        "changedRefs": [
+          "C12",
+          "C13",
+          "C18",
+          "C19",
+          "C9",
+          "C10",
+          "C7",
+          "R6",
+          "Q1",
+          "R4",
+          "R5"
+        ],
+        "fixedCoresUnchanged": [
+          "U5",
+          "CARD1",
+          "U4",
+          "U3"
+        ],
+        "allCandidatePosesMatch": true,
+        "outlineUnchanged": true,
+        "existingTracksUnchanged": true,
+        "trackCount": 15,
+        "trackLayer": 1,
+        "trackWidthMil": 20,
+        "crossModuleMinGapMil": 51.5065,
+        "crossModuleClosestPair": {
+          "from": "C9",
+          "to": "R5",
+          "distanceMil": 51.5065
+        },
+        "minLdoCopperClearance": {
+          "scope": "移动外围器件到既有15段LDO铜；固定核心不参与这组比较",
+          "canDecoupling": {
+            "from": "C12",
+            "toTrack": "369544daea524190",
+            "net": "GND",
+            "distanceMil": 364.884
+          },
+          "sdDecoupling": {
+            "from": "C19",
+            "toTrack": "369544daea524190",
+            "net": "GND",
+            "distanceMil": 727.738
+          },
+          "usbUartDecoupling": {
+            "from": "C10",
+            "toTrack": "1b08f7dee26a2bc8",
+            "net": "GND",
+            "distanceMil": 88.132
+          },
+          "lcdPeripherals": {
+            "from": "R4",
+            "toTrack": "a76f0b60f508dff4",
+            "net": "GND",
+            "distanceMil": 477.821
+          }
+        },
+        "layoutLint": {
+          "overlaps": 0,
+          "outsideOutline": 0,
+          "tightSpacingAt6Mil": 0,
+          "ratsnestCrossings": 55,
+          "scoreUsedAsPermission": false
+        },
+        "tracksData": "layout-after-peripherals-tracks-live.json",
+        "lintData": "layout-after-peripherals-lint-live.json",
+        "afterUserBrowserReopen": {
+          "data": "layout-after-browser-reopen-verification-live.json",
+          "primitiveIdSetUnchanged": true,
+          "componentGeometryUnchanged": true,
+          "outlineUnchanged": true,
+          "ldoTracksUnchanged": true,
+          "pcbImportChangesRun": false
+        }
+      }
+    },
+    "persistedReadback": {
+      "componentCount": 69,
+      "changedRefsExactly": 8,
+      "allCandidatePosesWithinMil": 1e-06,
+      "fixedRefsUnchanged": true,
+      "outlineUnchanged": true,
+      "existingTracksUnchanged": true,
+      "trackCount": 15,
+      "layoutLint": {
+        "overlaps": 0,
+        "outsideOutline": 0,
+        "tightSpacingAt6Mil": 0,
+        "ratsnestCrossings": 55,
+        "scoreUsedAsPermission": false
+      },
+      "tracksData": "layout-after-led-mcu-tracks-live.json",
+      "lintData": "layout-after-led-mcu-lint-live.json"
+    },
+    "independentReview": {
+      "status": "completed-with-limitations",
+      "passed": "8个bundle的原始SHA、19个候选的最近对象对/距离、candidate-01现场姿态、LDO 0候选残留清理及相同输入逐字节确定性均独立复核",
+      "limitations": [
+        "apply 中 hash 仍是描述元数据，因此执行前用 fresh dump 重算并立即串行 apply",
+        "封装级 LCD component-keepout 的个人库副本已保存，但当前 U3 实例绑定仍未被本条外推为已证明",
+        "CAN 长度、段数和 ratsnest crossing 只作后续通道观察，不形成 Layout 拒绝门槛"
+      ]
+    }
+  },
+  "lcdFootprintComponentKeepout": {
+    "status": "partial-live-verified",
+    "personalLibraryCopy": {
+      "name": "EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO",
+      "footprintUuid": "5e1662059e174644a40d45f813b437d5",
+      "libraryUuid": "f60b2174579745258ada9b72bbe2f52b",
+      "regionPrimitiveId": "74049f69b7f01501",
+      "layer": 12,
+      "ruleType": [
+        2
+      ],
+      "locked": true,
+      "saved": true,
+      "hostIgnoredOptionalName": true
+    },
+    "instanceBinding": {
+      "completed": false,
+      "reason": "schematic.rebind.footprint 超时且发生部分执行；恢复后的 U3 身份已变化",
+      "recoveryData": "schematic-u3-recovery-live.json",
+      "pcbImportChangesAllowed": false
+    },
+    "evidenceBoundary": "只证明个人库副本能持久化 no-components region；不证明当前原理图或 PCB U3 已绑定该副本"
+  },
   "pcbLdo": {
     "status": "live-verified",
     "verificationScope": "U2/C3-C6 第二轮相对布局与局部 +5V/+3V3/TOP GND 铜；输入源和输出负载主干不在范围内",
     "placement": {
-      "refs": ["U2", "C3", "C4", "C5", "C6"],
+      "refs": [
+        "U2",
+        "C3",
+        "C4",
+        "C5",
+        "C6"
+      ],
       "allTop": true,
       "overlaps": 0,
       "outsideOutline": 0,
@@ -154,7 +546,9 @@
     },
     "officialDrc": {
       "total": 216,
-      "counts": {"Connection Error": 216},
+      "counts": {
+        "Connection Error": 216
+      },
       "interpretation": "整板未布通；没有短路、间距、线宽等其他 DRC 类型，不能把全局 Connection Error 当局部路径判据"
     },
     "independentReview": {
@@ -173,7 +567,11 @@
     "data": "crystal-placement-live.json",
     "placement": {
       "fixedCore": "U6",
-      "movedRefs": ["X1", "C20", "C21"],
+      "movedRefs": [
+        "X1",
+        "C20",
+        "C21"
+      ],
       "allTop": true,
       "overlaps": 0,
       "outsideOutline": 0,
@@ -181,16 +579,32 @@
       "u6StillLocked": true,
       "u6ToX1RatlinesCrossBefore": true,
       "u6ToX1RatlinesCrossAfter": false,
-      "crossingsBeforeAfter": [58, 57],
-      "ratsnestMilBeforeAfter": [27058.07, 27045.82]
+      "crossingsBeforeAfter": [
+        58,
+        57
+      ],
+      "ratsnestMilBeforeAfter": [
+        27058.07,
+        27045.82
+      ]
     },
     "routing": {
-      "OSC_IN": {"tracks": 0, "arcs": 0, "vias": 0},
-      "OSC_OUT": {"tracks": 0, "arcs": 0, "vias": 0}
+      "OSC_IN": {
+        "tracks": 0,
+        "arcs": 0,
+        "vias": 0
+      },
+      "OSC_OUT": {
+        "tracks": 0,
+        "arcs": 0,
+        "vias": 0
+      }
     },
     "officialDrc": {
       "total": 216,
-      "counts": {"Connection Error": 216},
+      "counts": {
+        "Connection Error": 216
+      },
       "oscSignalConnectionErrors": 6
     },
     "independentReview": {
@@ -205,39 +619,61 @@
   },
   "pcbCanPlacementIteration": {
     "status": "live-verified",
-    "outcome": "rejected-as-positive-example",
-    "verificationScope": "U5/R12/D1/CN1 第一轮布局修改、保存重开、真实焊盘与负面发现；不包含 CAN 铜、R12 最终位置、D1 地回流或 DRC 通过",
+    "outcome": "layout-pose-accepted-routing-negative-retained",
+    "verificationScope": "U5/R12/D1/CN1 第一轮布局修改、保存重开、真实焊盘及布线负面发现；后续零位移刚体候选接受当前 R12/D1 位置方向，不包含 CAN 实际铜、D1 地回流或 DRC 通过",
     "data": "can-placement-iteration-live.json",
     "placement": {
-      "fixedDuringIteration": ["U5", "CN1"],
-      "movedRefs": ["R12", "D1"],
+      "fixedDuringIteration": [
+        "U5",
+        "CN1"
+      ],
+      "movedRefs": [
+        "R12",
+        "D1"
+      ],
       "allTop": true,
       "overlaps": 0,
       "outsideOutline": 0,
       "tightSpacingAt6Mil": 0,
-      "d1Cn1SignalDistanceMilBefore": [217.014, 294.967],
-      "d1Cn1SignalDistanceMilAfter": [168.937, 168.937],
+      "d1Cn1SignalDistanceMilBefore": [
+        217.014,
+        294.967
+      ],
+      "d1Cn1SignalDistanceMilAfter": [
+        168.937,
+        168.937
+      ],
       "d1Cn1BboxGapMil": 10.056,
       "crossings": 57,
       "canCrossings": 2,
       "ratsnestMil": 27224.77
     },
     "routing": {
-      "CANH": {"tracks": 0, "arcs": 0, "vias": 0},
-      "CANL": {"tracks": 0, "arcs": 0, "vias": 0}
+      "CANH": {
+        "tracks": 0,
+        "arcs": 0,
+        "vias": 0
+      },
+      "CANL": {
+        "tracks": 0,
+        "arcs": 0,
+        "vias": 0
+      }
     },
     "officialDrc": {
       "total": 216,
-      "counts": {"Connection Error": 216},
+      "counts": {
+        "Connection Error": 216
+      },
       "canSignalConnectionErrors": 8
     },
     "independentReview": {
       "status": "completed-with-findings",
-      "accepted": "D1/CN1的H左/L右对称关系、R12实际pad网、保存重开和0铜/0via回读成立",
+      "accepted": "D1/CN1的H左/L右对称关系、R12实际pad网、保存重开和0铜/0via回读成立；当前R12/D1位置方向经通用rigid候选接受",
       "rejected": [
-        "最初候选的无交叉预测被真实两处CANH/CANL飞线相交否定",
+        "最初候选的无交叉预测被真实两处CANH/CANL飞线相交否定；该事实只作为布线反例",
         "R12 y=1488.8的简单对齐会造成异网共线穿越",
-        "没有H/L双线联合寻路和实际铜回读前，不给出新的可信R12单一坐标"
+        "不从最短飞线、长度比或段数比生成新的Layout拒绝门槛；本轮不扩张CAN专用寻路器"
       ]
     }
   },
@@ -277,13 +713,25 @@
       "id": "net-path-legacy-connector-evidence",
       "symptom": "连接器1.5.1缺 pad source shape 与 result.arcsAvailable，无法可靠区分无圆弧、圆弧读取失败和AABB空角",
       "recovery": "shape-aware pcb net-path fail-closed 返回 unknown/error；加载新版typed连接器后再现场复测，不以AABB或截图降级"
+    },
+    {
+      "id": "footprint-region-host-normalization",
+      "symptom": "宿主保存后的闭合多边形顶点顺序可能变化，并忽略可选 region name；按字面数组/name 比较会误判有效 region",
+      "liveResult": "个人库副本已保存 layer 12、ruleType [2]、locked 的 no-components region",
+      "requiredFix": "按闭合多边形几何等价回读；name 被宿主忽略时返回 warning，不回滚有效 region"
+    },
+    {
+      "id": "schematic-rebind-partial-delete",
+      "symptom": "schematic.rebind.footprint 超时前已删除 U3，但没有返回可恢复的部分执行状态",
+      "recovery": "参数化恢复原器件并保存重载，69 件及 13 脚网络一致；primitiveId/uniqueId 已变化",
+      "requiredFix": "重绑定 handler 必须报告 partial/rollback 事实并保持组件身份；修复前禁止 PCB import-changes"
     }
   ],
   "notClaimed": [
-    "第一轮布局的独立复核发现LED板边、去耦、晶振守护区、CAN和LCD禁放证据缺口，不能称布局完成",
-    "CAN的D1/CN1局部关系已改善，但R12当前坐标只作为相交负例；有序主路径和R12最终位置未完成",
+    "LED、U6逐脚去耦及四组外围已用参数化候选闭环，R12/D1当前位置方向也由零位移候选接受；CAN实际有序铜路和LCD封装实例绑定仍缺，不能称整板已布通",
+    "CAN的D1/CN1局部关系及R12/D1布局姿态已接受；最短飞线仍相交只说明直连不可用，实际U5→R12→CN1主路径与D1支路尚未创建",
     "完整PCB布线、双面GND、泪滴、丝印和PCB DRC=0尚未执行",
-    "LCD可写封装副本与实例绑定尚未在新connector现场验证",
+    "LCD可写封装副本的region已现场保存；原理图/PCB U3实例绑定尚未完成，且当前禁止PCB import-changes",
     "shape-aware pcb net-path 与 pad-anchor 修复尚未在加载新版连接器的 Web 窗口复测"
   ]
 }

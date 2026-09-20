@@ -71,7 +71,7 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 
 ## 首要准则 — CLI 子命令设计
 
-详见 [`docs/cli-design.md`](docs/cli-design.md)。核心约束：所有明确的功能模块必须以 **Cobra 子命令**方式暴露（`easyeda sch`、`easyeda pcb`、`easyeda bom` …），`--help` 自描述，新功能先设计命令接口再写实现，Skill 描述与子命令签名保持同步。开发闭环：`debug.exec_js` → typed action → Cobra 子命令。
+详见 [`docs/cli-design.md`](docs/cli-design.md)。核心约束：所有明确的功能模块必须以 **Cobra 子命令**方式暴露（`easyeda sch`、`easyeda pcb`、`easyeda bom` …），`--help` 自描述，新功能先设计命令接口再写实现，Skill 描述与子命令签名保持同步。开发闭环：官方 API/离线 fixture 调研 → typed action → Cobra 子命令；不得用 `debug.exec_js` 临时操作工程来跳过接口开发。
 
 ## 首要准则 — 固定测试用例（端到端验收）
 
@@ -208,9 +208,9 @@ skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv> --out <out> # 写入文件
 # 器件选型
 skills/easyeda-agent/scripts/parts-select.py --help
 
-# flag 旋转真值表校准（导入新 .eext 后跑一次，需要已连接的 EasyEDA 窗口）
-# 在 EasyEDA 的 debug.exec_js 里粘贴 calibrate.js 内容
-skills/easyeda-agent/scripts/calibrate.js   # 读 getPrimitivesBBox 实测锚点
+# calibrate.js 仅作历史算法参考，不再粘贴到 EDA 的 debug.exec_js。
+# 需要重新校准时先提供 typed 校准 action/Cobra，再由参数化命令运行与回读。
+skills/easyeda-agent/scripts/calibrate.js
 
 # lint 规则信任测试
 make lint-test    # = python3 skills/easyeda-agent/scripts/tests/run.py
@@ -268,9 +268,10 @@ reaches the daemon.
   platform **can auto-update in place** — but the listing **lags** (there is no
   publish CLI/API for jlc-ext — each release is a manual web-portal re-submit),
   so a marketplace connector can be **older** than
-  your CLI and flag `connectorVersionOk:false`. **Most changes don't
-  even need a re-import — use the `debug.exec_js` escape hatch** for scriptable
-  behavior; only manifest/handler changes require a rebuild. **And re-importing
+  your CLI and flag `connectorVersionOk:false`. Pure CLI/daemon changes do not
+  require a connector re-import; manifest or handler changes require a normal
+  rebuild/update, and missing capabilities must not be bypassed with `debug.exec_js`.
+  **And re-importing
   does NOT reload already-open EasyEDA windows** — an open window keeps running the
   OLD connector code and fights the freshly-imported one over the daemon socket;
   **fully quit and relaunch EasyEDA** to load new connector code.
@@ -283,9 +284,9 @@ reaches the daemon.
   pointing **right** (up/down at 0/180 are symmetric, which is why it hid for so
   long). `connect_pin` now **auto-detects this at runtime** (`detectRotationNegation`,
   a one-shot probe flag) and compensates, so its output is correct whether the build
-  negates or not. Two follow-ons: (1) if you create flags via **raw**
-  `eda.createNetFlag` (`debug.exec_js`), YOU must pass the negated value — or just
-  use `connect_pin`; (2) `getState_Rotation()` *immediately* after create can echo
+  negates or not. Two follow-ons: (1) raw `eda.createNetFlag` handling belongs
+  inside the connector; Agent workflows must use typed `connect_pin`; (2)
+  `getState_Rotation()` *immediately* after create can echo
   the input — a fresh **re-pull** (`getAll`) shows the real stored value.
 - **A netflag must connect via a real wire** — overlapping the pin coordinate is
   NOT a connection (DRC won't see it).

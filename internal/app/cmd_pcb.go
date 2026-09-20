@@ -2300,6 +2300,8 @@ external router (Freerouting) would route under the antenna. The result reports
 	pcb.AddCommand(newPcbLayoutScoreCmd(cfg, &window, stdout, stderr))
 	// ── floorplan: 从 S0 flow 推布局骨架（只读规划，#167 ACHIEVE 层）──────────
 	pcb.AddCommand(newPcbFloorplanCmd(cfg, &window, stdout, stderr))
+	// ── layout-plan: 按模块生成参数化布局候选（纯离线，不写 EDA）─────────────
+	pcb.AddCommand(newPcbLayoutPlanCmd(stdout, stderr))
 	// ── refine: 打分驱动的精修环（默认 dry-run，按步回滚）──────────────────────
 	pcb.AddCommand(newPcbRefineCmd(cfg, &window, stdout, stderr))
 	// ── autoroute: one-command Freerouting round-trip ────────────────────────

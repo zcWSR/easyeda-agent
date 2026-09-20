@@ -78,7 +78,11 @@ easyeda sch sheet-geometry --project <project> --doc <page-uuid> --json
 布局修复先修改源数据/约束并重新求解、compose。已有连线的小范围移动可用 `sch group-move`
 等带线工具执行已记录的源目标变更，之后同步回读及源数据；不能以现场补丁替代可重复生成链。
 单独 `sch modify`、`align`、`distribute` 只动器件，不能视为带线移动。
-换型号/符号/封装会重建实例，应重新取 primitive ID，检查 `pinDiff` 并验证网络。
+换型号/符号/封装会重建实例，应重新取 primitive ID，检查 `pinDiff` 并验证网络。符号/封装
+rebind 使用候选优先事务：先回读 Device association，候选创建且回读存在后才删除原件，最后
+精确回读设备/符号或封装绑定、`uniqueId`、位姿和属性；失败时检查回执里的 `phase`、原件/候选
+存在性和 `rollback.verified`。命令超时表示写入
+仍可能晚到，禁止盲重试和 `pcb import-changes`，先做新鲜原理图回读并核对关联键。
 
 `sch modify` 的 `otherProperty` 与兼容别名 `customAttributes` 二选一。连接器合并保留
 现有属性，并回读检查；`partial`/非空 `notApplied` 是失败，`verified:false` 是未经确认。

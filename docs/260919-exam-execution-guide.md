@@ -83,8 +83,11 @@ LED1。因此“靠 USB”不能代替“在板边”，“按键等距”不能
 先给板边功能分配空间，再把专属外围排在内侧；不要先把中间填满，再把接口塞到空隙里。
 
 LCD 禁的是封装外形内的**其他元件**，不是自动禁掉所有铜与走线。当前无人重叠不等于封装中
-已经存在题目要求的 region。要核对可写封装副本、区域类型、保存与实例绑定四件事；底层放器件
-也不能作为解决方法，因为本题全部器件必须在顶层。
+已经存在题目要求的 region。个人库可写副本已实际保存 layer 12、`ruleType:[2]` 的
+no-components region，但当前 U3 原理图/PCB 实例还没有绑定它。一次 typed 重绑定超时曾删除
+原 U3；参数化恢复、保存和重载后虽回到 69 件且 13 脚网络一致，primitiveId/uniqueId 已变化，
+所以完成身份保持与实例对账前禁止 PCB `import-changes`。底层放器件也不能作为解决方法，因为
+本题全部器件必须在顶层。
 
 ## 电源与去耦：看引脚和回流，不只看靠近芯片
 
@@ -147,19 +150,22 @@ SWD 的实际顺序是 H1.1=GND、H1.2=PA14/CLK、H1.3=PA13/DIO、H1.4=+3V3。�
 
 ## 目前真正完成到哪里
 
-以下是已有记录的范围；LDO 行包含本轮在 Web EDA 的真实写入、保存、typed reload 和回读：
+以下是已有记录的范围；LDO 与模块 Layout 行包含本轮在 Web EDA 的真实写入、保存、typed reload
+和回读：
 
 | 项目 | 已有证据 | 还欠什么 |
 |---|---|---|
 | 原理图 | 69 件、233 端子、220 连接、13 NC、46 网；端点差异 0、官方 DRC 0 | 15 区图面表达、属性/功能文字及 marker 重叠仍须分别核查 |
 | 板框和固定件 | 真圆弧、中心线尺寸、原点、固定 anchor/角度/锁定历史回读 | CN1 外形与描边语义需要更细的几何证据 |
 | 配置接口 | 最新 `pcb-config.md` 已记录 typed 写入、保存重载、幂等重放与恢复；69 件/46 网保持 | 只证明配置持久化，不证明路径、电源或整板完成 |
-| 初始布局 | 69 件全 TOP、无 bbox 重叠；晶振 X1 转0°并将C20/C21换侧后已保存重开，U6未动且仍锁，两条U6↔X1直连由相交变为不相交；CAN 的 D1/CN1 两条保护支路由约217/295mil改为约169/169mil | LED 板边、具体去耦归属、LCD 区域证据；CAN 的 R12 候选仍有两处H/L飞线相交，只作为负例；晶振/CAN铜仍未创建 |
-| 关键布线 | 有晶振/CAN 离线绕行反例；CAN第一轮现场迭代又证明简单对齐R12会造成异网共线穿越；LDO 第二轮布局与15段TOP/20mil局部铜已保存、typed reload并回读，0 via、0 dangling；原始 pads/tracks/vias 重建证明输入/输出/四条地回流目标路径 | 输入源和输出负载主干、晶振/CAN实际铜、CAN双线联合寻路、整板布通仍待做；shape-aware `pcb net-path` 在旧连接器缺 `arcsAvailable`/pad shape 时正确拒绝，加载新版连接器后复跑 |
-| LCD / 泪滴 | LCD region 有接口但副本持久化/绑定待证；泪滴无已验证创建接口 | 实际能力开发与最小验证；不靠 GUI 补齐 |
+| 模块 Layout | LED/U6去耦已按候选闭环；CAN C12/C13、SD C18/C19、CH340N C9/C10、LCD C7/R6/Q1/R4/R5 第二批共11件已保存重载；R12/D1当前位置方向由零位移刚体候选接受。69件、板框和15段LDO铜保持，0 overlap/off-board/tight@6mil；用户两次重开浏览器后的typed只读复核都一致 | CAN有序主路径、蜂鸣器实际铜；LCD个人库region尚未绑定当前U3实例；55个ratsnest crossing只作通道观察 |
+| 晶振/CAN初始迭代 | 晶振 X1 转0°并将C20/C21换侧后已保存重开，U6未动且仍锁，两条U6↔X1直连由相交变为不相交；CAN 的 D1/CN1 两条保护支路由约217/295mil改为约169/169mil | 最短飞线仍有两处H/L相交，只作为布线负例；R12/D1当前位置方向已由模块候选接受，晶振/CAN铜仍未创建，不引入长度比、段数比门槛 |
+| 关键布线 | 有晶振/CAN 离线绕行反例；CAN第一轮现场迭代又证明简单对齐R12会造成异网共线穿越；LDO 第二轮布局与15段TOP/20mil局部铜已保存、typed reload并回读，0 via、0 dangling；原始 pads/tracks/vias 重建证明输入/输出/四条地回流目标路径 | 输入源和输出负载主干、晶振/CAN实际铜与整板布通仍待做；CAN 联合寻路仅留作历史待研究方向，本轮 Layout 不继续扩张专用检查器；shape-aware `pcb net-path` 在旧连接器缺 `arcsAvailable`/pad shape 时正确拒绝，加载新版连接器后复跑 |
+| LCD / 泪滴 | LCD个人库副本region已保存；重绑定失败后的U3已参数化恢复为69件，但身份已变化且未执行PCB import-changes；泪滴无已验证创建接口 | 修复region几何等价/name忽略回读与rebind部分执行/身份保持，再完成实例绑定；不靠GUI补齐 |
 | ESP32 兼容回归 | 后续记录已经运行，四层、31 件等部分事实存在 | 仍有 53 个唯一 DRC 违规、内层 PLANE 重载回退；总状态 incomplete |
 
-旧目录中的“新配置入口仅离线验证”已过时；`live-validation.json` 已补入本轮 LDO 事实。
+旧目录中的“新配置入口仅离线验证”已过时；`live-validation.json` 已补入本轮 LDO、模块候选、
+浏览器重开复核和 U3 恢复事实。
 一次重载成功也不能证明所有宿主加载故障已根治。来源见
 [PCB 配置样例](../skills/easyeda-agent/references/pcb-config.md)、
 [现场摘要](../skills/easyeda-agent/references/examples/260919-at32f415/live-validation.json)、

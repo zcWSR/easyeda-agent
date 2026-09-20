@@ -4866,6 +4866,55 @@ const libraryFootprintBuild: Handler = async (payload) => {
 	}
 };
 
+const REGION_GEOMETRY_EPSILON = 1e-6;
+
+function sameRegionVertex(a: [number, number], b: [number, number]): boolean {
+	return Math.abs(a[0] - b[0]) <= REGION_GEOMETRY_EPSILON
+		&& Math.abs(a[1] - b[1]) <= REGION_GEOMETRY_EPSILON;
+}
+
+/**
+ * Decode a single linear closed contour for semantic region readback checks.
+ *
+ * EasyEDA may rotate the first vertex, reverse the winding, emit one `L` for
+ * every edge, and repeat the closing vertex more than once after save/reload.
+ * Those are source-encoding differences, not geometry changes.  Curves,
+ * multiple contours, malformed sources, and changed vertex sequences remain
+ * fail-closed because a region with different geometry must be rolled back.
+ */
+function linearRegionRing(source: unknown): Array<[number, number]> | null {
+	let candidate = source;
+	if (Array.isArray(candidate) && candidate.length === 1 && Array.isArray(candidate[0])) {
+		candidate = candidate[0];
+	}
+	const decoded = polygonSourceToPoints(candidate);
+	if (!decoded.points || decoded.format !== 'polyline') return null;
+	const points = decoded.points.map(point => [point[0], point[1]] as [number, number]);
+	while (points.length > 3 && sameRegionVertex(points[0], points[points.length - 1])) points.pop();
+	return points.length >= 3 ? points : null;
+}
+
+function equivalentLinearRegionGeometry(requested: unknown, actual: unknown): boolean {
+	const expected = linearRegionRing(requested);
+	const observed = linearRegionRing(actual);
+	if (!expected || !observed || expected.length !== observed.length) return false;
+	for (let observedStart = 0; observedStart < observed.length; observedStart++) {
+		if (!sameRegionVertex(expected[0], observed[observedStart])) continue;
+		for (const direction of [1, -1]) {
+			let matches = true;
+			for (let i = 1; i < expected.length; i++) {
+				const observedIndex = (observedStart + direction * i + observed.length) % observed.length;
+				if (!sameRegionVertex(expected[i], observed[observedIndex])) {
+					matches = false;
+					break;
+				}
+			}
+			if (matches) return true;
+		}
+	}
+	return false;
+}
+
 /** Add a persistent placement/copper rule region inside an existing footprint. */
 const libraryFootprintRegionCreate: Handler = async (payload) => {
 	const uuid = requireString(payload, 'uuid');
@@ -4908,20 +4957,36 @@ const libraryFootprintRegionCreate: Handler = async (payload) => {
 		};
 		const expectedRuleTypes = [...ruleTypes].sort((a, b) => a - b);
 		const differences: string[] = [];
+		const warnings: string[] = [];
+		const requestedName = regionName ?? null;
+		const actualName = actualState.name;
+		const requestedNameIsAbsent = requestedName === null || requestedName === '';
+		const actualNameIsAbsent = actualName === null || actualName === '';
+		const nameIgnoredByHost = !requestedNameIsAbsent && actualNameIsAbsent;
 		if (actualState.primitiveId !== primitiveId) differences.push('primitiveId');
 		if (actualState.layer !== Number(layer)) differences.push('layer');
 		if (exactJSON(actualState.ruleType) !== exactJSON(expectedRuleTypes)) differences.push('ruleType');
-		if (actualState.name !== (regionName ?? null)) differences.push('name');
+		if (!nameIgnoredByHost
+			&& !(requestedNameIsAbsent && actualNameIsAbsent)
+			&& actualName !== requestedName) differences.push('name');
 		if (lineWidth !== undefined && actualState.lineWidth !== lineWidth) differences.push('lineWidth');
 		if (actualState.locked !== lock) differences.push('locked');
-		if (exactJSON(actualState.source) !== exactJSON(requestedSource)) differences.push('source');
+		if (!equivalentLinearRegionGeometry(requestedSource, actualState.source)) differences.push('source');
 		if (differences.length) throw new Error(`region readback differs for: ${differences.join(', ')}`);
+		if (nameIgnoredByHost) {
+			warnings.push(
+				`Footprint region name was requested as ${JSON.stringify(requestedName)}, but host readback returned `
+				+ `${JSON.stringify(actualName)}. The verified rule region was kept because name is optional metadata.`,
+			);
+		}
 		return {
 			result: {
 				uuid, libraryUuid, tabId, primitiveId, saved: true, verified: true,
-				requested: { layer: Number(layer), ruleType: expectedRuleTypes, name: regionName ?? null, lineWidth: lineWidth ?? null, locked: lock, source: requestedSource },
+				requested: { layer: Number(layer), ruleType: expectedRuleTypes, name: requestedName, lineWidth: lineWidth ?? null, locked: lock, source: requestedSource },
 				actual: actualState,
+				...(nameIgnoredByHost ? { readbackDifferences: ['name'], namePersisted: false } : {}),
 			},
+			...(warnings.length ? { warnings } : {}),
 		};
 	}
 	catch (err) {
@@ -5293,6 +5358,85 @@ function cleanOtherProperty(
 	return Object.keys(out).length ? out : undefined;
 }
 
+// Keep every platform mutation well inside the daemon's 90s rebind budget.
+// withTimeout is backed by the transport worker's deadline sweep; a bare
+// setTimeout is not reliable when the Web EDA tab is backgrounded.
+const REBIND_OP_TIMEOUT_MS = 15_000;
+
+type RebindPresence = {
+	present: boolean | null;
+	component?: SchComponent;
+	error?: string;
+};
+
+async function readRebindComponent(primitiveId: string): Promise<RebindPresence> {
+	try {
+		const component = await withTimeout(
+			Promise.resolve(eda.sch_PrimitiveComponent.get(primitiveId)),
+			REBIND_OP_TIMEOUT_MS,
+			`Rebind readback for component "${primitiveId}" timed out after ${REBIND_OP_TIMEOUT_MS}ms.`,
+		);
+		return { present: Boolean(component), ...(component ? { component } : {}) };
+	}
+	catch (err) {
+		return { present: null, error: describeThrown(err) };
+	}
+}
+
+function rebindInstanceDifferences(
+	expected: Record<string, unknown>,
+	actual: Record<string, unknown>,
+): Array<string> {
+	const differences: Array<string> = [];
+	const exactFields = [
+		'designator', 'uniqueId', 'subPartName', 'mirror', 'addIntoBom', 'addIntoPcb',
+		'manufacturer', 'manufacturerId', 'supplier', 'supplierId', 'otherProperty',
+	];
+	for (const field of exactFields) {
+		if (exactJSON(actual[field]) !== exactJSON(expected[field])) differences.push(field);
+	}
+	for (const field of ['x', 'y', 'rotation']) {
+		const want = expected[field];
+		const got = actual[field];
+		if (typeof want !== 'number' || typeof got !== 'number' || !Number.isFinite(want)
+			|| !Number.isFinite(got) || Math.abs(want - got) > 1e-6) differences.push(field);
+	}
+	return differences;
+}
+
+function rebindFactsDetail(facts: Record<string, unknown>): string {
+	return `rebind transaction facts: ${JSON.stringify(facts)}`;
+}
+
+function deviceAssociationRef(value: unknown, kind: 'footprint' | 'symbol'): DeviceRef | undefined {
+	const record = identityRecord(value);
+	const association = identityRecord(record.association);
+	const raw = identityRecord(association[kind] ?? record[kind]);
+	return typeof raw.uuid === 'string' && typeof raw.libraryUuid === 'string'
+		? { uuid: raw.uuid, libraryUuid: raw.libraryUuid }
+		: undefined;
+}
+
+function sameDeviceRef(a: DeviceRef | undefined, b: DeviceRef | undefined): boolean {
+	return Boolean(a && b && a.uuid === b.uuid && a.libraryUuid === b.libraryUuid);
+}
+
+async function readRebindDeviceAssociation(
+	device: DeviceRef,
+	kind: 'footprint' | 'symbol',
+): Promise<{ ref?: DeviceRef; error?: string }> {
+	try {
+		const detail = await withTimeout(
+			Promise.resolve(eda.lib_Device.get(device.uuid, device.libraryUuid)),
+			REBIND_OP_TIMEOUT_MS,
+			`Device association readback for "${device.uuid}" timed out after ${REBIND_OP_TIMEOUT_MS}ms.`,
+		);
+		const ref = deviceAssociationRef(detail, kind);
+		return ref ? { ref } : { error: `device.get returned no ${kind} association` };
+	}
+	catch (err) { return { error: describeThrown(err) }; }
+}
+
 /**
  * Diagnose a `get(primitiveId)` miss: is the component genuinely absent, or
  * merely on another page?
@@ -5355,20 +5499,18 @@ export async function getComponentOrThrow(primitiveId: string): Promise<SchCompo
  * The "five-step binding method" for swapping a placed component's footprint OR
  * symbol, exposed as a typed action so the operation no longer needs `debug.exec_js`.
  *
- * WHY delete-then-create (not a plain modify): `sch_PrimitiveComponent.modify` cannot
- * change the symbol/footprint reference of an already-placed instance (see
+ * WHY re-create (not a plain modify): `sch_PrimitiveComponent.modify` cannot change
+ * the symbol/footprint reference of an already-placed instance (see
  * marketplace-coverage.md:64). The reference lives on the DEVICE-library record, so we:
  *   1. resolve the device's real library UUID (imported devices carry an empty one),
  *   2. `lib_Device.modify` the device association to the new footprint/symbol,
- *   3. `delete` the stale placed instance,
- *   4. `create` a fresh instance (which now inherits the new footprint/symbol),
- *   5. `modify` the new instance to restore designator / uniqueId / manufacturer /
- *      supplier / otherProperty (position, rotation, mirror & BOM flags are replayed
- *      into `create` directly).
+ *   3. `create` and freshly read a candidate while the original still exists,
+ *   4. only then `delete` and freshly confirm absence of the stale instance,
+ *   5. restore designator / uniqueId / manufacturer / supplier / otherProperty and
+ *      freshly verify those plus position, rotation, mirror and BOM flags.
  *
- * Original state is captured up front; any failure after step 2 rolls back the device
- * association and re-creates the original instance so the schematic is never left
- * half-rebound.
+ * Original state is captured up front. Failures report the exact phase, both instance
+ * presences and verified rollback facts; rollback errors are evidence, never swallowed.
  *
  * CAVEAT (surface in the CLI help / PR): delete-then-create mints a NEW primitiveId,
  * so wires that were attached to the old instance's pins may need re-drawing — run
@@ -5401,6 +5543,13 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 		const snapshot = serializeComponent(component);
 		const oldSymbol = component.getState_Symbol() as DeviceRef | undefined;
 		const oldFootprint = component.getState_Footprint() as DeviceRef | undefined;
+		const originalUniqueId = snapshot.uniqueId;
+		if (typeof originalUniqueId !== 'string' || !originalUniqueId.trim()) {
+			throw new ActionError(
+				ErrorCodes.PRECONDITION_REFUSED,
+				`Component "${primitiveId}" has no stable non-empty uniqueId. Rebind was refused before any library or canvas mutation because sch↔PCB identity could not be restored and verified.`,
+			);
+		}
 		// The REAL 32-char device identity — getState_Component().uuid is a 16-char
 		// placed-symbol id that lib_Device.modify/create reject (live-verified).
 		const device = await resolvePlacedDeviceIdentity(snapshot);
@@ -5444,6 +5593,12 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 			? { footprint: { uuid: target.uuid, libraryUuid: target.libraryUuid } }
 			: { symbol: { uuid: target.uuid, libraryUuid: target.libraryUuid } };
 		const oldRef = kind === 'footprint' ? oldFootprint : oldSymbol;
+		if (!oldRef?.uuid || !oldRef.libraryUuid) {
+			throw new ActionError(
+				ErrorCodes.PRECONDITION_REFUSED,
+				`Component "${primitiveId}" has no complete original ${kind} identity. Rebind was refused before mutation because the device association could not be rolled back exactly.`,
+			);
+		}
 		const rollbackAssoc = oldRef
 			? (kind === 'footprint'
 				? { footprint: { uuid: oldRef.uuid, libraryUuid: oldRef.libraryUuid } }
@@ -5470,23 +5625,101 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 				: {}),
 		};
 
-		const recreate = async (dev: DeviceRef, props: Record<string, unknown>): Promise<SchComponent | undefined> => {
-			let c = await eda.sch_PrimitiveComponent.create(
-				{ libraryUuid: dev.libraryUuid, uuid: dev.uuid },
-				x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb,
+		const createPlaced = async (
+			dev: DeviceRef,
+			purpose: 'candidate' | 'rollback-original',
+			onCreatedId?: (primitiveId: string) => void,
+		): Promise<SchComponent> => {
+			const created = await withTimeout(
+				Promise.resolve(eda.sch_PrimitiveComponent.create(
+					{ libraryUuid: dev.libraryUuid, uuid: dev.uuid },
+					x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb,
+				)),
+				REBIND_OP_TIMEOUT_MS,
+				`${purpose} create did not settle within ${REBIND_OP_TIMEOUT_MS}ms. The operation may still land late; do not retry or run PCB import-changes until a fresh schematic read proves the actual instances.`,
 			);
-			if (c && Object.keys(props).length) {
-				// modify's returned primitive reflects the restored props; the
-				// create-time object echoes pre-restore state (see replace).
-				try {
-					const m = await eda.sch_PrimitiveComponent.modify(c.getState_PrimitiveId(), props);
-					if (m) c = m;
-				}
-				catch { /* best-effort restore */ }
+			if (!created) {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `${purpose} create returned no primitive.`);
 			}
-			// #157: correct a subPartName-shaped supplierId to the device's real C-number.
-			if (c) c = (await backfillSupplierId(c, dev)).component;
-			return c ?? undefined;
+			const createdId = created.getState_PrimitiveId();
+			if (!createdId) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `${purpose} create returned a primitive without an id.`);
+			onCreatedId?.(createdId);
+			const fresh = await readRebindComponent(createdId);
+			if (fresh.present !== true || !fresh.component) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`${purpose} "${createdId}" was not proven present by a fresh readback.`,
+					fresh.error,
+				);
+			}
+			return fresh.component;
+		};
+
+		const verifyPlacedBinding = async (
+			placed: SchComponent,
+			expectedDevice: DeviceRef,
+			expectedRef: DeviceRef,
+			purpose: 'replacement' | 'rollback-original',
+		): Promise<void> => {
+			const observed = serializeComponent(placed);
+			let resolved: DeviceRef;
+			try {
+				resolved = await resolvePlacedDeviceIdentity(observed);
+			}
+			catch (err) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`${purpose} device identity could not be proven from fresh placed-instance data.`,
+					rebindFactsDetail({ purpose, expectedDevice, expectedRef, cause: describeThrown(err) }),
+				);
+			}
+			if (!sameDeviceRef(resolved, expectedDevice)) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`${purpose} resolved to a different device than the one requested.`,
+					rebindFactsDetail({ purpose, expectedDevice, actualDevice: resolved, expectedRef }),
+				);
+			}
+			const association = await readRebindDeviceAssociation(expectedDevice, kind);
+			if (!sameDeviceRef(association.ref, expectedRef)) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`${purpose} device ${kind} association does not match the requested binding.`,
+					rebindFactsDetail({ purpose, expectedDevice, expectedRef, actualRef: association.ref ?? null, associationError: association.error }),
+				);
+			}
+		};
+
+		const restoreAndVerify = async (
+			primitiveIdToRestore: string,
+			expectedDevice: DeviceRef,
+			expectedRef: DeviceRef,
+			purpose: 'replacement' | 'rollback-original',
+		): Promise<SchComponent> => {
+			await withTimeout(
+				Promise.resolve(eda.sch_PrimitiveComponent.modify(primitiveIdToRestore, restoreProps)),
+				REBIND_OP_TIMEOUT_MS,
+				`Identity/property restore for component "${primitiveIdToRestore}" did not settle within ${REBIND_OP_TIMEOUT_MS}ms. The write may still land late; fresh readback is mandatory.`,
+			);
+			const fresh = await readRebindComponent(primitiveIdToRestore);
+			if (fresh.present !== true || !fresh.component) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`Restored component "${primitiveIdToRestore}" was not proven present by fresh readback.`,
+					fresh.error,
+				);
+			}
+			const actual = serializeComponent(fresh.component);
+			const differences = rebindInstanceDifferences(snapshot, actual);
+			if (differences.length) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`Restored component "${primitiveIdToRestore}" does not exactly match the original instance (${differences.join(', ')}).`,
+					rebindFactsDetail({ phase: 'restore-verify', differences, expectedUniqueId: originalUniqueId, actualUniqueId: actual.uniqueId }),
+				);
+			}
+			await verifyPlacedBinding(fresh.component, expectedDevice, expectedRef, purpose);
+			return fresh.component;
 		};
 
 		// Auto-confirm the 符号/封装另存为 conflict dialogs that lib_Device.copy opens
@@ -5527,15 +5760,58 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 		// library record is writable (project/personal-library devices), else via a
 		// personal-library CLONE (system-library records reject lib_Device.modify
 		// unconditionally, live-verified with the true 32-char uuid).
-		let inPlaceOk = false;
+		let inPlaceCall: 'returned-true' | 'returned-false' | 'rejected' = 'returned-false';
+		let inPlaceCallError: string | undefined;
 		try {
-			inPlaceOk = (await eda.lib_Device.modify(device.uuid, device.libraryUuid, undefined, undefined, newAssoc)) !== false;
+			const returned = await withTimeout(
+				Promise.resolve(eda.lib_Device.modify(device.uuid, device.libraryUuid, undefined, undefined, newAssoc)),
+				REBIND_OP_TIMEOUT_MS,
+				`Device association update did not settle within ${REBIND_OP_TIMEOUT_MS}ms. It may land late; the canvas is still unchanged, but do not retry the rebind or run PCB import-changes until fresh library and schematic readback.`,
+			);
+			inPlaceCall = returned === false ? 'returned-false' : 'returned-true';
 		}
-		catch { inPlaceOk = false; }
-		rlog(`in-place modify: ${inPlaceOk}`);
+		catch (err) {
+			if (err instanceof ActionError && /did not settle/.test(err.message)) throw err;
+			inPlaceCall = 'rejected';
+			inPlaceCallError = describeThrown(err);
+		}
+		const applied = await readRebindDeviceAssociation(device, kind);
+		const inPlaceOk = sameDeviceRef(applied.ref, target);
+		const associationStillOriginal = sameDeviceRef(applied.ref, oldRef);
+		rlog(`in-place modify call=${inPlaceCall} readback=${inPlaceOk ? 'target' : associationStillOriginal ? 'original' : 'unknown'}`);
+		if (!inPlaceOk && !associationStillOriginal) {
+			const rollbackErrors: Array<string> = [];
+			try {
+				await withTimeout(
+					Promise.resolve(eda.lib_Device.modify(device.uuid, device.libraryUuid, undefined, undefined, rollbackAssoc)),
+					REBIND_OP_TIMEOUT_MS,
+					`Rollback after ambiguous in-place ${kind} association did not settle within ${REBIND_OP_TIMEOUT_MS}ms.`,
+				);
+			}
+			catch (err) { rollbackErrors.push(describeThrown(err)); }
+			const rolledBack = await readRebindDeviceAssociation(device, kind);
+			const oldPresence = await readRebindComponent(primitiveId);
+			const rollbackVerified = sameDeviceRef(rolledBack.ref, oldRef)
+				&& oldPresence.present === true && rollbackErrors.length === 0;
+			throw new ActionError(
+				ErrorCodes.EDA_CALL_FAILED,
+				`Device ${kind} mutation outcome was ambiguous after fresh association readback. The original instance was not deleted.`,
+				rebindFactsDetail({
+					phase: 'bind-device-association',
+					call: { outcome: inPlaceCall, ...(inPlaceCallError ? { error: inPlaceCallError } : {}) },
+					expectedRef: { uuid: target.uuid, libraryUuid: target.libraryUuid },
+					oldRef,
+					actualRef: applied.ref ?? null,
+					associationError: applied.error,
+					oldPrimitive: { primitiveId, present: oldPresence.present, ...(oldPresence.error ? { error: oldPresence.error } : {}) },
+					replacement: { primitiveId: null, present: false },
+					rollback: { attempted: true, verified: rollbackVerified, actualRef: rolledBack.ref ?? null, errors: rollbackErrors },
+				}),
+			);
+		}
 
 		let effectiveDevice: DeviceRef = device;
-		let clonedDevice: { uuid: string; libraryUuid: string; name: string } | undefined;
+		let clonedDevice: { uuid: string; libraryUuid: string; name: string; owned: boolean; previousRef?: DeviceRef } | undefined;
 		if (!inPlaceOk) {
 			let personalLib: string | undefined;
 			try { personalLib = await eda.lib_LibrariesList.getPersonalLibraryUuid(); }
@@ -5562,17 +5838,20 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 			// 90s hang) and their promises stall until the dialog is answered.
 			const stopClicker = await armLibConflictAutoClicker();
 			let copied: string | undefined;
+			let copiedByThisAction = false;
+			let reusedClonePreviousRef: DeviceRef | undefined;
 			try {
 				const attemptCopy = async (name: string): Promise<string | undefined> => {
 					rlog(`copy start ${name}`);
-					const got = await Promise.race([
+					const got = await withTimeout(
 						eda.lib_Device
 							.copy(device.uuid, device.libraryUuid, personalLib as string, undefined, name)
 							.catch((e) => { rlog(`copy rejected: ${String(e && (e as Error).message || e).slice(0, 80)}`); return undefined; })
 							.then(v => v ?? undefined),
-						new Promise<string | undefined>(r => setTimeout(() => r(undefined), 45_000)),
-					]);
-					if (got) return got;
+						REBIND_OP_TIMEOUT_MS,
+						`Device clone "${name}" did not settle within ${REBIND_OP_TIMEOUT_MS}ms. The clone may still land late; do not retry the rebind until a fresh library and schematic read establishes the actual state.`,
+					);
+					if (got) { copiedByThisAction = true; return got; }
 					// The promise may resolve late (or unreliably) after the dialog —
 					// the ground truth is whether the clone landed in the PERSONAL
 					// library (search's 2nd arg scopes the library; the default
@@ -5591,7 +5870,15 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 				try {
 					const pre = (await eda.lib_Device.search(cloneName, personalLib)) as unknown as Array<Record<string, unknown>>;
 					const hit = (Array.isArray(pre) ? pre : []).find(h => h.name === cloneName && typeof h.uuid === 'string');
-					if (hit) { copied = hit.uuid as string; rlog(`clone reused: ${copied}`); }
+					if (hit) {
+						const detail = await eda.lib_Device.get(hit.uuid as string, personalLib);
+						const previousRef = deviceAssociationRef(detail, kind);
+						if (previousRef) {
+							copied = hit.uuid as string;
+							reusedClonePreviousRef = previousRef;
+							rlog(`clone reused: ${copied}`);
+						}
+					}
 				}
 				catch { /* fall through to copy */ }
 				if (!copied) copied = await attemptCopy(cloneName);
@@ -5604,12 +5891,16 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 				}
 				let cloneModOk = false;
 				try {
-					cloneModOk = (await Promise.race([
-						eda.lib_Device.modify(copied, personalLib, undefined, undefined, newAssoc),
-						new Promise<false>(r => setTimeout(() => r(false), 45_000)),
-					])) !== false;
+					cloneModOk = (await withTimeout(
+						Promise.resolve(eda.lib_Device.modify(copied, personalLib, undefined, undefined, newAssoc)),
+						REBIND_OP_TIMEOUT_MS,
+						`Device clone association update did not settle within ${REBIND_OP_TIMEOUT_MS}ms. It may land late; do not retry the rebind until fresh library and schematic readback.`,
+					)) !== false;
 				}
-				catch { cloneModOk = false; }
+				catch (err) {
+					if (err instanceof ActionError && /did not settle/.test(err.message)) throw err;
+					cloneModOk = false;
+				}
 				rlog(`clone modify: ${cloneModOk}`);
 				if (!cloneModOk) {
 					try { await eda.lib_Device.delete(copied, personalLib); } catch { /* best-effort */ }
@@ -5624,55 +5915,193 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 				rlog(`clone segment done (dialog clicks: ${clicks})`);
 			}
 			effectiveDevice = { uuid: copied, libraryUuid: personalLib };
-			clonedDevice = { uuid: copied, libraryUuid: personalLib, name: cloneName };
+			clonedDevice = {
+				uuid: copied,
+				libraryUuid: personalLib,
+				name: cloneName,
+				owned: copiedByThisAction,
+				...(reusedClonePreviousRef ? { previousRef: reusedClonePreviousRef } : {}),
+			};
 			rlog(`clone bound: ${copied}`);
 		}
 
-		let deleted = false;
-		const rollback = async () => {
-			// In-place path mutated the SHARED library record — point it back.
-			if (inPlaceOk && rollbackAssoc) {
-				try { await eda.lib_Device.modify(device.uuid, device.libraryUuid, undefined, undefined, rollbackAssoc); }
-				catch { /* best-effort */ }
+		let phase = 'candidate-create';
+		let candidateId: string | undefined;
+		let oldDeleted = false;
+		let candidateMayLandLate = false;
+
+		const rollback = async (): Promise<Record<string, unknown>> => {
+			const errors: Array<string> = [];
+			let candidatePresence: RebindPresence = candidateId
+				? await readRebindComponent(candidateId)
+				: { present: candidateMayLandLate ? null : false };
+			if (candidateId && candidatePresence.present !== false) {
+				try {
+					await withTimeout(
+						Promise.resolve(eda.sch_PrimitiveComponent.delete(candidateId)),
+						REBIND_OP_TIMEOUT_MS,
+						`Rollback delete for replacement "${candidateId}" did not settle within ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+				}
+				catch (err) { errors.push(`candidate delete: ${describeThrown(err)}`); }
+				candidatePresence = await readRebindComponent(candidateId);
+				if (candidatePresence.present !== false) {
+					errors.push(`candidate removal unverified (present=${String(candidatePresence.present)}${candidatePresence.error ? `: ${candidatePresence.error}` : ''})`);
+				}
 			}
-			// Clone path left the shared record untouched — drop the orphan clone.
-			if (clonedDevice) {
-				try { await eda.lib_Device.delete(clonedDevice.uuid, clonedDevice.libraryUuid); }
-				catch { /* best-effort */ }
+
+			let deviceAssociationRestored = !inPlaceOk;
+			if (inPlaceOk) {
+				try {
+					await withTimeout(
+						Promise.resolve(eda.lib_Device.modify(device.uuid, device.libraryUuid, undefined, undefined, rollbackAssoc)),
+						REBIND_OP_TIMEOUT_MS,
+						`Rollback of the original device association did not settle within ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					const detail = await withTimeout(
+						Promise.resolve(eda.lib_Device.get(device.uuid, device.libraryUuid)),
+						REBIND_OP_TIMEOUT_MS,
+						`Rollback device-association readback timed out after ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					deviceAssociationRestored = sameDeviceRef(deviceAssociationRef(detail, kind), oldRef);
+					if (!deviceAssociationRestored) errors.push('original device association readback does not match the pre-rebind identity');
+				}
+				catch (err) { errors.push(`device association rollback: ${describeThrown(err)}`); }
 			}
-			if (deleted) {
-				try { await recreate(device, restoreProps); } catch { /* best-effort */ }
+
+			let reusedCloneRestored = true;
+			if (clonedDevice && !clonedDevice.owned && clonedDevice.previousRef) {
+				const previousAssoc = kind === 'footprint'
+					? { footprint: clonedDevice.previousRef }
+					: { symbol: clonedDevice.previousRef };
+				try {
+					await withTimeout(
+						Promise.resolve(eda.lib_Device.modify(clonedDevice.uuid, clonedDevice.libraryUuid, undefined, undefined, previousAssoc)),
+						REBIND_OP_TIMEOUT_MS,
+						`Rollback of the reused clone association did not settle within ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					const detail = await withTimeout(
+						Promise.resolve(eda.lib_Device.get(clonedDevice.uuid, clonedDevice.libraryUuid)),
+						REBIND_OP_TIMEOUT_MS,
+						`Reused-clone rollback readback timed out after ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					reusedCloneRestored = sameDeviceRef(deviceAssociationRef(detail, kind), clonedDevice.previousRef);
+					if (!reusedCloneRestored) errors.push('reused clone association readback does not match its pre-rebind identity');
+				}
+				catch (err) { reusedCloneRestored = false; errors.push(`reused clone rollback: ${describeThrown(err)}`); }
 			}
+
+			let oldPresence = await readRebindComponent(primitiveId);
+			let restoredOriginalId: string | undefined;
+			let restoredOriginalVerified = oldPresence.present === true;
+			if (oldPresence.present === false && deviceAssociationRestored) {
+				try {
+					const restored = await createPlaced(device, 'rollback-original', id => { restoredOriginalId = id; });
+					await restoreAndVerify(restored.getState_PrimitiveId(), device, oldRef, 'rollback-original');
+					restoredOriginalVerified = true;
+				}
+				catch (err) { errors.push(`original instance restore: ${describeThrown(err)}`); }
+			}
+			else if (oldPresence.present === null) {
+				errors.push(`original instance presence unverified${oldPresence.error ? `: ${oldPresence.error}` : ''}`);
+			}
+
+			let ownedCloneRemoved = !clonedDevice?.owned;
+			if (clonedDevice?.owned) {
+				try {
+					await withTimeout(
+						Promise.resolve(eda.lib_Device.delete(clonedDevice.uuid, clonedDevice.libraryUuid)),
+						REBIND_OP_TIMEOUT_MS,
+						`Rollback delete for owned clone "${clonedDevice.uuid}" did not settle within ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					const after = await withTimeout(
+						Promise.resolve(eda.lib_Device.get(clonedDevice.uuid, clonedDevice.libraryUuid)),
+						REBIND_OP_TIMEOUT_MS,
+						`Owned-clone delete readback timed out after ${REBIND_OP_TIMEOUT_MS}ms.`,
+					);
+					ownedCloneRemoved = !after;
+					if (!ownedCloneRemoved) errors.push('owned clone still exists after rollback delete');
+				}
+				catch (err) { errors.push(`owned clone rollback: ${describeThrown(err)}`); }
+			}
+
+			oldPresence = await readRebindComponent(primitiveId);
+			const rollbackVerified = candidatePresence.present === false
+				&& (oldPresence.present === true || restoredOriginalVerified)
+				&& deviceAssociationRestored && reusedCloneRestored && ownedCloneRemoved && errors.length === 0;
+			return {
+				attempted: true,
+				verified: rollbackVerified,
+				oldPrimitive: { primitiveId, present: oldPresence.present, ...(oldPresence.error ? { error: oldPresence.error } : {}) },
+				replacement: { primitiveId: candidateId ?? null, present: candidatePresence.present, mayLandLate: candidateMayLandLate },
+				...(restoredOriginalId ? { restoredOriginal: { primitiveId: restoredOriginalId, verified: restoredOriginalVerified } } : {}),
+				deviceAssociationRestored,
+				reusedCloneRestored,
+				ownedCloneRemoved,
+				errors,
+			};
 		};
 
-		// Step 3: delete the stale placed instance.
-		try {
-			await eda.sch_PrimitiveComponent.delete(primitiveId);
-			deleted = true;
-		}
-		catch (err) {
-			await rollback();
-			throw edaError(err, `Failed to delete the old instance "${primitiveId}" (rolled back the ${kind} binding).`);
-		}
-		rlog('old instance deleted');
-
-		// Step 4 + 5: re-place and restore original state.
-		let created: SchComponent | undefined;
-		try {
-			created = await recreate(effectiveDevice, restoreProps);
-		}
-		catch (err) {
-			await rollback();
-			throw edaError(err, `Failed to re-place the component after ${kind} rebind (rolled back).`);
-		}
-		if (!created) {
-			await rollback();
+		const failWithRollback = async (err: unknown): Promise<never> => {
+			const failedPhase = phase;
+			const rollbackFacts = await rollback();
+			const oldNow = await readRebindComponent(primitiveId);
+			const candidateNow = candidateId ? await readRebindComponent(candidateId) : { present: candidateMayLandLate ? null : false };
+			const facts = {
+				phase: failedPhase,
+				oldPrimitive: { primitiveId, present: oldNow.present, ...(oldNow.error ? { error: oldNow.error } : {}) },
+				replacement: { primitiveId: candidateId ?? null, present: candidateNow.present, mayLandLate: candidateMayLandLate },
+				rollback: rollbackFacts,
+				cause: describeThrown(err),
+			};
 			throw new ActionError(
 				ErrorCodes.EDA_CALL_FAILED,
-				`Re-placing the component after ${kind} rebind returned no primitive (rolled back).`,
+				`Schematic ${kind} rebind failed during phase "${failedPhase}". Do not blindly retry or run PCB import-changes; use a fresh schematic read to reconcile the old and replacement instances first.`,
+				rebindFactsDetail(facts),
 			);
+		};
+
+		// Create and freshly read the replacement while the original still exists.
+		// A hung/failed create can therefore never be followed by deleting the only
+		// known-good instance.
+		let candidate: SchComponent;
+		try {
+			candidate = await createPlaced(effectiveDevice, 'candidate', id => { candidateId = id; });
 		}
-		rlog(`re-created ${created.getState_PrimitiveId()}`);
+		catch (err) {
+			candidateMayLandLate = /may still land late|did not settle/.test(describeThrown(err));
+			return failWithRollback(err);
+		}
+		candidateId = candidate.getState_PrimitiveId();
+		rlog(`candidate verified ${candidateId}`);
+
+		phase = 'delete-original';
+		try {
+			await withTimeout(
+				Promise.resolve(eda.sch_PrimitiveComponent.delete(primitiveId)),
+				REBIND_OP_TIMEOUT_MS,
+				`Original-instance delete did not settle within ${REBIND_OP_TIMEOUT_MS}ms. It may have applied; do not retry until fresh readback.`,
+			);
+			const oldAfterDelete = await readRebindComponent(primitiveId);
+			if (oldAfterDelete.present !== false) {
+				throw new ActionError(
+					ErrorCodes.EDA_CALL_FAILED,
+					`Original instance "${primitiveId}" was not proven absent after delete.`,
+					oldAfterDelete.error,
+				);
+			}
+			oldDeleted = true;
+		}
+		catch (err) { return failWithRollback(err); }
+		rlog('old instance deletion verified');
+
+		phase = 'restore-and-verify';
+		let created: SchComponent;
+		try {
+			created = await restoreAndVerify(candidateId, effectiveDevice, target, 'replacement');
+		}
+		catch (err) { return failWithRollback(err); }
+		rlog(`replacement identity verified ${created.getState_PrimitiveId()}`);
 
 		const warnings = [
 			`Re-placing minted a new primitiveId; wires on the old instance's pins may need re-drawing — run \`sch drc\` / \`sch check\` to confirm connectivity.`,
@@ -5689,9 +6118,17 @@ function makeRebindHandler(kind: 'footprint' | 'symbol'): Handler {
 				rebound: kind,
 				mode: clonedDevice ? 'cloned-to-personal-library' : 'in-place',
 				device: { uuid: effectiveDevice.uuid, libraryUuid: effectiveDevice.libraryUuid },
-				...(clonedDevice ? { clonedDevice, originalDevice: { uuid: device.uuid, libraryUuid: device.libraryUuid } } : {}),
+				...(clonedDevice ? {
+					clonedDevice: { uuid: clonedDevice.uuid, libraryUuid: clonedDevice.libraryUuid, name: clonedDevice.name },
+					originalDevice: { uuid: device.uuid, libraryUuid: device.libraryUuid },
+				} : {}),
 				[kind]: { uuid: target.uuid, libraryUuid: target.libraryUuid, name: target.name },
 				component: serializeComponent(created),
+				transaction: {
+					order: ['candidate-create', 'candidate-readback', 'delete-original', 'restore-and-verify'],
+					oldDeleted,
+					verified: true,
+				},
 			},
 			warnings,
 		};

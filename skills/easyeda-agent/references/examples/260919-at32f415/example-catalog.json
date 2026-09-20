@@ -6,7 +6,7 @@
   "status": "partial-live-verified",
   "evidenceBoundary": [
     "全部36项均保留题目/BOM/原理图来源；live-validation.json 只升级实际执行过的代表性步骤",
-    "未完成的布线、LCD封装副本、丝印、泪滴与最终DRC继续保持 source-only/offline-verified",
+    "未完成的布线、LCD封装实例绑定、丝印、泪滴与最终DRC继续保持 source-only/offline-verified；个人库副本region实证不外推到当前U3实例",
     "命令字段只复用现有 typed CLI/action/apply；缺失能力标 planned/unsupported，不定义新执行语言或交互兜底"
   ],
   "sourceData": [
@@ -18,7 +18,17 @@
     "can-placement-iteration-live.json",
     "ldo-layout-candidate.json",
     "ldo-route-live.json",
-    "live-validation.json"
+    "live-validation.json",
+    "can-route-plan-negative.json",
+    "can-route-plan-negative-report.json",
+    "can-route-plan-pair-negative.json",
+    "can-route-plan-pair-negative-report.json",
+    "layout-after-led-mcu-live.json",
+    "layout-after-peripherals-live.json",
+    "layout-after-peripherals-tracks-live.json",
+    "layout-after-peripherals-lint-live.json",
+    "layout-after-browser-reopen-verification-live.json",
+    "schematic-u3-recovery-live.json"
   ],
   "stepTemplates": {
     "schematicCompare": {
@@ -894,19 +904,26 @@
         "easyeda pcb region list --doc <PCB_DOC_UUID> --project ceshi"
       ],
       "observations": [
-        "封装副本包含 region；实例绑定新 footprint；禁放区内无其他器件"
+        "个人库可写副本包含已保存的 no-components region；当前 U3 实例尚未绑定新 footprint，因此不能声称考试板已具备封装级禁放区"
       ],
       "rationale": "封装级禁元件区与铜禁布区不同，且必须随实例保存",
       "knownErrorsAndFixes": [
         {
           "error": "只在板上画临时框或误建 no-copper",
           "fix": "用 lib footprint region 写副本，保存并验证实例绑定；接口不持久化则标 unsupported 并补 typed 能力"
+        },
+        {
+          "error": "重绑定超时但已删除原 U3，随后把恢复后的原理图直接 import 到 PCB",
+          "fix": "先参数化恢复原器件并保存重载；primitiveId/uniqueId 变化时禁止 PCB import-changes，修复 typed 身份保持和部分执行回报后再绑定"
         }
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "真实宿主验证封装保存与实例绑定"
-      ]
+        "修复 region 闭合多边形几何等价/name 忽略回读，再完成当前 U3 原理图和 PCB 实例绑定",
+        "重绑定修复前保持 PCB import-changes 禁止状态"
+      ],
+      "referenceExample": "layout-candidates.md",
+      "liveEvidence": "个人库副本 EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO 已保存 layer 12、ruleType [2]、locked 的 no-components region；宿主忽略可选 name。一次 rebind 超时删除 U3 后已用原器件参数化恢复，保存重载后原理图69件且13脚网络一致，但 primitiveId/uniqueId 已变化（schematic-u3-recovery-live.json）；当前实例绑定未完成。"
     },
     {
       "id": "LAY-01",
@@ -989,7 +1006,8 @@
       ],
       "verificationStatus": "live-verified",
       "pending": [],
-      "liveEvidence": "RGB与USB邻近、光敏到RGB锚点约1131mil；69件初始布局保存刷新后回读"
+      "referenceExample": "layout-candidates.md",
+      "liveEvidence": "pcb layout-plan 选择并 typed apply LED candidate-01；保存和真实重载后 LED1 bbox 到圆角板框中心线20mil、到USB1锚点约556mil、到光敏R10约1739mil，模块内最小间隙8mil、到U3 LCD机械禁放代理35.6755mil；69件保持、仅五个RGB模块成员按候选变化"
     },
     {
       "id": "LAY-03",
@@ -1103,9 +1121,10 @@
       ],
       "verificationStatus": "source-only",
       "pending": [
-        "在 ceshi 真实页面执行并完成 save → doc reload → readback"
+        "完成 source→cap→对应 pin 的实际铜路径并回读；本条把布局和电流路径一起定义，不能只凭坐标升级"
       ],
-      "liveEvidence": "三只MCU去耦已按对应脚放置且距相应电源pad约50/78/123mil；实际source→cap→pin铜路径未验证，状态不升级"
+      "referenceExample": "layout-candidates.md",
+      "liveEvidence": "布局子步骤已live-verified：pcb layout-plan按C14→U6.1、C15→U6.5、C16→U6.17选择8mil candidate-01并typed apply，保存重载后U6锁定且未移动，三只电容实际焊盘距离约75.7/123.0/52.1mil。相同的显式归属已迁移到CAN C13→U5.3/C12→C13、SD C19→CARD1.4/C18→C19、CH340N C9→U4.8/C10→U4.5及LCD C7→U3.10，并完成第二批保存重载；source→cap→pin铜路径尚未验证，所以整条状态不升级。"
     },
     {
       "id": "LAY-05",
@@ -1149,9 +1168,10 @@
       ],
       "verificationStatus": "source-only",
       "pending": [
-        "在 ceshi 真实页面执行并完成 save → doc reload → readback"
+        "蜂鸣器模块整体关系仍需按候选执行和保存重载；晶振与LCD背光布局子步骤已经完成"
       ],
-      "liveEvidence": "历史距离记录：晶振信号约100/152mil、负载电容约100/119mil；200mil守护区内有11件是自定搜索范围的观察，不是考试违规。需按脚次序、实际短路径及顶层包地净空继续验证。"
+      "referenceExample": "layout-candidates.md",
+      "liveEvidence": "晶振布局子步骤已live-verified：X1/C20/C21保存重开后焊盘左右次序正确且两条U6↔X1直连不再相交。LCD背光链R6/Q1/R4/R5已按逐脚关系选择candidate-01并保存重载，U3未移动；蜂鸣器仍未闭环，晶振/LCD实际铜、顶层包地和回流也不在这些布局子步骤范围内。"
     },
     {
       "id": "LAY-06",
@@ -1192,9 +1212,10 @@
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "回读U3封装级component-keepout及实例绑定；消歧CN1 rendered bbox描边；按实际本体/装配空间评估7组小间隙，12mil仅是原检查的建议阈值；修改后保存回读"
+        "完成个人库LCD component-keepout到当前U3原理图/PCB实例的安全绑定；消歧CN1 rendered bbox描边；12mil仅是原检查的建议阈值，按实际本体/装配空间与后续通道逐项判断"
       ],
-      "liveEvidence": "69件均TOP、实际bbox 0重叠、layout-lint 0 off-board；但LCD禁放区对象未被快照证明，因此不升级为live-verified"
+      "referenceExample": "layout-candidates.md",
+      "liveEvidence": "第二批CAN/SD/USB-UART/LCD外围保存重载后仍为69件，恰好11件按候选变化，15段LDO铜不变；layout-lint为0 overlap/0 off-board/0 tight-at-6mil。用户重开浏览器后typed只读复核仍保持器件primitive集合、几何、板框和15段铜不变。个人库副本region已保存，但当前U3实例未绑定；因此本条仍不升级为live-verified。"
     },
     {
       "id": "RTE-01",
@@ -1447,7 +1468,8 @@
         "template": "routeReadback"
       },
       "observations": [
-        "H/L 实际铜路各先到 R12 对应焊盘再到 CN1；R12 跨两网，D1 靠 CN1 并短路径回地；两网层与 via 数符合要求"
+        "H/L 实际铜路各先到 R12 对应焊盘再到 CN1；R12 跨两网，D1 靠 CN1 并短路径回地；两网层与 via 数符合要求",
+        "36段 v5 已满足有序 R12 节点、45°、6mil 和 0via 的离散检查；H支路仍从D1.1本体侧进入，未写入EDA。两路绝对长度和段数仅留在 historicalObservation，不参与拒绝判决。"
       ],
       "rationale": "终端和 ESD 的拓扑/位置职责不同，不能串接或远置",
       "knownErrorsAndFixes": [
@@ -1461,17 +1483,28 @@
         }
       ],
       "verificationStatus": "offline-verified",
-      "pending": [
-        "保留已现场验证的 D1/CN1 对称关系；对 R12 做 H/L 双线联合寻路，统一检查 U5.5 NC、焊盘端部、异网线距、D1支路和既有铜；候选通过离线几何核查后再移动并现场验证 track/via/DRC 与保存持久化"
-      ],
+      "pending": "CAN专用路由器扩张在本轮暂停；R12/D1当前位置方向由通用rigid零位移候选接受，实际有序铜路留到布线阶段。",
       "referenceExample": "critical-routing.md",
       "offlineEvidence": "旧统一6mil障碍简化模型保持 U5→D1→CN1 与 R12 跨接，但未验证 R12 必经顺序；CANL 长1422.4mil，仅作待修反例，不能代表题目路径已通过",
       "livePlacementIteration": {
         "status": "live-verified",
-        "outcome": "rejected-as-positive-example",
+        "outcome": "layout-pose-accepted-routing-negative-retained",
         "data": "can-placement-iteration-live.json",
-        "verified": "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；69件仍全TOP、0 overlap、0 off-board、0 tight-spacing；CANH/CANL仍为0 track/0 arc/0 via",
-        "rejected": "R12=(2630,1510) 的纯MST有两处H/L相交；R12 y=1488.8会造成异网共线穿越；没有联合寻路证据时不把任何新坐标写成正例"
+        "verified": "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；R12=(2630,1510)@0°、D1=(2791.5,1528.151)@270° 的当前位置由通用rigid候选接受；69件仍全TOP、0 overlap、0 off-board、0 tight-spacing；CANH/CANL仍为0 track/0 arc/0 via",
+        "rejected": "纯MST仍有两处H/L相交，R12 y=1488.8简单对齐会异网共线穿越；这些只作为实际布线反例，不再拒绝当前位置与方向",
+        "layoutCandidate": "layout-candidates-can-current-board/candidate-01.json"
+      },
+      "historicalObservation": {
+        "candidate": "can-route-plan-pair-negative.json",
+        "report": "can-route-plan-pair-negative-report.json",
+        "notExecuted": true,
+        "facts": {
+          "CANHMainMil": 606.0087,
+          "CANHMainSegments": 11,
+          "CANLMainMil": 1040.5245,
+          "CANLMainSegments": 21
+        },
+        "reason": "避障成功仍不代表两路布局关系合适；另有D1.1本体侧进入的真实几何错误。绝对长度和段数只用于复盘，不构成考试阈值。"
       }
     },
     {

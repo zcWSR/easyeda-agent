@@ -16,6 +16,44 @@ grid-snap/分档摆放)、板框、自动布局。入口与 guardrails 仍在 `p
 - `pcb.component.modify` (`pcb modify`) — move (x/y), rotate, flip layer (top/bottom), lock, designator/BOM flags. Patch x/y = **anchor**; `pcb modify --center --x <cx> --y <cy>` writes by **bbox center** instead (CLI converts via the live bbox; mutually exclusive with a rotation change in the same call — rotate first, then center).
 - `pcb.component.delete` (`pcb delete --ids`) — delete component primitives **by id** (`--ids` CSV or JSON array). 只在当前任务已授权的删除范围内执行并保留删除前快照；没有程序化 undo。⚠️ **只删器件**,布线/铺铜/区域/丝印会残留 —— 要整版清板重来用 **`easyeda pcb clear`**(`pcb.page.clear`,见上「一键整版复位」)。
 
+### 模块候选布局：AI 定关系，算法算坐标
+
+对有明确功能归属的模块，优先使用离线候选入口，避免整板启发式把同网外围重新分给错误引脚：
+
+```bash
+easyeda pcb dump --project ceshi --out board.json
+easyeda pcb layout-plan \
+  --from layout.json --board board.json --module rgb-led \
+  --candidates 3 --out candidates/
+easyeda apply candidates/candidate-01.apply.json
+```
+
+`layout.json` 使用 mil、`footprint-anchor` 坐标语义，逐模块声明成员、策略、固定轴、允许的
+0/90/180/270°角度、装配面、搜索间距和显式 `copperPolicy`。去耦等外围必须写
+`member pad → owner pad`；同一电源网有多个物理供电脚时以真实 pad number/primitiveId 归属，
+不能按最近的同网焊盘重分。AMS1117 VOUT/TAB 这类等电位物理脚可用 `ownerPads` 表达，但
+等价组只用于刚体关系和距离测量，逐脚放置仍需要唯一 owner pad。
+
+三种策略分别用于：
+
+- `edge`：把指定 `edgeMember` 放到板框中心线给定间隙，再按 pad 归属重排内侧 follower；
+  混合模式要求 `anchorRef == edgeMember`，其余成员必须是 follower 或明确锁定/三轴固定的 root。
+- `pin-satellites`：核心保持，外围按所属焊盘、方位和 bbox 间隙逐个放置。
+- `rigid`：模块整体平移/直角旋转，anchor、bbox、pads 和成员角度统一变换。
+
+命令只做本地计算，不访问 EDA，也不替 AI 选择。每个候选输出完整坐标、pad 距离、
+`polygon-centerline`/`outline-aabb` 板边测量、分开的 component/keepout gap，以及各最小间隙的
+`from`/`to` 对象，避免只看到一个数却不知道是谁限制了空间；同时生成 SVG 和 typed apply。
+没有综合分数。AI 用一句具体理由选择；都不合适就改关系、方位、间距或可用区域后重算。
+候选带原始 board/layout 文件 SHA256；执行前重新 `pcb dump` 对照目标对象，primitiveId 或
+几何缺失时不生成可执行候选。
+
+`copperPolicy: require-board-empty` 会在板上已有走线时拒绝移动，适合已有局部铜的模块；
+`ignore` 只表示本轮不以全板铜计数拒绝，并会明确报告“铜几何未证明”。写入前另用 typed
+`track-list` 确认目标模块没有已有铜。执行后显式 `pcb save`，有界 `doc reload`，重新 dump
+并核对坐标、角度、固定件、板框、模块成员和铜段数。完整可迁移例见
+[260919 模块候选布局](examples/260919-at32f415/layout-candidates.md)。
+
 ### Layout adjustment (deterministic — EasyEDA exposes no align/grid API)
 
 - `easyeda pcb refine` — **打分驱动的布局精修环(#167 #153)**。读 `pcb layout-score` 逐维归因,
@@ -214,7 +252,7 @@ scripts, but their stored state is diagnostic history and does not authorize rou
 
 - `pcb.outline.set` — set the outline from a closed polygon `points` (`[[x,y],…]`, mil,
   y-up). Replaces any existing outline; reports `allInside`/`outside` (components out of
-  the board). **Confirm first** (redraws the board edge).
+  the board). 在已授权的目标板上先保存原板框参数，写后回读，不依赖 stage 签字。
 - `pcb.outline.get` — current outline (source/native arc count + bbox + **真多边形 `points`/`outlineFormat`**,#167)。
   新圆角 polyline 使用 `sourceArcs` / `nativeArcs`；兼容字段 `arcs` / `legacyArcs` 只统计独立旧式 Arc 图元。
   `points` 是板框折线**中心线**点集 = 铣刀走的真板边;`bbox` 是**渲染范围含线宽**(实测 10mil 线宽每边大 5mil)。
@@ -223,10 +261,10 @@ scripts, but their stored state is diagnostic history and does not authorize rou
   `CARC/C/R/CIRCLE`、并列外环、等面积环或无法证明包含关系时仍 fail closed，退化为 bbox 并标 `degraded`。
 - `pcb.outline.clear` — remove the outline.
 
-**The agent generates the `points`** for the wanted shape. Curves are **line-segment
-approximated** (~48–120 segments) — native arcs do not commit on this build, so a true
-circle/arc needs the EasyEDA UI (圆形/圆弧 tool) or an SVG import. Recipes (centre `(cx,cy)`,
-all mil):
+任意多边形仍由 Agent 生成闭合 `points`。标准圆角矩形使用 `outline-round` 的原生 ARC，
+不要用折线近似，也禁止转到 GUI 手工补画。其他曲线形状只有在 typed 接口能够创建、回读并
+保存时才执行；当前不能证明的能力标 `unsupported`。以下公式只用于离线计算点列（中心
+`(cx,cy)`，单位 mil），不能把采样折线声明成真圆弧：
 
 | Shape | Points |
 |---|---|

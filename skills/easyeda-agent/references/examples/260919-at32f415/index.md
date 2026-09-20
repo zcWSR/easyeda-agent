@@ -12,7 +12,11 @@
 [crystal-placement-live.json](crystal-placement-live.json)，CAN 第一轮现场负例见
 [can-placement-iteration-live.json](can-placement-iteration-live.json)，LDO 第二轮可执行参数见
 [LDO 布局候选](ldo-layout-candidate.json)，保存重开后的局部铜见
-[LDO 实际路线](ldo-route-live.json)。
+[LDO 实际路线](ldo-route-live.json)。LED 板边、MCU 逐脚去耦和 LDO 刚体变换的候选生成见
+[模块候选 Layout](layout-candidates.md)；其中 CAN/SD/USB-UART/LCD 第二批外围的保存重载结果见
+[现场快照](layout-after-peripherals-live.json)，用户重开浏览器后的只读复核见
+[重开证据](layout-after-browser-reopen-verification-live.json)。U3 重绑定超时后的参数化恢复见
+[原理图恢复证据](schematic-u3-recovery-live.json)。
 
 ## 来源与已确认事实
 
@@ -24,9 +28,13 @@
 
 当前总状态：`partial-live-verified`。原理图逐端点连接、默认 DRC、真圆角板框、显示原点、
 固定件、规则/网络类、69 件初始布局、LDO 第二轮局部布局/局部铜，以及晶振 X1/C20/C21 的
-次序修正已在 Web 3.2.203 保存并通过 typed reload 回读。CAN 的 D1/CN1 对称关系也已现场
-回读，但 R12 候选因两处 H/L 飞线相交被保留为负例；完整布线、
-LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
+次序修正已在 Web 3.2.203 保存并通过 typed reload 回读。CAN/SD/USB-UART/LCD 的 11 个外围
+也已按模块候选保存重载；浏览器重开后 69 件几何、板框与 15 段 LDO 铜仍保持。CAN 的
+D1/CN1 对称关系已现场回读，R12/D1 当前位置和方向由零位移刚体候选接受；两处 H/L 最短
+飞线相交只保留为布线反例，不再否定 Layout。LCD 的
+no-components region 只在个人库可写副本中保存，当前 U3 实例绑定尚未完成；一次重绑定超时
+删除 U3 后虽已参数化恢复到 69 件和相同 13 脚网络，primitiveId/uniqueId 已变化，因此禁止
+PCB `import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
 `live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
 该文件保留初始批次；后续配置入口的 typed 保存/重载实测见
 [PCB 配置样例](../../pcb-config.md)，不要继续沿用早期的“新入口未现场验证”结论。
@@ -86,17 +94,17 @@ LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体�
 | PCB-05 | 说明 p2 | 90×50mm、线宽 0.254mm、R3 真圆角、左下显示原点、锁定 | [固定机械样例](fixed-mechanics.md)；保存及整页刷新回读已 `live-verified` |
 | PCB-06 | 说明 p2 | 四孔、U6、CARD1 的固定题面坐标、角度和锁定 | 现场确认本批输入为 footprint anchor；六件刷新后坐标、角度和锁定保持 |
 | PCB-07 | 说明 p3 | CN1 只固定 y=42mm、180°，x 是自由参数 | 现场候选 x=69mm；题定 y/角度保持，rendered bbox 顶边约超 1.17mil 的冲突单独保留 |
-| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | `lib footprint region` 已有离线命令面；可写副本保存和实例绑定须现场验证，失败时标 `unsupported` 并补 typed 接口 |
+| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 个人库可写副本已现场保存 layer 12 / `ruleType:[2]` 的 no-components region；当前 U3 实例绑定未完成，重绑定恢复后身份已变化，禁止 PCB `import-changes` |
 
 ### 布局关系
 
 | ID | 来源 | 技术点 | 样例/观测 |
 |---|---|---|---|
 | LAY-01 | 说明 p3-4 | 按键板边等距；USB、SWD、端子面向可插拔方向 | 读真实 bbox、开口方向和板框距离，不只看中心点 |
-| LAY-02 | 说明 p4 | RGB 靠 TYPE-C；光敏远离 RGB | 参数化最远/最近关系，迁移板尺寸后重算 |
+| LAY-02 | 说明 p4 | RGB 靠 TYPE-C；光敏远离 RGB | [模块候选 Layout](layout-candidates.md)：按真实板框中心线和 pad 所有权生成 3 个板边候选，选择理由与铜限制分开记录 |
 | LAY-03 | 说明 p4、p7 | LDO 输入/输出电容靠对应引脚，大电容在前、小电容在后 | [LDO 样例](ldo-placement.md)；第二轮布局与15段TOP/20mil局部铜已 `live-verified`，整板主干不在本条范围内 |
-| LAY-04 | 说明 p4、p7 | MCU 等电源脚逐脚去耦，电源先经过电容再入芯片 | pin→cap 所有权表 + 实际铜路径；同网距离不足以证明顺序 |
-| LAY-05 | 说明 p4 | 晶振靠 MCU、不在板边；蜂鸣器/背光驱动整体放置 | [晶振现场布局](crystal-placement-live.json) 已验证 X1/C20/C21 次序修正；蜂鸣器/背光仍按分组 bbox、引脚距离和关键走线通道另验 |
+| LAY-04 | 说明 p4、p7 | MCU 等电源脚逐脚去耦，电源先经过电容再入芯片 | [模块候选 Layout](layout-candidates.md)：C14/C15/C16 分别绑定 U6.1/.5/.17；同一所有权表达已迁移到 CAN、SD、CH340N 与 LCD，布局只证明所属 pad 距离，实际铜路径另验 |
+| LAY-05 | 说明 p4 | 晶振靠 MCU、不在板边；蜂鸣器/背光驱动整体放置 | [晶振现场布局](crystal-placement-live.json) 已验证 X1/C20/C21 次序修正；LCD 背光链已按候选保存重载，蜂鸣器和两组实际铜仍待验证 |
 | LAY-06 | 说明 p4 | 全部器件顶层、无重叠、外形不出板 | `pcb list --include-bbox`、`layout-lint` 和 LCD 禁放区分别观察 |
 
 ### 布线与收尾
@@ -107,7 +115,7 @@ LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体�
 | RTE-02 | 说明 p5、p8 | 电源主干按电流加粗，过孔按载流能力，流向清楚 | PWR 规则 + 实际每段/过孔回读 |
 | RTE-03 | 说明 p4–5、p8 | 晶振靠 MCU、不在板边；短直、避免底层、顶层包地净空 | [关键网络规划](critical-routing.md)：X1/C20/C21 次序已现场修正；铜仍待新版 connector 下验证。TOP/0via 是推荐策略，非题目明文零过孔禁令 |
 | RTE-04 | 说明 p5、p8 | USB_D+/D- 顶层、无过孔、类差分，不额外要求等长 | 不自行增加等长约束；回读两网层与 via 数 |
-| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [CAN 现场迭代](can-placement-iteration-live.json)：D1/CN1 对称关系已回读；R12 候选和简单对齐修法均作为相交反例，铜与最终位置仍待双线联合寻路 |
+| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [CAN 现场迭代](can-placement-iteration-live.json) 保留最短飞线相交的历史反例；[模块候选 Layout](layout-candidates.md) 已接受 R12/D1 当前位置与方向，实际有序铜路留到布线阶段证明 |
 | RTE-06 | 说明 p5、p8 | PA9/10、PA11/12、PA13/14 顶层且不换层 | 分网回读 layer 与 via count |
 | RTE-07 | 说明 p5 | U6 EP 添加散热过孔；其他焊盘不允许 via-in-pad | EP 与普通焊盘使用不同判据 |
 | RTE-08 | 说明 p6、p8 | 普通信号同网过孔不超过 2；GND 扇孔与缝合孔 | 按网计数并检查地回流，不以总 via 数判断 |
@@ -124,8 +132,10 @@ LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体�
 3. 按 PDF 的功能区和连线表达构建原理图，回读属性、连接、NC、`check` 与官方 DRC。
 4. 转入正确绑定的 PCB，确认 69 件和焊盘网；设置两层及真实规则/网络类，让间距与线宽参与后续布局。
 5. 建 90×50mm 板框和左下显示原点，放置并锁定孔、U6、CARD1；CN1 保留 x 自由。
-6. 建 LCD 元件禁放区，安排屏幕与板边器件；用真实 pad 次序和关键顶层路径试算调整自由芯片朝向。
-7. 围绕真实引脚安排 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 外围，同时预留电源主干和顶层回流。
+6. 建 LCD 元件禁放区，安排屏幕与板边器件；用 `pcb layout-plan` 按模块生成完整候选，
+   依据板框中心线、开口/关系、pad 距离和空隙选择，不能在现场逐件试摆。
+7. 围绕明确所属引脚生成 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 模块候选，同时预留
+   电源主干和顶层回流；同网多个供电脚必须在输入中逐脚绑定。
 8. 先 EP/地回流与晶振、受限顶层网络；局部去耦短线随模块处理，再连接电源主干及普通信号。组间次序按通道冲突调整，每组写后回读。
 9. 用 typed 接口完成丝印、双面 GND、缝合孔；真实泪滴能力未实现时保持未完成。泪滴后重铺铜，复查连接、几何、DRC，保存重开。
 

@@ -61,6 +61,12 @@ def main() -> None:
     live = load("live-validation.json")
     crystal_placement = load("crystal-placement-live.json")
     can_placement = load("can-placement-iteration-live.json")
+    can_route_negative = load("can-route-plan-negative.json")
+    can_route_report = load("can-route-plan-negative-report.json")
+    can_pair_negative = load("can-route-plan-pair-negative.json")
+    can_pair_report = load("can-route-plan-pair-negative-report.json")
+    can_layout_candidate = load("layout-candidates-can-current-board/candidate-01.json")
+    browser_reopen = load("layout-after-browser-reopen-verification-live.json")
     ldo_candidate = load("ldo-layout-candidate.json")
     ldo_route = load("ldo-route-live.json")
 
@@ -281,7 +287,51 @@ def main() -> None:
         for route in can_after["routing"].values()
     )
     assert can_after["officialDrc"]["canSignalConnectionErrors"] == 8
-    assert can_placement["nextSearch"]["status"] == "pending-offline-plan-and-live-copper"
+    assert can_placement["nextSearch"]["status"] == "paused-this-layout-round"
+    assert can_placement["laterLayoutDecision"] == {
+        "status": "layout-pose-accepted",
+        "candidate": "layout-candidates-can-current-board/candidate-01.json",
+        "reason": "通用rigid候选保持当前R12/D1位置方向，6mil几何间隙合法且H左/L右出口顺序一致；不再用MST相交、长度比或段数比拒绝Layout",
+        "routingStillPending": "U5→R12→CN1有序主路径、D1近端支路和实际铜净距仍须在布线阶段证明",
+    }
+    assert can_layout_candidate["strategy"] == "rigid"
+    assert {
+        item["ref"]: (item["xMil"], item["yMil"], item["rotationDeg"])
+        for item in can_layout_candidate["placements"]
+    } == {
+        "R12": (2630, 1510, 0),
+        "D1": (2791.5, 1528.151, 270),
+    }
+    assert [item["action"] for item in can_layout_candidate["actions"]] == ["pcb.save"]
+    assert can_route_negative["schema"] == "260919-can-candidate/v1"
+    assert can_route_negative["status"] == "candidate-unverified"
+    snapshot_hash_keys = {
+        "boardSha256", "tracksSha256", "viasSha256", "poursSha256",
+        "fillsSha256", "regionsSha256",
+    }
+    assert set(can_route_negative["sourceSnapshot"]) == {"documentUuid", *snapshot_hash_keys}
+    assert can_route_negative["sourceSnapshot"]["documentUuid"] == "2e719e9419653c72"
+    assert all(len(can_route_negative["sourceSnapshot"][key]) == 64 for key in snapshot_hash_keys)
+    assert len(can_route_negative["actions"]) == 8
+    assert all(item["action"] == "pcb.line.create" for item in can_route_negative["actions"])
+    assert can_route_report["verdict"] == "rejected"
+    expected_can_plan_codes = {
+        "cross_net_intersection", "forbidden_body_gap", "foreign_net_collinear_overlap",
+        "foreign_pad_clearance", "non_45_bend", "non_45_segment", "pad_end_escape",
+        "same_net_role_violation", "track_clearance", "branch_pad_inner_entry",
+    }
+    assert {item["code"] for item in can_route_report["findings"]} == expected_can_plan_codes
+    assert can_pair_negative["status"] == "candidate-rejected"
+    assert can_pair_negative["review"]["result"] == "rejected-before-write"
+    assert can_pair_negative["review"]["notExecuted"] is True
+    assert len(can_pair_negative["actions"]) == 36
+    assert can_pair_report["verdict"] == "rejected"
+    assert {item["code"] for item in can_pair_report["findings"]} == {"branch_pad_inner_entry"}
+    assert can_pair_report["facts"]["topology"]["CANH"]["mainLengthMil"] == 606.0087
+    assert can_pair_report["facts"]["topology"]["CANH"]["mainSegments"] == 11
+    assert can_pair_report["facts"]["topology"]["CANL"]["mainLengthMil"] == 1040.5245
+    assert can_pair_report["facts"]["topology"]["CANL"]["mainSegments"] == 21
+    assert can_pair_report["facts"]["existingCanViaCount"] == 0
     assert can_placement["independentVerification"]["status"] == "completed-with-findings"
     assert all(len(value) == 64 for value in can_placement["evidence"].values())
     assert can_placement["negativeFindings"] and can_placement["notClaimed"]
@@ -312,17 +362,21 @@ def main() -> None:
     }
     assert catalog_entries["RTE-05"]["livePlacementIteration"] == {
         "status": "live-verified",
-        "outcome": "rejected-as-positive-example",
+        "outcome": "layout-pose-accepted-routing-negative-retained",
         "data": "can-placement-iteration-live.json",
         "verified": (
-            "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；69件仍全TOP、"
+            "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；"
+            "R12=(2630,1510)@0°、D1=(2791.5,1528.151)@270° 的当前位置由通用rigid候选接受；69件仍全TOP、"
             "0 overlap、0 off-board、0 tight-spacing；CANH/CANL仍为0 track/0 arc/0 via"
         ),
         "rejected": (
-            "R12=(2630,1510) 的纯MST有两处H/L相交；R12 y=1488.8会造成异网共线穿越；"
-            "没有联合寻路证据时不把任何新坐标写成正例"
+            "纯MST仍有两处H/L相交，R12 y=1488.8简单对齐会异网共线穿越；"
+            "这些只作为实际布线反例，不再拒绝当前位置与方向"
         ),
+        "layoutCandidate": "layout-candidates-can-current-board/candidate-01.json",
     }
+    assert catalog_entries["RTE-05"]["historicalObservation"]["candidate"] == "can-route-plan-pair-negative.json"
+    assert catalog_entries["RTE-05"]["historicalObservation"]["notExecuted"] is True
     forbidden_execution_terms = (
         "gui", "cua", "属性面板", "工程树", "刷新浏览器", "刷新整个内置浏览器",
         "mouse", "keyboard", "canvas", "property panel", "project tree",
@@ -338,6 +392,8 @@ def main() -> None:
     assert {
         "initial-placement.json", "crystal-placement-live.json",
         "can-placement-iteration-live.json",
+        "can-route-plan-negative.json", "can-route-plan-negative-report.json",
+        "can-route-plan-pair-negative.json", "can-route-plan-pair-negative-report.json",
         "ldo-layout-candidate.json", "ldo-route-live.json",
         "live-validation.json",
     } <= set(catalog["sourceData"])
@@ -395,6 +451,21 @@ def main() -> None:
     ):
         assert placement_verification[field] == 0, field
 
+    assert browser_reopen["status"] == "live-verified"
+    assert browser_reopen["checks"]["componentCount"] == 69
+    assert browser_reopen["checks"]["ldoTrackCount"] == 15
+    assert browser_reopen["checks"]["primitiveIdSetUnchanged"] is True
+    assert browser_reopen["checks"]["componentGeometryUnchanged"] is True
+    latest_reopen = browser_reopen["rechecks"][-1]
+    assert latest_reopen["trigger"] == "user-reopened-in-app-browser-again"
+    assert latest_reopen["componentCount"] == 69
+    assert latest_reopen["routedLineCount"] == 15
+    assert latest_reopen["componentsEqualToSavedBaseline"] is True
+    assert latest_reopen["outlineEqualToSavedBaseline"] is True
+    assert latest_reopen["tracksEqualToSavedBaseline"] is True
+    for field in ("componentsSha256", "outlineSha256", "tracksResultSha256"):
+        assert len(latest_reopen[field]) == 64
+
     assert live["status"] == "partial-live-verified"
     assert live["purpose"].endswith("不是完成态整板答案")
     schematic = live["schematic"]
@@ -441,7 +512,7 @@ def main() -> None:
     assert crystal_live["independentReview"]["status"] == "completed-with-findings"
     can_live = live["pcbCanPlacementIteration"]
     assert can_live["status"] == "live-verified"
-    assert can_live["outcome"] == "rejected-as-positive-example"
+    assert can_live["outcome"] == "layout-pose-accepted-routing-negative-retained"
     assert can_live["placement"]["canCrossings"] == 2
     assert can_live["routing"]["CANH"] == {"tracks": 0, "arcs": 0, "vias": 0}
     assert can_live["routing"]["CANL"] == {"tracks": 0, "arcs": 0, "vias": 0}

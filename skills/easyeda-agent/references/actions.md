@@ -72,7 +72,7 @@ Playbook 使用 `version:1`、`meta` 和有序 `steps`。每步只选一种执�
 | `sch connect/autoconnect`，`schematic.power.connect_pin` | 必须生成非零短线，flag 不能与 pin 重叠；connect 非幂等，autoconnect 可跳过已连接目标网 |
 | `sch disconnect`，`schematic.pin.disconnect` | 检查共享树的 `alsoDisconnectedPins` 和删除残留；逐个恢复受影响引脚 |
 | `sch no-connect` | 显式设置/清除 NC，不创建零长线，不推断缺失数据为 NC |
-| `sch replace/rebind-symbol/rebind-footprint` | 会重建实例，重新读 ID；换器件查看 pinDiff，按引脚差异重连和验收 |
+| `sch replace/rebind-symbol/rebind-footprint` | rebind 先回读 Device association，再创建并回读候选，之后才删除原件；恢复后逐字段核对设备/符号或封装绑定、`uniqueId`、位姿和属性。失败回执含 phase、原件/候选存在性和 rollback 事实。超时后禁止盲重试及 `pcb import-changes`，先新鲜回读。换器件另查看 pinDiff，按引脚差异重连和验收 |
 | `sch export-image` | 文档渲染 SVG/PNG/PDF；`--ids` 导局部，不依赖视口截图 |
 | `sch read/check/bridge-check/drc/gate` | 用法与判读见 [schematic.md](schematic.md)；SDK DRC 聚合值不代表 UI 所有警告消失 |
 | `sch save` | 通过阶段验证后保存并确认 `saved:true`，不能只依赖防抖 autosave |

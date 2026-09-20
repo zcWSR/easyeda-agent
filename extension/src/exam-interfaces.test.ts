@@ -364,6 +364,121 @@ test('library.footprint.region_create saves and verifies a no-components region'
 	});
 });
 
+test('library.footprint.region_create accepts rotated/reversed linear source encoding and repeated closure', async () => {
+	const requestedSource: Array<string | number> = [0, 0, 'L', 10, 0, 10, 10, 0, 10, 0, 0];
+	const equivalentReadback: Array<string | number> = [
+		10, 10, 'L', 10, 0, 'L', 0, 0, 'L', 0, 10, 'L', 10, 10, 10, 10,
+	];
+	let deletes = 0;
+	const region = {
+		getState_PrimitiveId: () => 'region-equivalent', getState_Layer: () => 12,
+		getState_RuleType: () => [2], getState_RegionName: () => 'LCD_BODY',
+		getState_LineWidth: () => 6, getState_PrimitiveLock: () => true,
+		getState_ComplexPolygon: () => ({ getSource: () => equivalentReadback }),
+	};
+	await withEda({
+		...footprintDocumentControl('fp-copy', 'lib-1', 'tab-equivalent'),
+		pcb_MathPolygon: { createPolygon: () => ({ getSource: () => requestedSource }) },
+		pcb_PrimitiveRegion: {
+			create: async () => region,
+			get: async () => region,
+			delete: async () => { deletes++; return true; },
+		},
+		pcb_Document: { save: async () => true },
+	}, async () => {
+		const res: any = await runAction('library.footprint.region_create', {
+			uuid: 'fp-copy', libraryUuid: 'lib-1',
+			points: [[0, 0], [10, 0], [10, 10], [0, 10]],
+			ruleType: 'no-components', name: 'LCD_BODY', lineWidth: 6, locked: true,
+		});
+		assert.equal(res.result.verified, true);
+		assert.equal(deletes, 0);
+		assert.deepEqual(res.result.actual.source, equivalentReadback);
+	});
+});
+
+test('library.footprint.region_create keeps a verified region when the host drops its optional name', async () => {
+	const source: Array<string | number> = [0, 0, 'L', 10, 0, 10, 10, 0, 10, 0, 0];
+	let deletes = 0;
+	let saves = 0;
+	const region = {
+		getState_PrimitiveId: () => 'region-no-name', getState_Layer: () => 12,
+		getState_RuleType: () => [2], getState_RegionName: () => '',
+		getState_LineWidth: () => 6, getState_PrimitiveLock: () => true,
+		getState_ComplexPolygon: () => ({ getSource: () => source }),
+	};
+	await withEda({
+		...footprintDocumentControl('fp-copy', 'lib-1', 'tab-no-name'),
+		pcb_MathPolygon: { createPolygon: () => ({ getSource: () => source }) },
+		pcb_PrimitiveRegion: {
+			create: async () => region,
+			get: async () => region,
+			delete: async () => { deletes++; return true; },
+		},
+		pcb_Document: { save: async () => { saves++; return true; } },
+	}, async () => {
+		const res: any = await runAction('library.footprint.region_create', {
+			uuid: 'fp-copy', libraryUuid: 'lib-1',
+			points: [[0, 0], [10, 0], [10, 10], [0, 10]],
+			ruleType: 'no-components', name: 'LCD_BODY', lineWidth: 6, locked: true,
+		});
+		assert.equal(res.result.verified, true);
+		assert.equal(res.result.namePersisted, false);
+		assert.deepEqual(res.result.readbackDifferences, ['name']);
+		assert.equal(res.result.requested.name, 'LCD_BODY');
+		assert.equal(res.result.actual.name, '');
+		assert.match(res.warnings[0], /name.*requested.*host readback/i);
+		assert.equal(deletes, 0);
+		assert.equal(saves, 1);
+	});
+});
+
+test('library.footprint.region_create still rolls back material metadata mismatches', async (t) => {
+	const source: Array<string | number> = [0, 0, 'L', 10, 0, 10, 10, 0, 10, 0, 0];
+	const cases = [
+		{ label: 'layer', field: 'layer', actual: { layer: 1 } },
+		{ label: 'rule type', field: 'ruleType', actual: { ruleType: [5] } },
+		{ label: 'lock', field: 'locked', actual: { locked: false } },
+		{ label: 'different non-empty name', field: 'name', actual: { name: 'OTHER' } },
+	];
+	for (const mismatch of cases) {
+		await t.test(mismatch.label, async () => {
+			const state = { layer: 12, ruleType: [2], locked: true, name: 'LCD_BODY', ...mismatch.actual };
+			let present = true;
+			let saves = 0;
+			const region = {
+				getState_PrimitiveId: () => `region-wrong-${mismatch.field}`,
+				getState_Layer: () => state.layer,
+				getState_RuleType: () => state.ruleType,
+				getState_RegionName: () => state.name,
+				getState_LineWidth: () => 6,
+				getState_PrimitiveLock: () => state.locked,
+				getState_ComplexPolygon: () => ({ getSource: () => source }),
+			};
+			await withEda({
+				...footprintDocumentControl('fp-copy', 'lib-1', `tab-wrong-${mismatch.field}`),
+				pcb_MathPolygon: { createPolygon: () => ({ getSource: () => source }) },
+				pcb_PrimitiveRegion: {
+					create: async () => region,
+					get: async () => present ? region : undefined,
+					delete: async () => { present = false; return true; },
+				},
+				pcb_Document: { save: async () => { saves++; return true; } },
+			}, async () => {
+				const res: any = await runAction('library.footprint.region_create', {
+					uuid: 'fp-copy', libraryUuid: 'lib-1',
+					points: [[0, 0], [10, 0], [10, 10], [0, 10]],
+					ruleType: 'no-components', name: 'LCD_BODY', lineWidth: 6, locked: true,
+				});
+				assert.equal(res.result.verified, false);
+				assert.equal(res.result.rolledBack, true);
+				assert.match(res.result.error, new RegExp(mismatch.field, 'i'));
+				assert.equal(saves, 2);
+			});
+		});
+	}
+});
+
 test('library.footprint.region_create rolls back and re-saves when initial save returns false', async () => {
 	const source: Array<string | number> = [0, 0, 'L', 10, 0, 10, 10, 0, 10, 0, 0];
 	let present = true;

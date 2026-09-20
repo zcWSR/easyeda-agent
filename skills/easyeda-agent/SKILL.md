@@ -71,15 +71,20 @@ metadata:
   未重开核验时标记 `incomplete`，截图仅用于发现遗漏。
 - PCB 先满足题目或机械约束，再安排接口、关键路径、核心与外围。固定尺寸题先板框和固定件；
   无固定尺寸的自建板可先排功能模块，再据占地与布线空间收紧板框。
+- PCB 模块布局先 `pcb dump --out board.json`，再运行 `pcb layout-plan --from layout.json
+  --board board.json --module <id> --candidates 3 --out <dir>`。输入明确成员、固定轴、允许角度及
+  `member pad → owner pad`；同网去耦不得按最近焊盘重新分配。候选报告位置、板边、距离和
+  最近的内部/外部/keepout 对象对，不给总分；AI 写明理由后执行 `.apply.json`，都不合适就
+  改关系或搜索参数重算，禁止现场试摆。每个模块声明 `copperPolicy`；`ignore` 仍须另读
+  `track-list` 证明目标模块无铜。执行前核对输入哈希，之后 save → 有界 reload → 新 dump
+  对账。完整做法见 [模块候选 Layout](references/examples/260919-at32f415/layout-candidates.md)。
 
 ## 样例与能力状态
 
-每个样例都写来源页、开始状态、参数与单位、命令/步骤、观测、错误修法和验证状态。
-状态只用 `source-only`、`offline-verified`、`live-verified`；后两者必须附实际证据。
-未实现的 typed 能力标 `planned` / `unsupported`，不得改走 GUI；例如当前泪滴创建保持
-`unsupported`，补齐可回读的 typed 接口前不能声称完成。
-新加入的 `project create`、板原点、真圆弧、规则/网络类、封装 region 和字体接口也先用当前
-`--help` 核对；离线测试通过不等于已经在用户的 EasyEDA 构建里现场验证。
+每个样例写来源页、开始状态、参数与单位、命令、观测、错误修法和验证状态。交付状态只用
+`source-only`、`offline-verified`、`live-verified`；候选生命周期可另标 `candidate-unverified` /
+`candidate-rejected`，不能冒充交付验证。未实现的 typed 能力标 `planned` / `unsupported`，
+不得改走 GUI；新接口先用当前 `--help` 核对，离线测试不等于已在用户的 EDA 构建现场验证。
 
 修改底层 action、daemon 或连接器时，同步更新对应样例和工具说明。修改 Skill 后运行
 `python3 scripts/pack-skill.py --check`；它只验证受控包与链接，不代表样例已在现场通过。

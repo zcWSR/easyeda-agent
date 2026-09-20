@@ -2,8 +2,8 @@
 # EasyEDA PCB
 
 Drive `easyeda-agent` typed actions. Run `easyeda actions` for the live machine-readable
-list. Prefer typed actions; only fall back to `debug.exec_js` when a typed action is
-missing **and** the user explicitly accepts a debug path.
+list. 工程写入只允许参数化数据经 Cobra 子命令、typed action 或 `easyeda apply` 执行；
+缺接口就补工具并验证，禁止用 `debug.exec_js`、GUI、CUA 或手工编辑兜底。
 
 > **PCB design rules live in this skill's references** — especially
 > [`pcb-layout-conventions.md`](./pcb-layout-conventions.md)
@@ -46,9 +46,12 @@ missing **and** the user explicitly accepts a debug path.
 1. `easyeda daemon health` → confirm a connected window (route by `--project <name>`; `--window <windowId>` only for fine control). Context is live — refreshed on every action AND, with connector ≥ v0.5.7, pushed by the heartbeat within ~3s of a UI tab-switch (so health follows the UI even with no command run). `connectorVersionOk: false` flags a stale connector loaded in an open window (fully quit + relaunch EasyEDA).
 2. `easyeda doc ls --project <name>` → see every openable doc (★=active). If the active doc isn't the target PCB, `easyeda doc switch <PCB-name|uuid> --project <name>` (cross-type PCB↔schematic works). **With 2+ windows open, `--project`/`--window` is REQUIRED** — without it the command only auto-targets when exactly one window is connected, else errors `no EasyEDA connector is available` (a momentary connector reconnect can also trigger this — just retry). (Low-level equivalent: `document.current` → `pcb.documents.list` → `document.open <pcbUuid>`.)
 3. **Inspect before mutating**: `pcb.components.list` (`includeBBox`+`includePads`), `pcb.layers.list` (read `copperLayerCount`), `pcb.nets.list`, `pcb.board.info`.
-4. Small additive operations; **verify each** by readback + `pcb.drc.check`.
-5. **Confirm** before destructive ops (`delete`, `import_changes`, bulk `arrange`) and before saving.
-6. Summarize moved/changed primitives, warnings, and artifacts.
+4. 模块布局先以 `pcb dump` 保存实测 anchor/bbox/pads，再用 `pcb layout-plan` 离线生成候选；
+   选择后经 `easyeda apply` 串行写入，禁止在现场逐件试摆。
+5. 小批执行后回读对象与差异；稳定检查点显式保存，需要持久化证据时再做有界 reload/readback。
+6. 删除、清板等不可逆动作只在用户已授权范围内执行并保留前快照；普通布局、保存和只读检查
+   不依赖 workflow/stage、评分或人工签字。
+7. Summarize moved/changed primitives, warnings, and artifacts.
 
 ## Actions
 

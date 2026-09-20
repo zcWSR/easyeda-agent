@@ -46,6 +46,19 @@
 `sch lib-layout` 校验 canonical/库身份/模块关系后调用同一内核，再进行整页组合验证。
 独立局部结果不是 Apply 队列，不证明页边界、跨集合连接或现场身份已验证。
 
+### PCB 模块候选
+
+PCB 的参数化布局把“关系”和“坐标”分开：Agent 从题目、机械图和原理图明确模块成员、
+固定轴、装配面、板边/开口关系及 `member pad → owner pad`；`pcb layout-plan` 读取真实
+footprint anchor、bbox、pads 与板框，有限枚举若干完整候选。算法负责刚体变换、逐脚外围、
+避让和测量，Agent 根据具体事实选择，不能用同网最近距离重新推断所有权。
+
+候选不是现场试摆，也不是审批状态。它必须包含全部成员的可执行位置、原始输入哈希、
+板框中心线距离、component/keepout gap、每个最小间隙对应的对象对、缺测与铜覆盖限制；
+不合适就修改源关系或搜索参数
+并重算。`offline-verified` 只证明计算；执行后保存、真实重载和官方回读才构成
+`live-verified`。现有评分、stage 和总分不决定候选能否执行。
+
 ### Block Template 与公共 Lib Module
 
 两者互补而不互相替代。Block Template 是由角色器件、固定内部拓扑、可重绑端口和约束组成的

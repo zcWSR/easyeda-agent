@@ -19,7 +19,10 @@
 - 单页组合：`sch compose` 以完整 IR 和实测 Lib 几何生成同页位置及严格 Apply 队列；校验实际 bbox、全部 pin/net/NC、导线路径和标记方向。跨页位号须唯一，不自动删除源页。[组合契约](schematic-page-composition.md)。
 - 位号：`sch designators allocate/plan/verify` 按官方库前缀修复非标准名称，保留合法编号与稳定 ID；原地队列核对位置、引脚/网络/NC、导线与全工程位号。[使用合同](../skills/easyeda-agent/references/schematic-data.md)。
 - PCB：`layout-lint`、`layout-score`、`pcb check` 与 DRC 分别报告布局、质量、制造和电气事实；它们不授权或拒绝普通 action。
-- 样例驱动：Agent 选择相近样例，理解理由并替换参数，执行后根据实际回读修正。260919 AT32F415 考试资料已整理为 69 个器件、233 个端子、13 处明确 NC、46 个网络、15 个功能区和 36 个技术点；当前均为 `source-only` / `offline-verified`，尚未冒充现场完成态。
+- PCB 模块候选：`pcb layout-plan` 纯本地读取 `pcb dump` 与显式模块/pad 所有权，有限枚举
+  `edge`、`pin-satellites`、`rigid` 候选，输出事实、SVG 和 typed Apply；不访问编辑器、
+  不合成总分。LED/MCU/LDO 的 260919 样例已离线复算，现场状态见对应样例。
+- 样例驱动：Agent 选择相近样例，理解理由并替换参数，执行后根据实际回读修正。260919 AT32F415 考试资料已整理为 69 个器件、233 个端子、13 处明确 NC、46 个网络、15 个功能区和 36 个技术点；代表性原理图、机械、LDO 与模块 Layout 已有 `live-verified` 证据，其余项目继续保留 `source-only` / `offline-verified` 边界，不能外推成整板完成。
 - typed actions 的精确清单始终以 `make actions` 为准，不单独维护数量。
 - 真实回归输入、事实检查和运行步骤见 [`e2e-automation-acceptance.md`](e2e-automation-acceptance.md)。
 
@@ -36,7 +39,8 @@
 | 完整 DRC 规则 | `pcb.drc.rules.set` / `pcb drc-rules-set --from` | 读取完整规则副本后写入；支持 dry-run、部分失败回滚和最终回读。 |
 | 原生网络类 | `pcb.netclass.list/create` / `pcb net-class list/create` | 创建并回读真实 EasyEDA 网络类、网成员和规则关联；与启发式 `pcb net-classes` 区分。 |
 | 字体 | `pcb.silk.create/modify` / `pcb silk-add/set --font-family` | 写入后回读实际字体；modify 静默失败会被识别。 |
-| 封装区域 | `footprint.region.create` / `lib footprint region` | 在可写封装副本创建区域并核对 layer、rule、name、线宽、锁定和 polygon；保存或验证失败会回滚。 |
+| 封装区域 | `footprint.region.create` / `lib footprint region` | 在可写封装副本创建区域并核对 layer、rule、线宽、锁定和 polygon；宿主忽略可选 name 时保留已验证区域并报警，材料差异或保存失败才回滚。 |
+| 模块候选布局 | `pcb layout-plan --from --board --module --candidates --out` | footprint anchor 为写坐标；bbox/pads/板框中心线用于变换、避让与事实测量；报告最小间隙及对应对象对，输出目录整体替换，候选绑定原始输入 SHA256。 |
 
 执行许可已从版本、workflow stage、布局 tier 和 stale-read 状态中移除。旧接口继续返回
 `compatibilityOnly` 或 `staleRisk` 供诊断；权威批次使用 save → reload → readback。
@@ -152,8 +156,8 @@ Workspace → Project → **Board** → schematic + PCB. Map to `eda.dmt_Board.*
 | Action | What |
 |---|---|
 | `schematic.component.place` | Place a device by library identity (`libraryUuid` + `uuid`) at `x,y` with optional rotation/mirror/BOM flags. |
-| `schematic.rebind.footprint` | Swap a placed component's footprint via the **five-step binding** (`lib_Device.modify → delete → create → restore`) — `modify` alone cannot change a placed instance's footprint reference. Resolves the placed part's REAL 32-char device uuid first (LCSC→MPN→project-name; `getState_Component().uuid` is a 16-char symbol id the library APIs reject). **System-library device records are read-only** → automatic personal-library **clone fallback** (copy/reuse → bind new footprint → re-place; `mode='cloned-to-personal-library'` + `clonedDevice`), with the 符号/封装另存为 conflict dialogs auto-confirmed via MutationObserver (timer polling is throttled in background tabs). Matches by footprint name (exact; pass `--footprint-uuid` to bind directly). Captures & restores designator/position/rotation/mirror/BOM flags/manufacturer/supplier/otherProperty; rolls back on any failure. **Re-placing mints a NEW primitiveId — wires may need re-drawing; run `sch drc`/`sch check` after.** Mutates. |
-| `schematic.rebind.symbol` | Swap a placed component's symbol via the same five-step binding, incl. the clone fallback + dialog auto-confirm. Same matching/rollback/caveats as `rebind.footprint`. Mutates. |
+| `schematic.rebind.footprint` | Swap a placed component's footprint with a **candidate-first transaction**: update and freshly verify the device association, create/read back the replacement while the original still exists, then delete the original and restore/verify stable `uniqueId`, pose, BOM and supplier properties. Missing stable identity is refused before mutation. Failures report phase, both instance presences and verified rollback facts; timeout forbids blind retry and PCB `import-changes` until a fresh read reconciles identity. System-library devices use the personal-library clone fallback. A successful replacement still mints a NEW primitiveId, so run `sch drc`/`sch check`. Mutates. |
+| `schematic.rebind.symbol` | Swap a placed component's symbol via the same candidate-first transaction, association/identity readback and clone fallback. Same rollback and timeout caveats as `rebind.footprint`. Mutates. |
 | `schematic.component.replace` | Replace a placed component with a **different** device (换型号 — the API equivalent of the 器件标准化 panel's 使用推荐器件, which itself has no extension API). No rebind-device primitive exists, so: capture state + pin table → delete → create the new device at the same pose → restore designator + uniqueId (kept so sch→PCB `import-changes` UPDATEs instead of delete+add). Part-identity fields (name/manufacturer/supplier/LCSC) deliberately follow the NEW device; `--keep-properties` also carries old custom attrs. Target: `--lcsc` (unique) / `--device-uuid`+`--device-lib` / `--query` (unique). Rolls back to the original device (full identity) on failure after delete. Returns a `pinDiff` (removed/added/moved by pinNumber at identical pose) — non-empty ⇒ re-wire, then `sch drc`/`sch check`. Mutates. |
 | `schematic.component.modify` | Patch position, designator, name, BOM flags, or custom properties (components only — not flags). |
 | `schematic.component.delete` | Delete component primitives (confirmation-gated). **Only removes components** — wires/buses/graphics survive; use `schematic.page.clear` for a full page reset. |

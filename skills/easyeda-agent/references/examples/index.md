@@ -20,6 +20,7 @@
 | [参数化初始布局](260919-at32f415/initial-placement.json) | 69 件布局顺序、模块关系、坐标、锁定、实际回读和已知例外 | `partial-live-verified` 初始布局；独立检查已记录布局缺陷，不声明关键网络已布通 |
 | [现场验证摘要](260919-at32f415/live-validation.json) | 原理图、机械、规则、布局的保存后回读及真实工具故障 | `partial-live-verified`；逐项列出未声明完成的工作 |
 | [关键网络规划与现场迭代](260919-at32f415/critical-routing.md) | 晶振与 CAN 的 topology-aware 计划，以及用真实飞线/绕行反例修正布局 | `partial-live-verified`；晶振次序与 CAN 第一轮负例已现场回读，关键铜仍未写入 |
+| [模块候选 Layout](260919-at32f415/layout-candidates.md) | LED 板边、MCU 逐脚去耦、LDO 刚体变换；AI 定关系、算法生成多个完整坐标候选 | `offline-verified`；LED/MCU 待本轮 typed Apply、保存重开回读后升级 |
 | [LDO 原理图、布局与回流](260919-at32f415/ldo-placement.md) | AMS1117 双 VOUT/TAB、输入输出电容顺序、顶层 GND 回流 | `partial-live-verified`；局部放置与15段铜已验证，整板主干待完成 |
 | [板框、安装孔与固定器件](260919-at32f415/fixed-mechanics.md) | 固定尺寸题、坐标原点、圆角、锁定、固定/半固定器件 | `live-verified`；保存后对象回读保持；typed 重载修复仍需复测 |
 | [模拟题与 7 套练习差异](exam-differences.md) | DCDC、Near pin、开尔文、传感器开槽、RF 净空等迁移题 | `source-only`，不是黄金答案 |
