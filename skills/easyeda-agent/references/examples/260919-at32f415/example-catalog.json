@@ -14,6 +14,8 @@
     "bom-instances.json",
     "source-connectivity.json",
     "initial-placement.json",
+    "ldo-layout-candidate.json",
+    "ldo-route-live.json",
     "live-validation.json"
   ],
   "stepTemplates": {
@@ -57,6 +59,7 @@
       "commands": [
         "easyeda pcb track-list --net <NET> --doc <PCB_DOC_UUID> --project ceshi",
         "easyeda pcb via-list --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb net-path --from <REF.PAD> --through <REF.PAD> --to <REF.PAD> --layer 1 --doc <PCB_DOC_UUID> --project ceshi --json",
         "easyeda pcb pour-rebuild --doc <PCB_DOC_UUID> --project ceshi",
         "easyeda pcb check --doc <PCB_DOC_UUID> --project ceshi --json",
         "easyeda pcb drc --doc <PCB_DOC_UUID> --project ceshi --json"
@@ -1018,6 +1021,20 @@
           "value": "TOP",
           "unit": "layer",
           "modifiable": false
+        },
+        {
+          "name": "secondPassCandidate",
+          "value": "ldo-layout-candidate.json",
+          "unit": "parameter file",
+          "modifiable": true,
+          "basis": "当前 Demo 已写入、保存重开并回读；迁移时仍必须用新鲜 bbox/pad 重新收敛"
+        },
+        {
+          "name": "liveRouteData",
+          "value": "ldo-route-live.json",
+          "unit": "parameter file",
+          "modifiable": true,
+          "basis": "当前封装与坐标下的局部铜实例；迁移时从语义路径重新计算 segments"
         }
       ],
       "steps": {
@@ -1036,12 +1053,10 @@
           "fix": "按 ldo-placement.md 从 pads 计算位置与路径"
         }
       ],
-      "verificationStatus": "offline-verified",
-      "pending": [
-        "结合真实 VOUT/TAB 焊盘压紧 C5/C6，用实际铜证明输入顺序、候选输出路径与顶层 GND 回流；保存重开再读"
-      ],
+      "verificationStatus": "live-verified",
+      "pending": [],
       "referenceExample": "ldo-placement.md",
-      "liveEvidence": "第一轮五件相对放置已保存刷新；独立核查发现输出C5/C6距VOUT/TAB约206/303mil，电源铜和顶层GND回流未执行"
+      "liveEvidence": "第二轮五件相对布局与15段TOP/20mil局部铜已保存、typed reload并回读；0 via、0 overlap/outside/tight、0 dangling/floating/duplicate/acute/non-orthogonal/foreign-pad-overlap/clearance。pads/tracks/vias离线铜图找到C3→C4→U2.3、U2.2→U2.4→C5→C6及四只电容到U2.1的TOP路径；整板主干与最终DRC仍不在本条范围内。"
     },
     {
       "id": "LAY-04",

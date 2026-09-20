@@ -160,6 +160,23 @@
     ],
     "verification": "本例历史回读使用 footprint anchor；后续从题目坐标、参数中的 coordinateSemantic 及 typed pcb list 的 x/y、pads/bbox 交叉核对。原题未定义 anchor/bbox-center；不得仅由 bbox 中心推断，也不得通过属性面板操作补证。"
   },
+  "decouplingOwnership": {
+    "C1": "U1.5 VCC",
+    "C2": "LED1.1 VDD",
+    "C3": "U2.3 VIN input bulk",
+    "C4": "U2.3 VIN input high-frequency",
+    "C5": "U2.2/U2.4 VOUT output bulk",
+    "C6": "U2.2/U2.4 VOUT output high-frequency",
+    "C9": "U4.8 V3",
+    "C10": "U4.5 VCC",
+    "C12": "U5.3 VCC bulk",
+    "C13": "U5.3 VCC high-frequency",
+    "C14": "U6.1 VDD",
+    "C15": "U6.5 VDDA",
+    "C16": "U6.17 VDD",
+    "C18": "CARD1.4 VDD bulk",
+    "C19": "CARD1.4 VDD high-frequency"
+  },
   "functionalZones": [
     {
       "id": "type-c",

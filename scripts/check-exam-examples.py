@@ -59,6 +59,8 @@ def main() -> None:
     catalog = load("example-catalog.json")
     placement = load("initial-placement.json")
     live = load("live-validation.json")
+    ldo_candidate = load("ldo-layout-candidate.json")
+    ldo_route = load("ldo-route-live.json")
 
     refs = [item["reference"] for item in bom["instances"]]
     assert bom["counts"] == {"bomRows": 27, "instances": 69, "uniqueReferences": 69}
@@ -151,6 +153,82 @@ def main() -> None:
     assert fixed["CN1"]["x"] is None and fixed["CN1"]["y"] == 42
     assert fixed["CN1"]["rotationDeg"] == 180 and fixed["CN1"]["freeAxis"] == "x"
 
+    # Same-value, same-net capacitors still have distinct physical ownership.
+    # Keep these mappings machine-readable so proximity heuristics cannot silently
+    # swap them (the first independent placement review did exactly that for C1/C2).
+    assert manifest["decouplingOwnership"] == {
+        "C1": "U1.5 VCC",
+        "C2": "LED1.1 VDD",
+        "C3": "U2.3 VIN input bulk",
+        "C4": "U2.3 VIN input high-frequency",
+        "C5": "U2.2/U2.4 VOUT output bulk",
+        "C6": "U2.2/U2.4 VOUT output high-frequency",
+        "C9": "U4.8 V3",
+        "C10": "U4.5 VCC",
+        "C12": "U5.3 VCC bulk",
+        "C13": "U5.3 VCC high-frequency",
+        "C14": "U6.1 VDD",
+        "C15": "U6.5 VDDA",
+        "C16": "U6.17 VDD",
+        "C18": "CARD1.4 VDD bulk",
+        "C19": "CARD1.4 VDD high-frequency",
+    }
+
+    assert ldo_candidate["status"] == "live-verified"
+    assert ldo_candidate["coordinateSemantic"] == "rendered-bbox-center"
+    assert ldo_candidate["units"] == "mil"
+    assert ldo_candidate["fixedCore"] == {
+        "ref": "U2", "xMil": 1950, "yMil": 400, "rotationDeg": 180,
+    }
+    ldo_placements = {item["ref"]: item for item in ldo_candidate["placements"]}
+    assert set(ldo_placements) == {"C3", "C4", "C5", "C6"}
+    assert all(item["rotationDeg"] == 90 for item in ldo_placements.values())
+    assert all("actualPads" in item for item in ldo_placements.values())
+    assert ldo_candidate["routeIntent"] == {
+        "inputPower": "source -> C3.1 -> C4.1 -> U2.3",
+        "outputPower": "U2.2/U2.4 continuous copper -> C5.1 -> C6.1 -> load",
+        "inputGround": "C3.2 -> C4.2 -> top-layer return corridor -> U2.1",
+        "outputGround": "C5.2 -> C6.2 -> top-layer return corridor -> U2.1",
+        "preferredLayer": "TOP",
+        "preferredViaCount": 0,
+        "powerWidthMil": 20,
+        "minimumAllowedPowerWidthMil": 8,
+        "turns": "straight or 45-degree; derive endpoints from fresh pad boundaries",
+    }
+    assert ldo_route["status"] == "live-verified"
+    assert ldo_route["documentUuid"] == "2e719e9419653c72"
+    assert ldo_route["rulesUsed"] == {
+        "layer": 1,
+        "layerName": "TOP",
+        "trackWidthMil": 20,
+        "clearanceMil": 6,
+        "viaCount": 0,
+    }
+    assert len(ldo_route["segments"]) == 15
+    assert {item["net"] for item in ldo_route["segments"]} == {"+5V", "+3V3", "GND"}
+    assert len({item["primitiveId"] for item in ldo_route["segments"]}) == 15
+    assert [item["orderedPads"] for item in ldo_route["semanticPaths"]] == [
+        ["C3.1", "C4.1", "U2.3"],
+        ["U2.2", "U2.4", "C5.1", "C6.1"],
+        ["C3.2", "C4.2", "U2.1"],
+        ["C5.2", "C6.2", "U2.1"],
+    ]
+    route_readback = ldo_route["postReloadReadback"]
+    assert route_readback["trackCount"] == 15
+    assert route_readback["allTop"] is True
+    assert route_readback["allWidth20Mil"] is True
+    assert route_readback["viaCount"] == 0
+    for field in (
+        "duplicateSegmentCount", "danglingEndCount", "acuteAngleCount", "nonOrthogonalCount",
+        "trackOverForeignPadCount", "clearanceFindingCount",
+    ):
+        assert route_readback[field] == 0, field
+    assert ldo_route["pathEvidence"]["allTargetPathsFound"] is True
+    assert ldo_route["independentVerification"]["status"] == "completed-with-findings"
+    assert ldo_route["independentVerification"]["findings"]
+    assert all(len(value) == 64 for value in ldo_route["evidence"].values())
+    assert ldo_route["notClaimed"]
+
     expected_catalog_ids = {
         *(f"SCH-{i:02d}" for i in range(1, 11)),
         *(f"PCB-{i:02d}" for i in range(1, 9)),
@@ -187,7 +265,10 @@ def main() -> None:
         assert term.lower() not in executable_text, (
             f"example execution path must not contain interactive fallback: {term}"
         )
-    assert {"initial-placement.json", "live-validation.json"} <= set(catalog["sourceData"])
+    assert {
+        "initial-placement.json", "ldo-layout-candidate.json", "ldo-route-live.json",
+        "live-validation.json",
+    } <= set(catalog["sourceData"])
     required_example_fields = {
         "source", "problem", "startState", "parameters", "steps", "commands",
         "observations", "rationale", "knownErrorsAndFixes", "verificationStatus", "pending",
@@ -264,6 +345,20 @@ def main() -> None:
     assert rules["powerTrackMil"] == {"min": 8.0, "default": 20.0}
     assert set(rules["netClass"]["nets"]) == {"+5V", "+3V3", "GND"}
     assert rules["verifiedAfterFullBrowserReload"] is True
+    ldo_live = live["pcbLdo"]
+    assert ldo_live["status"] == "live-verified"
+    assert ldo_live["placement"] == {
+        "refs": ["U2", "C3", "C4", "C5", "C6"],
+        "allTop": True,
+        "overlaps": 0,
+        "outsideOutline": 0,
+        "tightSpacingAt6Mil": 0,
+    }
+    assert ldo_live["routing"]["trackCount"] == 15
+    assert ldo_live["routing"]["viaCount"] == 0
+    assert ldo_live["routing"]["danglingEnds"] == 0
+    assert ldo_live["officialDrc"]["counts"] == {"Connection Error": 216}
+    assert ldo_live["independentReview"]["status"] == "completed-with-findings"
     assert live["notClaimed"], "partial live validation must list unverified work"
 
     live_count = sum(entry["verificationStatus"] == "live-verified" for entry in catalog_entries.values())

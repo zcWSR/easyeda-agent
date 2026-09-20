@@ -30,6 +30,9 @@ workflow/stage、版本一致性、布局评分和 stale-read 状态只提供诊
 
 ## 首要准则 — 禁止手工操作 EDA 工程
 
+本项目的现场 EDA 操作与验证使用用户已打开的内置浏览器 Web EDA；不得启动或切换到
+EasyEDA 桌面版。
+
 Agent 不得使用 CUA、鼠标、键盘、画布、属性面板、工程树或其他 GUI 自动化来创建、修复、
 补齐、保存、重载或验证原理图与 PCB，也不得把手工编辑作为 typed 工具失败后的兜底。所有
 工程写入必须来自可审计的参数化数据，并通过 `easyeda` Cobra 子命令、typed action 或

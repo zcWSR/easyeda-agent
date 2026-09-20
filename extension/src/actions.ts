@@ -272,27 +272,51 @@ function serializePcbComponent(component: PcbComponent): Record<string, unknown>
 	};
 }
 
-/**
- * Extract a pad's real copper extent (width/height in mil, axis-aligned after
- * rotation) from its TPCB_PrimitivePadShape tuple. Every shape is a tagged
- * array: [ELLIPSE|OVAL|NGON, w, h] / [RECT, w, h, cornerRadius] / [POLYGON,
- * sourceArray] — the polygon case has no cheap extent, so it returns null and
- * consumers fall back to their nominal estimate.
- *
- * @param pad - the PCB component pad primitive object
- * @returns { width, height } in mil, or null when the shape carries no extent
- */
-function padExtent(pad: PcbPad): { width: number; height: number } | null {
-	let shape: unknown;
-	try { shape = pad.getState_Pad?.(); } catch { return null; }
-	if (!Array.isArray(shape) || shape.length < 3) return null;
+/** Return an axis-aligned bbox envelope for supported native pad shapes. */
+export function pcbPadExtent(shape: unknown, rotation: unknown): { width: number; height: number } | null {
+	if (!Array.isArray(shape) || shape.length < 2 || typeof shape[0] !== 'string') return null;
+	if (typeof rotation !== 'number' || !Number.isFinite(rotation)) return null;
+	const rot = rotation;
+	const angle = rot * Math.PI / 180;
+	const c = Math.abs(Math.cos(angle));
+	const s = Math.abs(Math.sin(angle));
+	const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+	if (shape[0] === 'NGON') {
+		// The first numeric field is diameter; the second is the side count, not
+		// height.  Its circumcircle is a safe exact bbox envelope at any rotation.
+		if (!positive(shape[1])) return null;
+		return { width: shape[1], height: shape[1] };
+	}
+	if (!positive(shape[1]) || !positive(shape[2])) return null;
 	const w = shape[1], h = shape[2];
-	if (typeof w !== 'number' || typeof h !== 'number' || !isFinite(w) || !isFinite(h)) return null;
-	// A 90°/270° pad rotation swaps the axis-aligned extents.
-	let rot = 0;
-	try { rot = Number(pad.getState_Rotation?.() ?? 0); } catch { /* keep 0 */ }
-	const quarter = Math.abs(((rot % 180) + 180) % 180 - 90) < 45;
-	return quarter ? { width: h, height: w } : { width: w, height: h };
+	switch (shape[0]) {
+	case 'ELLIPSE':
+		return {
+			width: Math.hypot(w * c, h * s),
+			height: Math.hypot(w * s, h * c),
+		};
+	case 'OVAL': {
+		// OVAL is a stadium: a center segment of |w-h| capped by circles whose
+		// diameter is min(w,h).
+		const d = Math.min(w, h);
+		if (w >= h) return { width: c * (w - h) + d, height: s * (w - h) + d };
+		return { width: s * (h - w) + d, height: c * (h - w) + d };
+	}
+	case 'RECT':
+		return { width: w * c + h * s, height: w * s + h * c };
+	default:
+		return null;
+	}
+}
+
+function padExtent(pad: PcbPad): { width: number; height: number } | null {
+	try {
+		const special = pad.getState_SpecialPad?.();
+		if (Array.isArray(special) && special.length > 0) return null;
+		return pcbPadExtent(pad.getState_Pad?.(), pad.getState_Rotation?.());
+	}
+	catch { return null; }
 }
 
 /**
@@ -305,7 +329,12 @@ function padExtent(pad: PcbPad): { width: number; height: number } | null {
  * @param pad - the PCB component pad primitive object
  * @returns a plain JSON record
  */
-function serializePcbPad(pad: PcbPad): Record<string, unknown> {
+export function serializePcbPad(pad: PcbPad): Record<string, unknown> {
+	let shape: unknown = null;
+	let specialPad: unknown = null;
+	try { shape = pad.getState_Pad?.() ?? null; } catch { /* unreadable stays null */ }
+	try { specialPad = pad.getState_SpecialPad?.() ?? null; } catch { /* unreadable stays null */ }
+	const rotation = pad.getState_Rotation();
 	const record: Record<string, unknown> = {
 		primitiveId: pad.getState_PrimitiveId(),
 		padNumber: pad.getState_PadNumber(),
@@ -313,10 +342,14 @@ function serializePcbPad(pad: PcbPad): Record<string, unknown> {
 		layer: pad.getState_Layer(),
 		x: pad.getState_X(),
 		y: pad.getState_Y(),
-		rotation: pad.getState_Rotation(),
+		rotation,
 		padType: pad.getState_PadType(),
+		// Keep the source tuple.  width/height are only a bbox for general PCB
+		// clearance consumers; connectivity evidence must reason from shape.
+		shape,
+		specialPad,
 	};
-	const ext = padExtent(pad);
+	const ext = Array.isArray(specialPad) && specialPad.length > 0 ? null : pcbPadExtent(shape, rotation);
 	if (ext) {
 		record.width = ext.width;
 		record.height = ext.height;
@@ -11461,7 +11494,13 @@ const pcbLineList: Handler = async (payload) => {
 	// Return them so headless checks (pcb.check dangling-end) can see a track
 	// terminating on an arc endpoint as anchored, not floating. Best-effort: an
 	// older API without pcb_PrimitiveArc must not break the line list.
-	const arcs = await eda.pcb_PrimitiveArc.getAll(net, layer).catch(() => []);
+	let arcs: Awaited<ReturnType<typeof eda.pcb_PrimitiveArc.getAll>> = [];
+	let arcsAvailable = true;
+	try { arcs = await eda.pcb_PrimitiveArc.getAll(net, layer); }
+	catch {
+		arcs = [];
+		arcsAvailable = false;
+	}
 	const list = (lines ?? []).map(l => ({
 		primitiveId: l.getState_PrimitiveId(),
 		net: l.getState_Net(),
@@ -11485,7 +11524,7 @@ const pcbLineList: Handler = async (payload) => {
 		lineWidth: a.getState_LineWidth(),
 		locked: a.getState_PrimitiveLock(),
 	}));
-	return { result: { lines: list, arcs: arcList, count: list.length, arcCount: arcList.length } };
+	return { result: { lines: list, arcs: arcList, arcsAvailable, count: list.length, arcCount: arcList.length } };
 };
 
 const pcbViaList: Handler = async (payload) => {

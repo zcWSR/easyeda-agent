@@ -44,6 +44,33 @@ EasyEDA 原生自动布线或已配置的外部路由器，完成后都按网回
   mil) + `diameter` (outer pad, default 24 mil), optional `net`.
 - `pcb.line.list` / `pcb.via.list` — read what's routed (filter by net/layer) before
   rip-up or reroute.
+- `easyeda pcb net-path --from C3.1 --through C4.1 --to U2.3 --layer 1 [--net +5V] [--json]`
+  — **只读的逐焊盘铜路径举证**。它读取焊盘原始 `shape` / `rotation` / `specialPad`、
+  线段/圆弧、层、线宽和过孔，在 Go
+  侧构图；`--through` 是一条不重复使用铜图元的路径中按给定顺序出现的**必经焊盘**，
+  不是物理过孔。只因各焊盘分别可达、但必须沿分支回头的网络不会冒充顺序通过。输出每一段的
+  primitive 路径、层序列、线宽集合/最小值和唯一过孔数，因此可以分别证明
+  `C3.1 → C4.1`、`C4.1 → U2.3`，也能证明晶振路径是否确实 TOP-only。
+  `--layer 1` 在受限图中求路，直接排除其它层和物理过孔；不是先任取一条跨层路径再检查
+  结果。因此 TOP-only 报告的 `requestedLayer=1`、`layers=[1]`、`viaCount=0`。
+  同网名本身不算连通，异层同坐标也不算连通，必须有实际接触的铜或过孔。旋转 RECT（含
+  圆角）和 OVAL 按实际几何判定；ELLIPSE、NGON 与 pad-to-pad 接触使用完全包含在真实铜内的
+  保守几何，允许漏掉边缘落点但不制造假连通。`POLYGON`、`specialPad`、缺失/畸形 shape
+  不使用 bbox 或中心点猜测：必经焊盘直接返回 unknown/error；其它同网未知焊盘若可能改变
+  FAIL 也返回 unknown/error。结果的 `excludedCopper` 固定列出
+  pours / filled regions / PLANE layers：第一版**不把铺铜或内电层推断成已验证路径**，所以
+  FAIL 只表示“没有被 listed routed copper 证明”，整板开路结论仍由 `pcb drc` 给出。
+  圆弧作为连续铜参与路径，但其它图元只在圆弧回读端点处与它建立接触；`arcsAvailable`
+  缺失/为假时不把空数组当成“没有圆弧”。圆弧中段分叉也会明确列为限制。对 ordered proof，
+  工具按实际线宽检查同层铜：平行近邻、正长度叠线、内部交叉、
+  track↔arc、arc↔arc 或 via↔via 的非规范重叠都返回 unknown/error；一个普通 endpoint 或
+  T junction 仍可使用。圆弧以有误差上界的中心线离散参与检查，无法在预算内可靠规范化时
+  同样返回 unknown，避免借不同 primitive ID 在同一物理铜上回走。直接 via-on-pad 重叠不算连接（平台实测需有 track/arc stub），避免制造假
+  连通。该命令适合每组关键网布完后的局部核查；保存重开后的最终批次仍应重跑。
+- `pcb check` 的 `dangling-end` 也复用 pad shape/rotation：同网 track 端部或其铜宽实际接触
+  pad 铜才算 anchor。旧 connector 只有 `width/height` 时使用保守 ellipse/cardinal 或内切圆，
+  不用完整 AABB；JSON/human report 的 `limitations` 会说明 legacy/unknown pad 数量。这样
+  AMS1117 的大 TAB/窄脚端部落铜不会被固定 30mil 半径误报，旋转焊盘的 AABB 空角也不会假通过。
 - `pcb.route.rip_up` — **reliable rip-up**: delete tracks+arcs+vias, `--net` to scope
   (string or list) or omit for ALL. **Copper layers only** — never deletes the board
   outline, silkscreen/assembly/mechanical artwork, or **locked** primitives. The

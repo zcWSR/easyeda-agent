@@ -157,7 +157,9 @@ EasyEDA 交互界面兜底。能力边界与未来 typed 验收见 [project-impo
   [pcb-config.md](pcb-config.md)。`get` 导出可交给 `pcb drc-rules-set --from` 完整恢复。
 
 - `pcb.documents.list` — 工程内所有 PCB 文档（uuid + name）
-- `pcb.components.list` — PCB 上的封装/器件（可含 pads）
+- `pcb.components.list` — PCB 上的封装/器件；`includePads:true` 回传 pad 的原始
+  `shape` / `rotation` / `specialPad`，支持形状另带旋转后 bbox `width/height`
+- `pcb.line.list` — 铜线与圆弧；`arcsAvailable:true` 才能证明空 `arcs` 确实表示没有圆弧
 - `pcb.layers.list` — PCB 层列表 + 当前层 + 铜层数（会先激活 PCB tab 保证 `currentLayer` 可读回；无当前层时附带 `visibleLayers` 作为显示状态证据）→ `easyeda pcb layers`
 - `pcb.layers.set_current` — 切换当前编辑层（`--layer` 接受 id|层名|top|bottom|inner1）→ `easyeda pcb layer-set --layer bottom`
 - `pcb.layers.visibility` — 显示/隐藏/聚焦层做视觉 QA：`--preset top-only|bottom-only|copper-only|silk-only`，或 `--show/--hide`（可加 `--exclusive` 只留所选）→ `easyeda pcb layer-visibility --preset bottom-only`

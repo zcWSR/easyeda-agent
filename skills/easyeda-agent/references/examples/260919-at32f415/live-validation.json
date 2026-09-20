@@ -116,13 +116,65 @@
     },
     "verifiedAfterFullBrowserReload": true
   },
+  "pcbLdo": {
+    "status": "live-verified",
+    "verificationScope": "U2/C3-C6 第二轮相对布局与局部 +5V/+3V3/TOP GND 铜；输入源和输出负载主干不在范围内",
+    "placement": {
+      "refs": ["U2", "C3", "C4", "C5", "C6"],
+      "allTop": true,
+      "overlaps": 0,
+      "outsideOutline": 0,
+      "tightSpacingAt6Mil": 0
+    },
+    "routing": {
+      "trackCount": 15,
+      "layer": 1,
+      "widthMil": 20,
+      "viaCount": 0,
+      "danglingEnds": 0,
+      "duplicateSegments": 0,
+      "acuteAngles": 0,
+      "nonOrthogonal": 0,
+      "trackOverForeignPad": 0,
+      "clearanceFindings": 0,
+      "data": "ldo-route-live.json",
+      "limitations": [
+        "连接器1.5.1的235个pads缺source shape；pcb check按width/height使用保守legacy椭圆/内切圆并显式报告，不使用完整AABB"
+      ]
+    },
+    "pathEvidence": {
+      "method": "typed save/reload 后的 pads/tracks/vias 原始回读离线重建",
+      "found": [
+        "C3.1 -> C4.1 -> U2.3",
+        "U2.2 -> U2.4 -> C5.1 -> C6.1",
+        "C3.2/C4.2 -> U2.1 on TOP",
+        "C5.2/C6.2 -> U2.1 on TOP"
+      ],
+      "shapeAwareLiveRetest": "blocked-by-old-connector: pcb.line.list lacks explicit arcsAvailable and pcb pads lack source shape; new net-path correctly returned unknown/error instead of PASS"
+    },
+    "officialDrc": {
+      "total": 216,
+      "counts": {"Connection Error": 216},
+      "interpretation": "整板未布通；没有短路、间距、线宽等其他 DRC 类型，不能把全局 Connection Error 当局部路径判据"
+    },
+    "independentReview": {
+      "status": "completed-with-findings",
+      "passed": "局部输入/输出顺序、四条TOP地回流、20mil、0via、0重复和0异网碰撞按保存重开后的原始几何成立",
+      "findings": [
+        "U2.4出线中心距焊盘边缘0.85mil；20mil铜实际相交且shape-aware check已清除旧假dangling，迁移仍须重算焊盘端部",
+        "三网尚未接入整板主干，DRC仍有216项Connection Error",
+        "丝印压焊盘/方向和通用decap距离告警不在本局部铜范围内，后续必须处理"
+      ]
+    }
+  },
   "observedToolIssues": [
     {
       "id": "web-doc-reload-spinner",
       "symptom": "doc reload关闭PCB后openDocument不返回，留下about:blank标签和持续加载动画",
       "dataLossObserved": false,
       "recovery": "停止重试和现场写入，保留故障证据；修复 typed reload/open 后复测，不使用浏览器或工程树恢复",
-      "codeFix": "保存目标splitScreenId，等待旧文档退出活动态，单次15秒有界重开；需加载新connector后再现场验证"
+      "codeFix": "保存目标splitScreenId，等待旧文档退出活动态，单次15秒有界重开",
+      "liveRetest": "2026-09-20 本轮 PCB 保存后 typed doc reload 1.8s 成功，reloaded/activeRestored 均为 2e719e9419653c72；未使用浏览器刷新"
     },
     {
       "id": "drc-wrapper-shape",
@@ -134,12 +186,23 @@
       "id": "stale-board-binding",
       "symptom": "PCB Board绑定指向已失效原理图UUID，官方DRC多一个Netlist Error",
       "recovery": "board rebind到当前原理图与PCB后全页刷新，Netlist Error消失"
+    },
+    {
+      "id": "pcb-check-pad-anchor",
+      "symptom": "pcb check 使用固定30mil焊盘中心半径，把 U2.4 内的 (2050,470) 与 U2.1 内的 (1803.6,490.6) 误报 dangling",
+      "recovery": "保留现场铜，不手工补线；改为按真实 pad shape/rotation 判断同网端点是否落在铜内，并增加大RECT与旋转RECT空角反例",
+      "liveRetest": "同一保存重开回读复跑后 dangling=0、floating-island=0；旧连接器235个pads使用保守legacy几何并出现在limitations"
+    },
+    {
+      "id": "net-path-legacy-connector-evidence",
+      "symptom": "连接器1.5.1缺 pad source shape 与 result.arcsAvailable，无法可靠区分无圆弧、圆弧读取失败和AABB空角",
+      "recovery": "shape-aware pcb net-path fail-closed 返回 unknown/error；加载新版typed连接器后再现场复测，不以AABB或截图降级"
     }
   ],
   "notClaimed": [
     "第一轮布局的独立复核发现LED板边、去耦、晶振守护区、CAN和LCD禁放证据缺口，不能称布局完成",
     "完整PCB布线、双面GND、泪滴、丝印和PCB DRC=0尚未执行",
     "LCD可写封装副本与实例绑定尚未在新connector现场验证",
-    "doc reload代码修复尚未在加载新connector的Web窗口复测"
+    "shape-aware pcb net-path 与 pad-anchor 修复尚未在加载新版连接器的 Web 窗口复测"
   ]
 }

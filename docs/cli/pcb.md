@@ -38,6 +38,7 @@
 |---|---|---|
 | 短线启发式 | `pcb route-short` | 每网 MST、规则感知线宽(按网络角色给宽)、障碍感知 L 朝向、默认跳电源/地(该铺铜) |
 | 关键网先行 | `pcb route-critical` | P7.0 一条命令:电源按层数走 planes/pour → 差分对双源识别成对布线+skew 实测 → 自动 `track-lock` |
+| 逐焊盘铜路径核查 | `pcb net-path --from REF.PAD [--through REF.PAD] --to REF.PAD [--layer 1]` | 只读按支持的原始 pad shape + track/arc/via 构图；`--layer` 在受限图求路并排除物理过孔，回报 requestedLayer/连续路径/层/线宽/过孔数；未知焊盘几何、缺失 arc 回读或 ordered proof 的重叠铜返回 unknown/error，同网名不等于连通，铺铜/PLANE 明确排除 |
 | 外部自动布线 | `pcb export-dsn` / `import-autoroute` / `pcb autoroute` | Specctra DSN 往返(带禁布区注入),Freerouting 兜底;稠密板默认交编辑器原生自动布线 |
 | 拆线 | `pcb rip-up` | 按网/按范围拆 |
 | 锁定 | `pcb track-lock` | 手布关键线锁死,防被自动布线/pour-rebuild 冲掉 |
@@ -66,7 +67,7 @@
 |---|---|---|
 | 叠层 | `pcb stackup` | 2–32 铜层 + 内层类型(信号↔内电层) |
 | 规则 | `pcb drc-rules` / `drc-rules-set --from` / `net-class list/create` / `net-classes` | 完整规则与真实 EasyEDA 网络类可写入、回读和失败回滚；复数 `net-classes` 是路由器的启发式线宽表，不能冒充持久化网络类 |
-| 检查 | `pcb drc` / `pcb check` | 官方 DRC + 重建的逐项检查(电源未铺铜/线宽不达规范/丝印压焊盘/连接器贴边与插拔通道等,报错带 `[规范 §N]` 指向手册章节) |
+| 检查 | `pcb drc` / `pcb check` / `pcb net-path` | 官方 DRC + 重建的逐项检查 + 指定焊盘间的只读铜路径证据；dangling pad anchor 按 shape/rotation，legacy 尺寸只用保守几何并在 `limitations` 说明(报错带 `[规范 §N]` 指向手册章节) |
 | 历史流程记录 | `workflow status/advance` | 兼容读取/记录 `outline_confirmed`、`pre_route_passed`、`post_route_checked`；typed action 不再据此拒绝执行 |
 
 ## 二、待支持 / 路线

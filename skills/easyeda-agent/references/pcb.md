@@ -96,9 +96,14 @@ Act on the focused canvas; the editor view shortcuts. CLI: `easyeda view …`.
 
 ### Read / inspect
 
-- `pcb.components.list` — placed footprints. `includeBBox` → per-component rendered extent (for overlap/spacing reasoning); via the CLI (`pcb list --include-bbox`) each bbox'd part also carries `center` `{x,y}` — the bbox geometric center, CLI-computed — use it (not the anchor `x`/`y`) when planning positions; `includePads` → pads + net (the net-by-name connectivity) + **real copper `width`/`height`** (mil, axis-aligned after pad rotation; omitted for complex-polygon pads → consumers fall back to a nominal size). Connector ≥0.12.1; check/route clearance math uses these real extents.
+- `pcb.components.list` — placed footprints. `includeBBox` → per-component rendered extent (for overlap/spacing reasoning); via the CLI (`pcb list --include-bbox`) each bbox'd part also carries `center` `{x,y}` — the bbox geometric center, CLI-computed — use it (not the anchor `x`/`y`) when planning positions; `includePads` → pads + net、原始 `shape` / `rotation` / `specialPad`，以及支持形状的旋转后轴对齐 `width`/`height` 包络。`POLYGON` 和特殊焊盘不伪造尺寸。Connector ≥0.12.1；需要连通证据时必须按原始 shape 判断，不能把 bbox 当铜面积。
 - `pcb.layers.list` — layers (id/name/type), `currentLayer`, and `copperLayerCount` (2-layer vs 4+-layer — gates the decoupling rules).
 - `pcb.nets.list` — nets (`net` / `length` / `color`).
+- `easyeda pcb net-path --from REF.PAD [--through REF.PAD] --to REF.PAD [--layer 1]`
+  — 只读按支持的原始焊盘 shape 与 track/arc/via 构图，证明指定焊盘间的连续铜路径并回报层、线宽、
+  过孔数；`--through` 是有序必经焊盘，`--layer` 是求路约束且会排除物理过孔。同网名不
+  等于连通；未知焊盘几何、缺失圆弧回读或有序证明遇到重叠铜时返回 unknown/error。铺铜、填充和 PLANE 固定列入 JSON `excludedCopper`。完整范围与例子见
+  [pcb-routing.md](pcb-routing.md)。
 - `easyeda pcb outline-get` — 读取真实板框。名义尺寸用 `centerlineBBox` / `width` / `height`，
   不用包含描边的 rendered `bbox`。圆角 polyline 用 `sourceArcs` / `nativeArcs` 计数；
   `arcs` / `legacyArcs` 只统计旧式独立 Arc 图元。结果还返回 `radius`、`lineWidth`、`locked`。

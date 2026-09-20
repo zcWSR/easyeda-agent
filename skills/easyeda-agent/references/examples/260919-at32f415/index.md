@@ -8,7 +8,9 @@
 [example-catalog.json](example-catalog.json)。现场初始布局参数见
 [initial-placement.json](initial-placement.json)，代表性步骤的真实回读和未完成项见
 [live-validation.json](live-validation.json)；关键网络如何反向修正布局见
-[晶振/CAN 离线规划样例](critical-routing.md)。
+[晶振/CAN 离线规划样例](critical-routing.md)，LDO 第二轮可执行参数见
+[LDO 布局候选](ldo-layout-candidate.json)，保存重开后的局部铜见
+[LDO 实际路线](ldo-route-live.json)。
 
 ## 来源与已确认事实
 
@@ -19,7 +21,8 @@
 | `考试说明.pdf` 第 1-8 页 | 原理图、规则、机械、布局、布线、丝印和评分要求 | 已逐页提取并视觉抽查；不是完成态设计 |
 
 当前总状态：`partial-live-verified`。原理图逐端点连接、默认 DRC、真圆角板框、显示原点、
-固定件、规则/网络类和 69 件初始布局已在 Web 3.2.203 保存并通过整页刷新回读；完整布线、
+固定件、规则/网络类、69 件初始布局，以及 LDO 第二轮局部布局/局部铜已在 Web 3.2.203
+保存并通过 typed reload 回读；完整布线、
 LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
 `live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
 该文件保留初始批次；后续配置入口的 typed 保存/重载实测见
@@ -88,7 +91,7 @@ LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体�
 |---|---|---|---|
 | LAY-01 | 说明 p3-4 | 按键板边等距；USB、SWD、端子面向可插拔方向 | 读真实 bbox、开口方向和板框距离，不只看中心点 |
 | LAY-02 | 说明 p4 | RGB 靠 TYPE-C；光敏远离 RGB | 参数化最远/最近关系，迁移板尺寸后重算 |
-| LAY-03 | 说明 p4、p7 | LDO 输入/输出电容靠对应引脚，大电容在前、小电容在后 | [LDO 样例](ldo-placement.md) |
+| LAY-03 | 说明 p4、p7 | LDO 输入/输出电容靠对应引脚，大电容在前、小电容在后 | [LDO 样例](ldo-placement.md)；第二轮布局与15段TOP/20mil局部铜已 `live-verified`，整板主干不在本条范围内 |
 | LAY-04 | 说明 p4、p7 | MCU 等电源脚逐脚去耦，电源先经过电容再入芯片 | pin→cap 所有权表 + 实际铜路径；同网距离不足以证明顺序 |
 | LAY-05 | 说明 p4 | 晶振靠 MCU、不在板边；蜂鸣器/背光驱动整体放置 | 分组 bbox、引脚距离和关键走线通道 |
 | LAY-06 | 说明 p4 | 全部器件顶层、无重叠、外形不出板 | `pcb list --include-bbox`、`layout-lint` 和 LCD 禁放区分别观察 |

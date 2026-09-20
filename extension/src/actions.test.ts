@@ -22,6 +22,7 @@ import {
 	isGroundLikeNet,
 	isPowerRailNet,
 	normalizeDeviceRef,
+	pcbPadExtent,
 	planOtherPropertyBackfill,
 	polygonSourceToPoints,
 	PROJECTED_STATE_KEYS,
@@ -29,8 +30,49 @@ import {
 	schematicComponentsList,
 	selectBoardOutlineSources,
 	serializeComponent,
+	serializePcbPad,
 	summarizeActivePageConnectivity,
 } from './actions';
+
+test('PCB pad serialization preserves source shape/rotation and computes shape-aware bbox extents', () => {
+	const pad: any = {
+		getState_PrimitiveId: () => 'p1',
+		getState_PadNumber: () => '1',
+		getState_Net: () => 'SIG',
+		getState_Layer: () => 1,
+		getState_X: () => 10,
+		getState_Y: () => 20,
+		getState_Rotation: () => 45,
+		getState_PadType: () => 0,
+		getState_Pad: () => ['RECT', 40, 10, 0],
+		getState_SpecialPad: () => undefined,
+	};
+	const got: any = serializePcbPad(pad);
+	assert.deepEqual(got.shape, ['RECT', 40, 10, 0]);
+	assert.equal(got.rotation, 45);
+	assert.equal(got.specialPad, null);
+	assert.ok(Math.abs(got.width - 35.3553390593) < 1e-6);
+	assert.ok(Math.abs(got.height - 35.3553390593) < 1e-6);
+
+	assert.deepEqual(pcbPadExtent(['NGON', 30, 6], 17), { width: 30, height: 30 },
+		'NGON side count must never be misread as pad height');
+	assert.equal(pcbPadExtent(['POLYGON', [0, 0, 'L', 1, 1]], 0), null);
+});
+
+test('special pads retain raw geometry and do not publish a misleading base-shape bbox', () => {
+	const special = [[1, 1, ['POLYGON', [0, 0, 'L', 20, 0, 20, 10]]]];
+	const pad: any = {
+		getState_PrimitiveId: () => 'p-special', getState_PadNumber: () => 'EP',
+		getState_Net: () => 'GND', getState_Layer: () => 1,
+		getState_X: () => 0, getState_Y: () => 0, getState_Rotation: () => 0,
+		getState_PadType: () => 0, getState_Pad: () => ['RECT', 20, 20, 0],
+		getState_SpecialPad: () => special,
+	};
+	const got: any = serializePcbPad(pad);
+	assert.deepEqual(got.specialPad, special);
+	assert.equal(got.width, undefined);
+	assert.equal(got.height, undefined);
+});
 
 function libraryDocumentControl(uuid: string, libraryUuid: string, documentType: number, tabId: string): Record<string, unknown> {
 	let current = { uuid: 'previous', parentLibraryUuid: 'previous-library', documentType: 0, tabId: 'previous-tab' };

@@ -62,13 +62,16 @@ type pcbTrack struct {
 // pcbArc is a copper ARC (pcb.line.list → arcs). beautify (走线美化) rounds a sharp
 // corner into a track→arc→track chain, so a track terminating on an arc endpoint is
 // electrically continued, not floating. Only the endpoints are carried — that is
-// where a track joins the arc; the curvature (arcAngle) is not needed for anchoring.
+// where a track joins the arc; Width/ArcAngle are carried for pcb net-path evidence,
+// while the DFM anchoring rules below need only the endpoints.
 type pcbArc struct {
-	ID     string
-	Net    string
-	Layer  int
-	X1, Y1 float64
-	X2, Y2 float64
+	ID       string
+	Net      string
+	Layer    int
+	X1, Y1   float64
+	X2, Y2   float64
+	Width    float64
+	ArcAngle float64
 }
 
 // pcbViaP is one via (pcb.via.list).
@@ -85,12 +88,22 @@ type pcbViaP struct {
 // 0 = unknown (older connector, or a complex-polygon pad) → halfExt() falls back
 // to the nominal estimate.
 type pcbPadP struct {
+	ID         string
 	Designator string
 	Number     string
 	Net        string
 	Layer      int
 	X, Y       float64
 	W, H       float64
+	Rotation   float64
+	Shape      string
+	ShapeW     float64
+	ShapeH     float64
+	ShapeRound float64
+	ShapeSides int
+	ShapeOK    bool
+	ShapeIssue string
+	SpecialPad bool
 }
 
 // halfExt is the pad's half-extent (mil) for center-distance clearance math —
@@ -233,12 +246,13 @@ type pcbCheckSummary struct {
 }
 
 type pcbCheckReport struct {
-	Passed     bool              `json:"passed"`
-	Summary    pcbCheckSummary   `json:"summary"`
-	TrackCount int               `json:"trackCount"`
-	ViaCount   int               `json:"viaCount"`
-	PadCount   int               `json:"padCount"`
-	Findings   []pcbCheckFinding `json:"findings"`
+	Passed      bool              `json:"passed"`
+	Summary     pcbCheckSummary   `json:"summary"`
+	TrackCount  int               `json:"trackCount"`
+	ViaCount    int               `json:"viaCount"`
+	PadCount    int               `json:"padCount"`
+	Findings    []pcbCheckFinding `json:"findings"`
+	Limitations []string          `json:"limitations,omitempty"`
 }
 
 // analyzePcbCheck is the copper-only DFM core (no silkscreen). Thin wrapper over
@@ -253,6 +267,23 @@ func analyzePcbCheck(pads []pcbPadP, tracks []pcbTrack, vias []pcbViaP, coupling
 // corners) anchor track endpoints so rounding doesn't fabricate dangling stubs.
 func analyzePcbCheckFull(pads []pcbPadP, tracks []pcbTrack, vias []pcbViaP, arcs []pcbArc, silk []pcbSilkText, couplingW float64) pcbCheckReport {
 	rep := pcbCheckReport{TrackCount: len(tracks), ViaCount: len(vias), PadCount: len(pads)}
+	legacyPadGeometry, unknownPadGeometry := 0, 0
+	for _, p := range pads {
+		if p.ShapeOK {
+			continue
+		}
+		if p.W > 0 && p.H > 0 {
+			legacyPadGeometry++
+		} else {
+			unknownPadGeometry++
+		}
+	}
+	if legacyPadGeometry > 0 {
+		rep.Limitations = append(rep.Limitations, fmt.Sprintf("%d pad(s) lack source shape; endpoint anchoring uses a conservative legacy ellipse/cardinal or inscribed-circle model from width/height, never the full AABB", legacyPadGeometry))
+	}
+	if unknownPadGeometry > 0 {
+		rep.Limitations = append(rep.Limitations, fmt.Sprintf("%d pad(s) lack both source shape and readable width/height; only center coincidence can anchor them", unknownPadGeometry))
+	}
 	if couplingW <= 0 {
 		couplingW = pcbCouplingW
 	}
@@ -354,27 +385,19 @@ func findDanglingEnds(tracks []pcbTrack, vias []pcbViaP, pads []pcbPadP, arcs []
 	return out
 }
 
-// padBodyAnchorTol is the same-net pad anchoring tolerance: the pad list carries
-// only centers (no extents), so an endpoint landing INSIDE the pad copper but off
-// its center (a legitimate bond — EasyEDA's own connectivity accepts it, verified
-// on U1's castellated GND stubs) must still anchor. 30 mil covers typical pad
-// half-extents without reaching a neighboring pad (smallest pitch on board ≥ 20 mil
-// applies only to FOREIGN nets, which keep the strict epsilon below).
-const padBodyAnchorTol = 30.0
-
 // anchored reports whether a track endpoint at (px,py) on copper layer `layer`
-// is electrically continued: a pad there (same-net pads anchor within the pad-body
-// tolerance, foreign pads only at the exact center — a near-miss on a foreign pad
-// is NOT a connection), a via, or ANOTHER track passing through it ON THE SAME
+// is electrically continued: a pad whose copper touches the endpoint/track stroke
+// (foreign pads only at the exact center — a near-miss on a foreign pad is NOT a
+// connection), a via, or ANOTHER track passing through it ON THE SAME
 // LAYER. A different-layer track crossing the XY is NOT a connection without a
 // via, so it must not anchor the stub.
 func anchored(px, py float64, self, layer int, net string, tracks []pcbTrack, vias []pcbViaP, pads []pcbPadP, arcs []pcbArc) bool {
+	trackRadius := pcbCoincEps
+	if self >= 0 && self < len(tracks) && tracks[self].Width > 0 {
+		trackRadius += tracks[self].Width / 2
+	}
 	for _, p := range pads {
-		tol := pcbCoincEps
-		if net != "" && p.Net == net {
-			tol = padBodyAnchorTol
-		}
-		if math.Hypot(p.X-px, p.Y-py) <= tol {
+		if pcbPadAnchorsPoint(p, px, py, layer, net, trackRadius) {
 			return true
 		}
 	}
@@ -417,6 +440,79 @@ func anchored(px, py float64, self, layer int, net string, tracks []pcbTrack, vi
 		}
 	}
 	return false
+}
+
+// pcbPadAnchorsPoint is fail-closed for pad copper. New connectors expose the
+// native shape, so rotated RECT/rounded RECT and OVAL use their real geometry and
+// ELLIPSE/NGON use the net-path conservative geometry. Legacy connectors expose
+// only width/height: at cardinal rotations an axis-aligned ellipse lies inside
+// RECT/OVAL/ELLIPSE native pads; at other rotations an inscribed circle avoids
+// treating an AABB corner as copper. With no size, only center coincidence counts.
+func pcbPadAnchorsPoint(p pcbPadP, px, py float64, layer int, net string, contactRadius float64) bool {
+	if !padLayerMatches(p.Layer, layer) {
+		return false
+	}
+	if net == "" || p.Net != net {
+		return math.Hypot(p.X-px, p.Y-py) <= pcbCoincEps
+	}
+	if p.ShapeOK {
+		pad := pcbNetPathNode{
+			kind: "pad", net: p.Net, layer: p.Layer, x: p.X, y: p.Y,
+			w: p.ShapeW, h: p.ShapeH, rotation: p.Rotation, shape: p.Shape,
+			shapeRound: p.ShapeRound, shapeSides: p.ShapeSides,
+		}
+		return pointTouchesPad(px, py, pad, contactRadius)
+	}
+	if p.W <= 0 || p.H <= 0 {
+		return math.Hypot(p.X-px, p.Y-py) <= pcbCoincEps
+	}
+	dx, dy := px-p.X, py-p.Y
+	if netPathCardinalRotation(p.Rotation) {
+		return netPathEllipsePointDistance(math.Abs(dx), math.Abs(dy), p.W/2, p.H/2) <= contactRadius+netPathGeomEps
+	}
+	return math.Hypot(dx, dy) <= math.Min(p.W, p.H)/2+contactRadius+netPathGeomEps
+}
+
+func netPathCardinalRotation(rotation float64) bool {
+	r := math.Mod(rotation, 90)
+	if r < 0 {
+		r += 90
+	}
+	return r <= netPathGeomEps || 90-r <= netPathGeomEps
+}
+
+// Exact Euclidean distance from a first-quadrant point to an axis-aligned
+// ellipse. Zero means inside. The monotonic Lagrange multiplier solve is bounded
+// and deterministic; it is used only for legacy pad anchoring.
+func netPathEllipsePointDistance(x, y, a, b float64) float64 {
+	if a <= 0 || b <= 0 {
+		return math.Inf(1)
+	}
+	if x*x/(a*a)+y*y/(b*b) <= 1 {
+		return 0
+	}
+	f := func(t float64) float64 {
+		return (a*x/(t+a*a))*(a*x/(t+a*a)) + (b*y/(t+b*b))*(b*y/(t+b*b)) - 1
+	}
+	lo, hi := 0.0, math.Max(a*x, b*y)
+	if hi <= 0 {
+		return 0
+	}
+	for f(hi) > 0 {
+		hi *= 2
+	}
+	for i := 0; i < 80; i++ {
+		mid := (lo + hi) / 2
+		if f(mid) > 0 {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	t := hi
+	qx := a * a * x / (t + a*a)
+	qy := b * b * y / (t + b*b)
+	return math.Hypot(x-qx, y-qy)
 }
 
 // ── R2: acute-angle (acid-trap) corner ──────────────────────────────────────
@@ -983,28 +1079,29 @@ func findParallelCoupling(tracks []pcbTrack, couplingW float64) []pcbCheckFindin
 //  1. side mismatch — a component's designator sits on the OPPOSITE silk layer from
 //     its footprint (component on TOP but its designator on BOTTOM_SILKSCREEN, or
 //     vice-versa). The label ends up on the wrong side of the board.
+//
 //  2. mirror/reverse — the text renders backwards. Only the UNAMBIGUOUS half is
 //     judged here:
 //
 //     - `reverse` (left/right reading) is always a defect, on either silk layer:
-//       it mirrors glyph order regardless of which side the text is on.
+//     it mirrors glyph order regardless of which side the text is on.
 //     - `mirror` on TOP silk is a defect — the top is the reference reading
-//       orientation, so mirroring it can only render backwards.
+//     orientation, so mirroring it can only render backwards.
 //
 //     `mirror` on BOTTOM silk is deliberately NOT judged. The platform's bottom
 //     semantics are unverified and the in-repo sources disagree, so any rule here
 //     would either misreport or contradict our own tooling:
 //
 //     - All seven vendored reference boards (testdata/boards/*.json — JLCEDA
-//       open-source boards plus a shipped user design) carry mirror=false on every
-//       bottom-silk text: 1814 of 1814, attributes and free strings alike. The
-//       rule's original polarity (bottom must be mirrored) fired ~1800 false
-//       ERRORs across them, yet bbclaw ships mirror=true on 10 bottom designators,
-//       so the inverted polarity does not clear them all either.
+//     open-source boards plus a shipped user design) carry mirror=false on every
+//     bottom-silk text: 1814 of 1814, attributes and free strings alike. The
+//     rule's original polarity (bottom must be mirrored) fired ~1800 false
+//     ERRORs across them, yet bbclaw ships mirror=true on 10 bottom designators,
+//     so the inverted polarity does not clear them all either.
 //     - `pcb silk-align` (extension/src/actions.ts) deliberately sets
-//       `mirror = (component side == bottom)` on the designators it writes, and
-//       retries WITHOUT mirror/layer when modify rejects them. Judging bottom
-//       mirror either way makes this audit flag the writer's own output.
+//     `mirror = (component side == bottom)` on the designators it writes, and
+//     retries WITHOUT mirror/layer when modify rejects them. Judging bottom
+//     mirror either way makes this audit flag the writer's own output.
 //
 //     A false ERROR on a ship gate is worse than a missed cosmetic one, and a text
 //     that is merely mis-positioned is invisible to this check regardless (it only
@@ -1919,13 +2016,20 @@ func fetchPcbPads(cfg *appConfig, window string) ([]pcbPadP, error) {
 				continue
 			}
 			net, _ := pm["net"].(string)
+			id, _ := pm["primitiveId"].(string)
 			num, _ := pm["padNumber"].(string)
 			x, _ := asFloatOK(pm["x"])
 			y, _ := asFloatOK(pm["y"])
 			layer, _ := asFloatOK(pm["layer"])
-			w, _ := asFloatOK(pm["width"]) // real extents (0 = old connector / polygon pad)
+			rotation, _ := asFloatOK(pm["rotation"])
+			w, _ := asFloatOK(pm["width"]) // rotated bbox envelope, or legacy shape extent
 			h, _ := asFloatOK(pm["height"])
-			pads = append(pads, pcbPadP{Designator: desig, Number: num, Net: net, Layer: int(layer), X: x, Y: y, W: w, H: h})
+			p := pcbPadP{ID: id, Designator: desig, Number: num, Net: net, Layer: int(layer), X: x, Y: y, W: w, H: h, Rotation: rotation}
+			if err := parseNetPathPadShape(pm, &p, fmt.Sprintf("%s.%s", desig, num)); err != nil {
+				p.ShapeOK = false
+				p.ShapeIssue = err.Error()
+			}
+			pads = append(pads, p)
 		}
 	}
 	return pads, nil
@@ -1978,7 +2082,9 @@ func fetchPcbArcs(cfg *appConfig, window string) ([]pcbArc, error) {
 		y1, _ := asFloatOK(am["startY"])
 		x2, _ := asFloatOK(am["endX"])
 		y2, _ := asFloatOK(am["endY"])
-		arcs = append(arcs, pcbArc{ID: id, Net: net, Layer: int(layer), X1: x1, Y1: y1, X2: x2, Y2: y2})
+		w, _ := asFloatOK(am["lineWidth"])
+		angle, _ := asFloatOK(am["arcAngle"])
+		arcs = append(arcs, pcbArc{ID: id, Net: net, Layer: int(layer), X1: x1, Y1: y1, X2: x2, Y2: y2, Width: w, ArcAngle: angle})
 	}
 	return arcs, nil
 }
@@ -2192,6 +2298,9 @@ func renderPcbCheckReport(rep pcbCheckReport, w io.Writer) {
 	s := rep.Summary
 	fmt.Fprintf(w, "PCB check (DFM): %d track(s), %d via(s), %d pad(s) — %d issue(s)\n",
 		rep.TrackCount, rep.ViaCount, rep.PadCount, s.Total)
+	for _, limitation := range rep.Limitations {
+		fmt.Fprintf(w, "  LIMIT %s\n", limitation)
+	}
 	if s.Total == 0 {
 		fmt.Fprintln(w, "  ✓ no DFM issues found")
 		return
