@@ -14,6 +14,7 @@
     "bom-instances.json",
     "source-connectivity.json",
     "initial-placement.json",
+    "crystal-placement-live.json",
     "ldo-layout-candidate.json",
     "ldo-route-live.json",
     "live-validation.json"
@@ -1339,10 +1340,11 @@
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "先重排X1/C20/C21以保持OSC脚左右次序，再生成短解；现场应用、保存重开并回读track/via/DRC"
+        "基于已现场修正的X1/C20/C21左右次序生成短解；在新版connector下现场应用、保存重开并回读track/via/DRC与顶层回流"
       ],
       "referenceExample": "critical-routing.md",
-      "offlineEvidence": "旧统一6mil障碍简化模型得到TOP/0via方案，但OSC_IN长882.7mil；这是布局反例，尚未按对象类型规则重新规划或现场验证"
+      "offlineEvidence": "旧统一6mil障碍简化模型得到TOP/0via方案，但OSC_IN长882.7mil；这是布局反例，不能代表布线通过",
+      "livePlacementEvidence": "crystal-placement-live.json：X1旋转、C20/C21换侧后保存重开；U6未动且仍锁，U6↔X1两条直连由相交变为不相交，69件保持0重叠/出板/小于6mil间距。OSC两网仍为0 track/0 via，因此本条继续保持offline-verified而不是布线live-verified"
     },
     {
       "id": "RTE-04",

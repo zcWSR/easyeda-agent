@@ -167,6 +167,42 @@
       ]
     }
   },
+  "pcbCrystalPlacement": {
+    "status": "live-verified",
+    "verificationScope": "U6/X1/C20/C21的左右次序、旋转、保存重开和布局几何；不包含OSC铜、顶层回流或DRC通过",
+    "data": "crystal-placement-live.json",
+    "placement": {
+      "fixedCore": "U6",
+      "movedRefs": ["X1", "C20", "C21"],
+      "allTop": true,
+      "overlaps": 0,
+      "outsideOutline": 0,
+      "tightSpacingAt6Mil": 0,
+      "u6StillLocked": true,
+      "u6ToX1RatlinesCrossBefore": true,
+      "u6ToX1RatlinesCrossAfter": false,
+      "crossingsBeforeAfter": [58, 57],
+      "ratsnestMilBeforeAfter": [27058.07, 27045.82]
+    },
+    "routing": {
+      "OSC_IN": {"tracks": 0, "arcs": 0, "vias": 0},
+      "OSC_OUT": {"tracks": 0, "arcs": 0, "vias": 0}
+    },
+    "officialDrc": {
+      "total": 216,
+      "counts": {"Connection Error": 216},
+      "oscSignalConnectionErrors": 6
+    },
+    "independentReview": {
+      "status": "completed-with-findings",
+      "passed": "U6未动且仍锁；X1/C20/C21保存重开后焊盘左右次序一致，直连由相交变为不相交，69件仍无重叠/出板/小于6mil间距",
+      "findings": [
+        "OSC_IN的U6.2-X1.1直距变长，不能声称两网都缩短；主要改善是消除交叉并纠正电容/GND方向",
+        "OSC_IN/OSC_OUT仍为0 track/0 arc/0 via，不能声称晶振布线、TOP、回流或DRC已完成",
+        "整板丝印问题仍在后续收尾范围"
+      ]
+    }
+  },
   "observedToolIssues": [
     {
       "id": "web-doc-reload-spinner",

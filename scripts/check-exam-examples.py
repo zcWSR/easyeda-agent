@@ -59,6 +59,7 @@ def main() -> None:
     catalog = load("example-catalog.json")
     placement = load("initial-placement.json")
     live = load("live-validation.json")
+    crystal_placement = load("crystal-placement-live.json")
     ldo_candidate = load("ldo-layout-candidate.json")
     ldo_route = load("ldo-route-live.json")
 
@@ -229,6 +230,34 @@ def main() -> None:
     assert all(len(value) == 64 for value in ldo_route["evidence"].values())
     assert ldo_route["notClaimed"]
 
+    assert crystal_placement["status"] == "live-verified"
+    assert crystal_placement["documentUuid"] == "2e719e9419653c72"
+    assert crystal_placement["electricalOwnership"] == {
+        "OSC_IN": ["U6.2", "X1.1", "C21.1"],
+        "OSC_OUT": ["U6.3", "X1.3", "C20.1"],
+        "GND": ["X1.2", "X1.4", "C20.2", "C21.2"],
+    }
+    assert crystal_placement["before"]["u6ToX1RatlinesCross"] is True
+    crystal_after = crystal_placement["afterReload"]
+    assert crystal_after["u6ToX1RatlinesCross"] is False
+    assert crystal_after["layoutLint"] == {
+        "componentCount": 69,
+        "allTop": True,
+        "overlaps": 0,
+        "outsideOutline": 0,
+        "tightSpacingAt6Mil": 0,
+        "crossings": 57,
+        "ratsnestMil": 27045.82,
+    }
+    assert all(
+        route == {"tracks": 0, "arcs": 0, "vias": 0}
+        for route in crystal_after["routing"].values()
+    )
+    assert crystal_after["officialDrc"]["oscSignalConnectionErrors"] == 6
+    assert crystal_placement["independentVerification"]["status"] == "completed-with-findings"
+    assert all(len(value) == 64 for value in crystal_placement["evidence"].values())
+    assert crystal_placement["notClaimed"]
+
     expected_catalog_ids = {
         *(f"SCH-{i:02d}" for i in range(1, 11)),
         *(f"PCB-{i:02d}" for i in range(1, 9)),
@@ -266,7 +295,8 @@ def main() -> None:
             f"example execution path must not contain interactive fallback: {term}"
         )
     assert {
-        "initial-placement.json", "ldo-layout-candidate.json", "ldo-route-live.json",
+        "initial-placement.json", "crystal-placement-live.json",
+        "ldo-layout-candidate.json", "ldo-route-live.json",
         "live-validation.json",
     } <= set(catalog["sourceData"])
     required_example_fields = {
@@ -359,6 +389,14 @@ def main() -> None:
     assert ldo_live["routing"]["danglingEnds"] == 0
     assert ldo_live["officialDrc"]["counts"] == {"Connection Error": 216}
     assert ldo_live["independentReview"]["status"] == "completed-with-findings"
+    crystal_live = live["pcbCrystalPlacement"]
+    assert crystal_live["status"] == "live-verified"
+    assert crystal_live["placement"]["u6StillLocked"] is True
+    assert crystal_live["placement"]["u6ToX1RatlinesCrossBefore"] is True
+    assert crystal_live["placement"]["u6ToX1RatlinesCrossAfter"] is False
+    assert crystal_live["routing"]["OSC_IN"] == {"tracks": 0, "arcs": 0, "vias": 0}
+    assert crystal_live["routing"]["OSC_OUT"] == {"tracks": 0, "arcs": 0, "vias": 0}
+    assert crystal_live["independentReview"]["status"] == "completed-with-findings"
     assert live["notClaimed"], "partial live validation must list unverified work"
 
     live_count = sum(entry["verificationStatus"] == "live-verified" for entry in catalog_entries.values())

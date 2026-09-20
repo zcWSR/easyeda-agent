@@ -7,9 +7,10 @@
 - `原理图.pdf` 第 1 页：`OSC_IN/OSC_OUT`；R12 跨 CANH/CANL，D1 分别连接 H/L 并回地。
 - 输入为第一轮参数化布局保存并整页刷新后的真实 pads/bbox，以及 6mil 间距、8mil 信号线宽。
 
-状态：`offline-verified`。独立 subagent 生成并检查了两个可执行的离线路线，但没有写入 Web EDA。
-后续原文复核发现旧 CAN 计划未证明 R12 主路径顺序；该状态只指已记录的几何反例分析，
-不表示完整题目拓扑已被验证。
+状态：`partial-live-verified`。旧晶振/CAN 路线仍只做了离线反例分析；晶振的第一步
+“修正 X1/C20/C21 焊盘次序”已经在 Web EDA 通过 typed 修改、保存、重载和独立只读核查，
+见 [crystal-placement-live.json](crystal-placement-live.json)。晶振铜和 CAN 仍未现场写入。
+后续原文复核发现旧 CAN 计划未证明 R12 主路径顺序；离线 passed 不表示完整题目拓扑已验证。
 结果证明“几何上能布通”仍可能是差布局；本样例的完成动作是把绕行原因反馈给布局参数，而不是
 为了让工程看起来更完整而落下 77 段不理想走线。
 
@@ -45,6 +46,44 @@
 
 这一步没有把 `passed=true` 解释为“应该执行”。离线 passed 只证明给定障碍和检查器下没有已知
 几何违规；短直、回流、EMC 和人工布局质量仍需看长度、拓扑与局部关系。
+
+## 晶振第一批现场修正：只改次序，不落铜
+
+第一批把“布局导致绕线”拆成一个独立步骤。U6 保持题定 anchor、0°和锁定；X1 只从 180°
+改为 0°，C20/C21 复用彼此原有占位并把信号 pad 朝向 X1、GND pad 朝外。两只电容交换时
+先把 C20 放到一个经实时 bbox 确认的临时空位，避免中间态重叠；临时点和 primitiveId
+只属于本次现场，迁移时必须重新计算。实际命令与回读见
+[crystal-placement-live.json](crystal-placement-live.json)。执行形态为：
+
+```bash
+easyeda pcb modify --id <C20_ID> --center --x <TEMP_FREE_X> --y <TEMP_FREE_Y> \
+  --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb modify --id <C21_ID> --center --x <OLD_C20_CENTER_X> --y <OLD_C20_CENTER_Y> \
+  --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb modify --id <C21_ID> --patch '{"rotation":180}' --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb modify --id <C20_ID> --center --x <OLD_C21_CENTER_X> --y <OLD_C21_CENTER_Y> \
+  --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb modify --id <C20_ID> --patch '{"rotation":0}' --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb modify --id <X1_ID> --patch '{"rotation":0}' --doc <PCB_DOC_UUID> --project ceshi
+easyeda pcb save --doc <PCB_DOC_UUID> --project ceshi
+easyeda doc reload <PCB_DOC_UUID> --project ceshi --json
+```
+
+保存重开后的事实：
+
+- U6 未移动且仍锁定；X1/C20/C21 都在 TOP，69 件仍为 0 overlap、0 outside、0 tight-spacing。
+- U6 侧从左到右为 OSC_IN/OSC_OUT；X1 侧也改为 OSC_IN/OSC_OUT。两条 U6↔X1 直连从
+  相交变为不相交，整板 ratsnest 从 27058.07mil 降到 27045.82mil，crossing 从 58 降到 57。
+- U6.2→X1.1 的直距从 99.81mil 增至 148.23mil，U6.3→X1.3 从 151.73mil 降至
+  91.07mil；四个信号关系的直距合计只减少 12.25mil。因此本批的主要价值是消除交叉和
+  纠正负载电容方向，不能声称两网都缩短。
+- OSC_IN/OSC_OUT 仍各为 0 track、0 arc、0 via；官方 DRC 仍含这六个信号端点的
+  Connection Error。本批状态只覆盖布局，不能外推为晶振布线通过。
+
+独立 subagent 只读取原题、source-connectivity 和保存重开后的原始回读，确认上述结果。
+下一批才按 U6.2→X1.1→C21.1、U6.3→X1.3→C20.1 规划 8mil TOP 短线。当前连接器 1.5.1
+缺 pad source shape 与 `arcsAvailable`，`pcb net-path` 会 fail-closed；新版 typed
+连接器未生效前不写晶振铜，也不以 AABB 或同网名降级判 PASS。
 
 ## 执行形态与回读
 
@@ -86,6 +125,7 @@ easyeda pcb save --doc <PCB_DOC_UUID> --project ceshi
 ## 验证边界
 
 - 已验证：旧简化模型的 pads/bbox、6mil 障碍、14 个端点和 TOP/8mil/0via 几何检查；
-  独立规划给出绕行反例。旧 CAN 检查未覆盖题定 R12 必经顺序，不能升级为题意通过。
-- 未验证：现场 track 创建、保存后持久化、官方 DRC、顶层地回流和重排后的最终短路线。
+  独立规划给出绕行反例。晶振三件的次序修正已现场保存重开并独立核查。旧 CAN 检查未覆盖
+  题定 R12 必经顺序，不能升级为题意通过。
+- 未验证：晶振/CAN 的现场 track 创建、铜的保存持久化、顶层地回流、包地净空和最终短路线。
 - 修法的验收不是“段数变少”本身：还要重新核对端点、拓扑、长度、净距、via 数和保存后对象。

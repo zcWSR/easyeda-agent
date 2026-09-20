@@ -133,7 +133,7 @@ geometry, unavailable arc readback, and overlapping primitives that make an orde
 topology ambiguous return unknown/error instead of PASS.`,
 		Args: cobra.NoArgs,
 		Example: `  easyeda pcb net-path --from C3.1 --through C4.1 --to U2.3 --layer 1
-  easyeda pcb net-path --from U5.6 --to CN1.1 --net CANH --json`,
+  easyeda pcb net-path --from U5.6 --to CN1.1 --net CANL --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("layer") {
 				if !netPathCopperLayer(layer) {
