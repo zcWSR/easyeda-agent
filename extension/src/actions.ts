@@ -10197,27 +10197,80 @@ const pcbViewFilterGet: Handler = async () => {
 	};
 };
 
+type PcbSnapshotFitMode = 'board' | 'all' | 'none';
+
+function pcbSnapshotFitMode(payload: Record<string, unknown>): PcbSnapshotFitMode {
+	const requested = optionalString(payload, 'fitMode');
+	if (requested !== undefined) {
+		if (requested === 'board' || requested === 'all' || requested === 'none') return requested;
+		throw new ActionError(
+			ErrorCodes.PRECONDITION_REFUSED,
+			'"fitMode" must be "board", "all", or "none".',
+		);
+	}
+	// Compatibility for callers written before fitMode existed. Explicit
+	// fit=true keeps its historical zoom-to-all meaning; a bare action now uses
+	// the tighter board-outline fit needed by Layout review.
+	const legacyFit = optionalBoolean(payload, 'fit');
+	if (legacyFit !== undefined) return legacyFit ? 'all' : 'none';
+	return 'board';
+}
+
+async function fitPcbSnapshotViewport(requested: PcbSnapshotFitMode): Promise<{
+	requested: PcbSnapshotFitMode;
+	applied: PcbSnapshotFitMode;
+	fitted: boolean;
+	api: string | null;
+	fallbackReason?: string;
+}> {
+	if (requested === 'none') return { requested, applied: 'none', fitted: false, api: null };
+	if (requested === 'board') {
+		try {
+			const ok = await eda.pcb_Document.zoomToBoardOutline();
+			if (ok !== false) {
+				return { requested, applied: 'board', fitted: true, api: 'eda.pcb_Document.zoomToBoardOutline' };
+			}
+		}
+		catch { /* fall back to the older public fit API below */ }
+	}
+	try {
+		await eda.dmt_EditorControl.zoomToAllPrimitives();
+		return {
+			requested,
+			applied: 'all',
+			fitted: true,
+			api: 'eda.dmt_EditorControl.zoomToAllPrimitives',
+			...(requested === 'board' ? { fallbackReason: 'zoomToBoardOutline unavailable or returned false' } : {}),
+		};
+	}
+	catch {
+		return {
+			requested,
+			applied: 'none',
+			fitted: false,
+			api: null,
+			fallbackReason: `${requested} fit failed; captured the current viewport`,
+		};
+	}
+}
+
 /**
- * Capture the active PCB canvas as a PNG artifact. Reuses the canvas-agnostic
- * `dmt_EditorControl.getCurrentRenderedAreaImage`, so it mirrors schematic.snapshot
- * for the PCB. Same stale-frame caveat — judge layout/DRC by data, screenshot for
- * a human eyeball only.
+ * Capture the active PCB canvas as a PNG artifact. This combines the public
+ * board/all fit APIs with `dmt_EditorControl.getCurrentRenderedAreaImage`.
+ * It remains a viewport capture: the editor's internal Copy-as-PNG/SVG object
+ * exporter is not exposed by public `eda.*` and must not be claimed here.
  */
 const pcbSnapshot: Handler = async (payload) => {
 	const tabId = optionalString(payload, 'tabId');
-	const fit = optionalBoolean(payload, 'fit') !== false;
+	const fitMode = pcbSnapshotFitMode(payload);
 	// Optional sha256 of the PREVIOUS snapshot (caller threads it back in). When
 	// present we can DETECT a stale frame ourselves (issue #31) instead of only
 	// emitting advisory text: if the viewport changed but the image bytes are
 	// byte-identical, the capture is stale — we force a redraw + retry once.
 	const previousSha = optionalString(payload, 'previousSha256');
-	let fitted = false;
-	if (fit) {
-		try { await eda.dmt_EditorControl.zoomToAllPrimitives(); fitted = true; }
-		catch { /* best-effort */ }
-	}
+	let fitState = await fitPcbSnapshotViewport(fitMode);
 	// Let any pending viewport change (a preceding `view region`/`view zoom`, or
-	// the zoomToAllPrimitives above) commit + repaint before we read the frame.
+	// the requested fit above) commit + repaint before we read the frame.
 	await waitForCanvasSettle();
 
 	const capture = async (): Promise<Blob> => {
@@ -10238,7 +10291,7 @@ const pcbSnapshot: Handler = async (payload) => {
 	let sha256 = await blobSha256(blob);
 	// Built-in stale detection: if the caller told us the prior frame's sha and we
 	// got the exact same bytes back, the canvas almost certainly didn't repaint —
-	// force a redraw (ratline recompute + zoom-to-all nudge) and recapture once.
+	// force a redraw (ratline recompute + repeat the requested fit) and recapture once.
 	let staleRetry = false;
 	if (previousSha && sha256 && sha256 === previousSha) {
 		staleRetry = true;
@@ -10246,8 +10299,7 @@ const pcbSnapshot: Handler = async (payload) => {
 		// re-fit reliably forces EasyEDA to repaint the PCB canvas.
 		try { await eda.pcb_Document.startCalculatingRatline(); }
 		catch { /* best-effort redraw nudge */ }
-		try { await eda.dmt_EditorControl.zoomToAllPrimitives(); }
-		catch { /* best-effort redraw nudge */ }
+		fitState = await fitPcbSnapshotViewport(fitMode);
 		await waitForCanvasSettle();
 		blob = await capture();
 		sha256 = await blobSha256(blob);
@@ -10258,7 +10310,17 @@ const pcbSnapshot: Handler = async (payload) => {
 	return {
 		result: {
 			artifactId: artifact.id,
-			fitted,
+			fitted: fitState.fitted,
+			fitModeRequested: fitState.requested,
+			fitModeApplied: fitState.applied,
+			fitApi: fitState.api,
+			fitFallbackReason: fitState.fallbackReason ?? null,
+			captureKind: fitState.applied === 'board'
+				? 'board-fitted-viewport-png'
+				: fitState.applied === 'all'
+					? 'all-primitives-fitted-viewport-png'
+					: 'current-viewport-png',
+			objectLevelExport: false,
 			sha256,
 			stale,
 			staleRetry,

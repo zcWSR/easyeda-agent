@@ -89,6 +89,69 @@ function libraryDocumentControl(uuid: string, libraryUuid: string, documentType:
 	};
 }
 
+test('pcb.snapshot defaults to the public board-outline fit and labels the viewport capture honestly', async () => {
+	let boardFits = 0;
+	let allFits = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			zoomToAllPrimitives: async () => { allFits++; },
+			getCurrentRenderedAreaImage: async () => new Blob(['pcb-board'], { type: 'image/png' }),
+		},
+		pcb_Document: {
+			zoomToBoardOutline: async () => { boardFits++; return true; },
+			startCalculatingRatline: async () => true,
+		},
+	};
+	try {
+		const res: any = await runAction('pcb.snapshot', {});
+		assert.equal(boardFits, 1);
+		assert.equal(allFits, 0);
+		assert.equal(res.result.fitModeRequested, 'board');
+		assert.equal(res.result.fitModeApplied, 'board');
+		assert.equal(res.result.fitApi, 'eda.pcb_Document.zoomToBoardOutline');
+		assert.equal(res.result.captureKind, 'board-fitted-viewport-png');
+		assert.equal(res.result.objectLevelExport, false);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.snapshot reports the public zoom-to-all fallback when board fit is unavailable', async () => {
+	let allFits = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			zoomToAllPrimitives: async () => { allFits++; },
+			getCurrentRenderedAreaImage: async () => new Blob(['pcb-all'], { type: 'image/png' }),
+		},
+		pcb_Document: { zoomToBoardOutline: async () => false },
+	};
+	try {
+		const res: any = await runAction('pcb.snapshot', { fitMode: 'board' });
+		assert.equal(allFits, 1);
+		assert.equal(res.result.fitModeRequested, 'board');
+		assert.equal(res.result.fitModeApplied, 'all');
+		assert.equal(res.result.captureKind, 'all-primitives-fitted-viewport-png');
+		assert.match(res.result.fitFallbackReason, /zoomToBoardOutline/);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.snapshot rejects unknown fit modes before capture', async () => {
+	let captures = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			getCurrentRenderedAreaImage: async () => { captures++; return new Blob(['never']); },
+		},
+	};
+	try {
+		await assert.rejects(
+			() => runAction('pcb.snapshot', { fitMode: 'selected' }),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /board.*all.*none/.test(err.message),
+		);
+		assert.equal(captures, 0);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
 // ─── Board-outline ARC decoding (#215) ─────────────────────────────────
 
 test('polygonSourceToPoints decodes signed ARC sweeps without taking the long way', () => {

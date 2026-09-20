@@ -1269,9 +1269,9 @@ func AllActions() []ActionSpec {
 			Domain:      DomainPcb,
 			Phase:       2,
 			NeedsWindow: true,
-			Description: "Capture the active PCB canvas as a PNG artifact (eda.dmt_EditorControl.getCurrentRenderedAreaImage; fit-to-all by default, pass fit=false to keep viewport). The canvas-frame capture for the PCB (the schematic-side snapshot was removed — sch uses schematic.export.image). Returns a frame sha256 — pass it back via previousSha256 on the next snapshot and the connector detects a byte-identical (stale) frame, forces a redraw (ratline recompute + zoom-to-all) + retries once, and reports stale=true if it is still identical. WARNING: EasyEDA may return a STALE frame after API edits — judge layout/DRC by data (pcb list / pcb drc), screenshot for a human eyeball only.",
-			Inputs:      []string{"fit optional (default true)", "tabId optional", "previousSha256 optional (enables stale-frame detection + auto-retry)"},
-			Outputs:     []string{"artifact id", "file path", "fitted", "sha256", "stale", "staleRetry", "capturedAt"},
+			Description: "Capture the active PCB canvas as a PNG artifact using public eda.* APIs. fitMode=board (default) calls pcb_Document.zoomToBoardOutline before getCurrentRenderedAreaImage; all fits every primitive; none keeps the viewport. This is a board-fitted VIEWPORT capture, not the editor menu's object-level Copy-as-PNG/SVG export (that exporter is not public). Legacy fit=true|false remains compatible as all|none. Returns a frame sha256; thread it back as previousSha256 to detect and retry a byte-identical stale frame. Judge layout/DRC by data, with the PNG as visual evidence.",
+			Inputs:      []string{"fitMode optional (board|all|none, default board)", "fit optional legacy (true=all, false=none)", "tabId optional", "previousSha256 optional (enables stale-frame detection + auto-retry)"},
+			Outputs:     []string{"artifact id", "file path", "fitted", "fitModeRequested", "fitModeApplied", "fitApi", "captureKind", "objectLevelExport=false", "sha256", "stale", "staleRetry", "capturedAt"},
 		},
 		// ─── PCB routing: list + rip-up (iterate/clear copper routing) ────
 		{

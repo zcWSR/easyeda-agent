@@ -6,6 +6,28 @@ import (
 	"testing"
 )
 
+func TestNormalizePcbSnapshotFitMode(t *testing.T) {
+	for _, tc := range []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"", "board", false},
+		{" BOARD ", "board", false},
+		{"all", "all", false},
+		{"none", "none", false},
+		{"selected", "", true},
+	} {
+		got, err := normalizePcbSnapshotFitMode(tc.in)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("normalizePcbSnapshotFitMode(%q) error=%v, wantErr=%v", tc.in, err, tc.wantErr)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizePcbSnapshotFitMode(%q)=%q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestResolveStageSnapshotSHAFallsBackToPersistedArtifact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "snapshot.png")
 	raw := []byte("same bytes the reviewer sees")

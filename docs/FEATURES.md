@@ -22,6 +22,7 @@
 - PCB 模块候选：`pcb layout-plan` 纯本地读取 `pcb dump` 与显式模块/pad 所有权，有限枚举
   `edge`、`pin-satellites`、`rigid` 候选，输出事实、SVG 和 typed Apply；不访问编辑器、
   不合成总分。LED/MCU/LDO 的 260919 样例已离线复算，现场状态见对应样例。
+- PCB Layout 复核图：`pcb snapshot/stage-snapshot --fit-mode board` 用公开板框适配加视口 PNG，记录实际 fit API、降级和 `objectLevelExport:false`；右键菜单的对象级 PNG/SVG 导出尚无公开 `eda.*`，未接入内部 message bus。[能力边界](pcb-image-export.md)。
 - 样例驱动：Agent 选择相近样例，理解理由并替换参数，执行后根据实际回读修正。260919 AT32F415 考试资料已整理为 69 个器件、233 个端子、13 处明确 NC、46 个网络、15 个功能区和 36 个技术点；代表性原理图、机械、LDO 与模块 Layout 已有 `live-verified` 证据，其余项目继续保留 `source-only` / `offline-verified` 边界，不能外推成整板完成。
 - typed actions 的精确清单始终以 `make actions` 为准，不单独维护数量。
 - 真实回归输入、事实检查和运行步骤见 [`e2e-automation-acceptance.md`](e2e-automation-acceptance.md)。

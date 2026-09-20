@@ -76,8 +76,13 @@ Region/keepout 是附加约束，不是换模型的理由。既有器件已经�
    可见继续检查。`pcb layer-visibility` 只控制层，不能冒充属性显隐；禁止从属性面板或 GUI 兜底。
 
 参数化布局全部写入后，必须通过 typed capture/export 生成一张包含板框和全部器件的整板集成图。
-当前可用入口是 `pcb stage-snapshot`，它同时保存原生 PNG 与 components/tracks/vias/pours/nets/DRC
-数据包。截图为空、文档上下文不匹配或 typed 渲染不可用时，记录 `unsupported/incomplete` 并
+当前可用入口是 `pcb stage-snapshot --fit-mode board`：它先调用公开
+`pcb_Document.zoomToBoardOutline()`，再由 `getCurrentRenderedAreaImage()` 保存
+`board-fitted-viewport-png`，同时保存 components/tracks/vias/pours/nets/DRC 数据包。返回和
+`stage.json` 必须记录 `fitMode`、`fitApi`、`captureKind` 及 `objectLevelExport:false`。编辑器右键
+“复制为 SVG/PNG”使用的对象级整板导出尚未暴露为公开 `eda.*`，不能调用内部 message bus，也
+不能把当前视口 PNG 称为该原生导出。`--fit-mode all` 用于需要容纳板外图元的诊断图，`none`
+保留当前视口。截图为空、上下文不匹配或 typed 渲染不可用时，记录 `unsupported/incomplete` 并
 停止完成声明，不能手工截图补齐。正式复核图必须在属性视图恢复后生成。
 
 两轮自检是连续的“未修正通过”，不组成 workflow/stage 许可：

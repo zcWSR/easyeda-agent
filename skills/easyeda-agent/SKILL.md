@@ -45,7 +45,9 @@ metadata:
    读取。若 Web 编辑器停在加载动画或对象不可读，停止现场写入，保存故障证据并将结果标为
    `incomplete`；先修复 typed reload/open 能力再复测。报告事实级检查结果和未覆盖项，不用
    阶段签字或综合评分代替判断。
-7. 参数化 PCB Layout 后生成 typed 整板预览并连续自检两轮：第 1 轮查空间/模块关系/视觉异常；
+7. 参数化 PCB Layout 后以 `pcb stage-snapshot --fit-mode board` 生成 typed 整板预览并连续自检两轮；
+   记录 `captureKind` 和 `objectLevelExport`，不得把 board-fitted viewport PNG 称为编辑器菜单的
+   对象级导出。第 1 轮查空间/模块关系/视觉异常；
    第 2 轮严格 save → reload → fresh dump → fresh render。任一轮修正都清零并从第 1 轮重来；
    两轮均无待修的明显问题且无修正，才称 Layout 完成、展示复核包并等待用户确认。确认前不进入整板布线；LDO/DCDC
    模块内部短电流环路可随布局先完成。具体边界见 [pcb-layout.md](references/pcb-layout.md)。

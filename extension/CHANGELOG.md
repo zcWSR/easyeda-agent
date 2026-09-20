@@ -7,6 +7,7 @@
 - Add typed `pcb.net.color.set` and `pcb config net-color` with hex RGB input, preserved alpha, dry-run and strict readback failure reporting.
 - Require expected versions and SHA-256 hashes for the development connector hot reload; replace the index and bundle atomically while preserving existing permissions.
 - Live Web 3.2.203 validation on the 69-component exam PCB covers dry-run, rule/via/class/color writes, strict readback, save/reload persistence, idempotent replay and full baseline restoration. The fixed ESP32 regression persisted 31 components, four copper layers, inner GND/+3V3 pours and its antenna keep-out, but remains incomplete: native DRC has 53 unique violations and requested inner `PLANE` types revert to `SIGNAL` after reload. The temporary Board was deleted after preserving evidence.
+- Add `pcb snapshot --fit-mode board|all|none`; Layout review now defaults to the public `zoomToBoardOutline` plus viewport capture, records the actual fit API and `objectLevelExport:false`, and keeps the editor's internal object-level Copy-as-PNG/SVG capability explicitly unsupported until it has a public `eda.*` wrapper.
 
 ## [1.5.2] — 2026-09-20
 

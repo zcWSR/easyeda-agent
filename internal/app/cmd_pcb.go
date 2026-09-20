@@ -2278,17 +2278,33 @@ external router (Freerouting) would route under the antenna. The result reports
 		pcb.AddCommand(c)
 	}
 	{
-		var fit bool
+		var legacyFit bool
+		var fitMode string
 		var previousSha string
 		c := &cobra.Command{
 			Use:   "snapshot",
 			Short: "Capture the active PCB canvas as a PNG artifact",
 			Args:  cobra.NoArgs,
 			Example: `  easyeda pcb snapshot
-  easyeda pcb snapshot --fit=false
-  easyeda view region --left 500 --right 1550 --top -1500 --bottom -2260 && easyeda pcb snapshot --fit=false --previous-sha256 <sha>`,
+  easyeda pcb snapshot --fit-mode all
+  easyeda pcb snapshot --fit-mode none
+  easyeda view region --left 500 --right 1550 --top -1500 --bottom -2260 && easyeda pcb snapshot --fit-mode none --previous-sha256 <sha>`,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				payload := map[string]any{"fit": fit}
+				mode, err := normalizePcbSnapshotFitMode(fitMode)
+				if err != nil {
+					return err
+				}
+				if cmd.Flags().Changed("fit") {
+					if cmd.Flags().Changed("fit-mode") {
+						return fmt.Errorf("--fit and --fit-mode cannot be used together")
+					}
+					if legacyFit {
+						mode = "all"
+					} else {
+						mode = "none"
+					}
+				}
+				payload := map[string]any{"fitMode": mode, "fit": mode != "none"}
 				if previousSha != "" {
 					payload["previousSha256"] = previousSha
 				}
@@ -2300,7 +2316,9 @@ external router (Freerouting) would route under the antenna. The result reports
 				return nil
 			},
 		}
-		c.Flags().BoolVar(&fit, "fit", true, "zoom-to-fit before capture (nudges a redraw)")
+		c.Flags().StringVar(&fitMode, "fit-mode", "board", "viewport fit: board | all | none (default board)")
+		c.Flags().BoolVar(&legacyFit, "fit", true, "legacy fit flag (true=all, false=none)")
+		_ = c.Flags().MarkDeprecated("fit", "use --fit-mode board|all|none")
 		c.Flags().StringVar(&previousSha, "previous-sha256", "", "sha256 of the previous snapshot; enables stale-frame detection + auto-retry")
 		pcb.AddCommand(c)
 	}
