@@ -55,18 +55,56 @@ easyeda apply candidates/candidate-01.apply.json
 [260919 模块候选布局](examples/260919-at32f415/layout-candidates.md)。
 
 Region/keepout 是附加约束，不是换模型的理由。既有器件已经正确绑定 device、footprint 与
-3D model 时，先回读三项身份，只在原 source footprint 上原位增加区域；保存后再次逐项核对
-关联和 PCB 实例。宿主不能持久化就标 incomplete 并补 typed 接口，不能复制封装后默认 rebind。
+3D model 时，先回读三项身份和 source library 类型。可写 source footprint 可原位增加区域，
+保存后再次逐项核对关联和 PCB 实例；EasyEDA system library 必须在打开编辑器/创建几何前
+拒绝。系统源不可写时只能使用已经现场证明保持绑定、且不会把 owner 本身判为违规的实例级/
+工程级 typed region；该能力不存在就标 `incomplete`，不能复制封装后默认 rebind。
+普通 top-level `no-components` region 没有 owner 语义时也不能冒充实例级区域：它会把承载该
+区域的器件自身判成 `Device to Prohibited Region`。必须先用 DRC 负例证明 owner 豁免；出现
+自违规就 typed 删除、保存重载并对账，不能通过忽略这条 DRC 来宣称完成。
+
+### Layout 观察视图与连续两轮自检
+
+元件属性有时会遮挡本体、焊盘出口和模块间空隙。可以为了观察临时隐藏，但这不是设计修改：
+
+1. 先用 typed 读取当前属性可见性，把对象、字段和旧值保存到本轮 review manifest；
+2. 只用 typed **view-state** 动作隐藏所需属性，不删除属性、不改文字/位号，也不把临时状态写成
+   新的设计基线；
+3. 无论观察图生成成功或失败，都恢复全部旧值，并再次 typed 回读，逐项证明恢复一致；恢复失败时
+   Layout 保持 `incomplete`；
+4. 当前 action catalog 没有可回读、可恢复的逐元件属性视图动作时标 `unsupported`，保持属性
+   可见继续检查。`pcb layer-visibility` 只控制层，不能冒充属性显隐；禁止从属性面板或 GUI 兜底。
+
+参数化布局全部写入后，必须通过 typed capture/export 生成一张包含板框和全部器件的整板集成图。
+当前可用入口是 `pcb stage-snapshot`，它同时保存原生 PNG 与 components/tracks/vias/pours/nets/DRC
+数据包。截图为空、文档上下文不匹配或 typed 渲染不可用时，记录 `unsupported/incomplete` 并
+停止完成声明，不能手工截图补齐。正式复核图必须在属性视图恢复后生成。
+
+两轮自检是连续的“未修正通过”，不组成 workflow/stage 许可：
+
+- **第 1 轮：集成视觉检查。** 对整板图检查空间利用、板边/插拔方向、模块关系、禁区、器件
+  聚团或孤立、明显拥挤、丝印/属性遮挡和异常空洞，并用 dump/lint/测量定位具体对象。发现问题
+  就修改关系或参数、重新计算和 typed apply，再重新生成整板图；本轮不计通过，连续计数归零。
+- **第 2 轮：持久化复核。** 第 1 轮无修正后，严格执行 `pcb save` → `doc reload` → fresh
+  `pcb dump` → fresh `pcb stage-snapshot`。以新 dump 核对器件 anchor/角度/层/锁定、板框、region、现存局部
+  铜和机械事实，再检查新整板图。若发现并修复任何问题，同样清零并回到第 1 轮；即使修复很小，
+  也不能把修复前的第 1 轮算作连续通过。
+
+fresh render 是 reload 后的新 capture 调用和新 artifact，不要求未改设计的 PNG 字节必须变化；
+记录每轮 dump/render 路径、SHA256、检查项、findings 和 `fixesApplied`。只有第 1 轮与紧接着的
+第 2 轮都没有待修的明显布局/视觉 finding，且 `fixesApplied=false`，才可称整板 Layout 完成并
+进入用户确认；纯观察项可以保留，但必须说明为什么不需要修改。
 
 ### Layout 完成、局部电源铜与用户确认
 
 模块候选全部执行不等于整板 Layout 已完成。先逐项落实板框、固定件、板边方向、机械/封装
 禁区、核心与专属外围、逐脚归属和预留通道；任何题目要求仍为 `incomplete` 时，都只能报告
-“候选或局部布局已完成”。随后执行 `pcb save` → 有界 `doc reload` → 新 `pcb dump`，并形成
-给用户看的布局复核包：
+“候选或局部布局已完成”。随后按上节生成整板图并连续通过两轮无修正自检，再形成给用户看的
+布局复核包：
 
 - 当前 board/layout 输入哈希、器件总数以及全部成员的 anchor、角度、层和锁定状态；
-- 整板预览，以及固定坐标、板内/禁区、重叠、间距和关键模块关系的事实结果；
+- 第 2 轮 fresh 整板预览，以及固定坐标、板内/禁区、重叠、间距和关键模块关系的事实结果；
+- 两轮 review manifest；若曾修正，记录计数清零和重新开始的证据；
 - 为后续走线保留的出口/通道和仍需用户取舍的项目，不用综合分数替用户作决定；
 - 当前版本的未完成项。存在机械违规、缺测或保存重载失败时，不请求把它当成完成态确认。
 

@@ -36,6 +36,12 @@
   },
   "previousWork": {
     "existingFootprintWriteAttempt": "Adding the no-components region directly to the existing source footprint returned partial because pcb_Document.save returned false; persistence was not proven.",
+    "sourceLibraryReadback": {
+      "uuid": "0819f05c4eef4c71ace90d822a990e87",
+      "kind": "system",
+      "writable": false,
+      "evidence": "easyeda lib libraries returned this UUID as systemLibraryUuid"
+    },
     "personalFixture": {
       "name": "EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO",
       "footprintUuid": "5e1662059e174644a40d45f813b437d5",
@@ -50,6 +56,8 @@
   "conclusion": [
     "U3 already has the correct device, footprint and 3D model association; none of those were authored by the Agent.",
     "The only newly authored geometry was one no-components region in an unbound personal-library footprint fixture.",
-    "Adding an LCD body keepout must preserve the existing U3 device, footprint and 3D model associations; replacing or rebinding the model is not the default solution."
+    "Adding an LCD body keepout must preserve the existing U3 device, footprint and 3D model associations; replacing or rebinding the model is not the default solution.",
+    "The source footprint is an immutable system-library asset; a typed tool must refuse it before mutation and keep the current instance incomplete until a verified no-rebind instance/project region path exists.",
+    "Schematic/PCB U3 identity was subsequently reconciled to gge60; see u3-identity-reconcile-live.json."
   ]
 }

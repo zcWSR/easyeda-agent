@@ -16,7 +16,8 @@
 [模块候选 Layout](layout-candidates.md)；其中 CAN/SD/USB-UART/LCD 第二批外围的保存重载结果见
 [现场快照](layout-after-peripherals-live.json)，用户重开浏览器后的只读复核见
 [重开证据](layout-after-browser-reopen-verification-live.json)。U3 重绑定超时后的参数化恢复见
-[原理图恢复证据](schematic-u3-recovery-live.json)。
+[原理图恢复证据](schematic-u3-recovery-live.json)，恢复后的 sch↔PCB uniqueId 对账见
+[U3 identity 对账](u3-identity-reconcile-live.json)。
 
 ## 来源与已确认事实
 
@@ -32,13 +33,20 @@
 也已按模块候选保存重载；浏览器重开后 69 件几何、板框与 15 段 LDO 铜仍保持。CAN 的
 D1/CN1 对称关系已现场回读，R12/D1 当前位置和方向由零位移刚体候选接受；两处 H/L 最短
 飞线相交只保留为布线反例，不再否定 Layout。LCD 的
-no-components region 只在个人库可写副本中保存，当前 U3 实例绑定尚未完成；一次重绑定超时
-删除 U3 后虽已参数化恢复到 69 件和相同 13 脚网络，primitiveId/uniqueId 已变化，因此禁止
-PCB `import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
+no-components region 只在未绑定的个人库副本中保存；U3 的 source footprint 位于不可写系统库，
+当前实例仍没有经过证明的禁放区。一次重绑定超时删除 U3 后虽已参数化恢复到 69 件和相同
+13 脚网络，primitiveId/uniqueId 当时发生了变化；随后已用 typed 修改把原理图 U3 的 uniqueId
+恢复为 PCB 的 `gge60`，
+保存重载后 69 件、13 脚网络和绑定均不变，因此该 identity 禁令已解除；本次没有实际运行
+`import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
 `live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
-当前 8 组模块候选和 19 件外围的布局写入已验证，但 U3 禁放 region 与 identity 对账未完成，
-因此尚未生成整板 Layout 完成复核包，也尚未取得用户对当前回读版本的“OK”。补齐后必须先
-展示布局事实和预览；用户可要求继续调整或自行调整后确认。明确确认前只允许参数化完成
+当前 8 组模块候选和 19 件外围的布局写入已验证，但 U3 系统封装不可写，当前实例的禁放
+region 仍未完成。当前已用 typed `pcb stage-snapshot` 生成一张整板**预检查图**，画面非空、
+内容占比 96.22%，CLI 从落盘 PNG 补算 SHA256；但它保持属性可见，且不计入正式两轮自检。
+当前连续通过数仍为 0，不能称 Layout 完成，也尚未取得用户对当前回读版本的“OK”。缺口补齐后
+必须重新生成正式整板图：第 1 轮检查空间/模块关系/视觉异常，第 2 轮严格 save → reload → fresh dump → fresh
+render；任一轮修正均清零重来。连续两轮均无待修明显问题且无修正后再展示布局事实和预览，用户可要求继续调整或
+自行调整后确认。明确确认前只允许参数化完成
 LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地过孔，不得进入跨模块电源主干、
 普通信号或全局铜写入。现存 LDO 15 段铜属于这一例外。
 该文件保留初始批次；后续配置入口的 typed 保存/重载实测见
@@ -99,7 +107,7 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 | PCB-05 | 说明 p2 | 90×50mm、线宽 0.254mm、R3 真圆角、左下显示原点、锁定 | [固定机械样例](fixed-mechanics.md)；保存及整页刷新回读已 `live-verified` |
 | PCB-06 | 说明 p2 | 四孔、U6、CARD1 的固定题面坐标、角度和锁定 | 现场确认本批输入为 footprint anchor；六件刷新后坐标、角度和锁定保持 |
 | PCB-07 | 说明 p3 | CN1 只固定 y=42mm、180°，x 是自由参数 | 现场候选 x=69mm；题定 y/角度保持，rendered bbox 顶边约超 1.17mil 的冲突单独保留 |
-| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 当前 U3 已实证绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model；个人库副本 region 只是未绑定接口试验。应在现有 source footprint 原位增加区域并证明三项关联不变，禁止为此重绑模型；U3 identity 修复前仍禁止 PCB `import-changes` |
+| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 当前 U3 已实证绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model，sch↔PCB identity 已恢复为同一 `gge60`。其 source library 是不可写系统库，个人库副本 region 只是未绑定接口试验；不得写系统封装或为此默认重绑模型。[板级实例负例](u3-instance-region-negative-live.json) 又证明普通 top-level `no-components` region 会把 owner U3 自身报为违规，并已 typed 删除、保存重载和 DRC 对账。需补齐有 owner 豁免的实例/工程 typed 能力，不能完成就保持 `incomplete` |
 
 ### 布局关系
 
@@ -142,9 +150,13 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 7. 围绕明确所属引脚生成 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 模块候选，同时预留
    电源主干和顶层回流；同网多个供电脚必须在输入中逐脚绑定。LDO/DCDC 的输入/输出电容、
    局部 GND 回流及必要 EP/地过孔可作为参数化整体先完成并回读，移动模块时一起重算。
-8. 全部 Layout 要求落实后 save → reload → dump，向用户展示整板预览、坐标/角度、机械与布局
-   检查、预留通道和未完成项。用户提出调整就继续本步骤；用户自行调整并说“OK”时重新回读
-   并固化现场参数。只有用户明确确认最新回读版本后才进入下一步。
+8. 全部 Layout 要求落实后用 typed `pcb stage-snapshot` 或等价 export 生成整板集成图，并连续
+   自检两轮：第 1 轮检查空间、模块关系和视觉异常；无修正后第 2 轮执行 `save → reload → fresh
+   dump → fresh render`。任一轮发现并修复就把连续计数清零，重新从第 1 轮开始。若属性文字妨碍
+   观察，只能 typed 保存旧视图状态、临时隐藏、恢复并回读；当前无可恢复接口就标 `unsupported`，
+   保持属性可见，禁止 GUI。两轮均无待修明显问题且无修正后向用户展示第 2 轮整板图、坐标/角度、机械与布局检查、
+   预留通道和未完成项。用户提出调整就继续本步骤；用户自行调整并说“OK”时重新回读、固化现场
+   参数并重新跑两轮。只有用户明确确认最新回读版本后才进入下一步。
 9. 以用户确认后的 dump 为布线基线，先晶振和受限顶层网络，再连接跨模块电源主干及普通信号。
    组间次序按通道冲突调整，每组写后回读。
 10. 用 typed 接口完成丝印、双面 GND、缝合孔；真实泪滴能力未实现时保持未完成。泪滴后重铺铜，复查连接、几何、DRC，保存重开。

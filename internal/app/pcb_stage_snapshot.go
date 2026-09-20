@@ -81,7 +81,7 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 					"bring it to the FOREGROUND, and re-run.\n", stage, snap.Context.DocumentType)
 				return errActionFailed
 			}
-			sha, _ := snap.Result["sha256"].(string)
+			reportedSHA, _ := snap.Result["sha256"].(string)
 			pngPath := ""
 			if src := snapshotArtifact(snap); src != "" {
 				pngPath = filepath.Join(dir, "snapshot.png")
@@ -89,6 +89,10 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 					fmt.Fprintf(stderr, "⚠️  could not copy snapshot into stage dir: %v\n", err)
 					pngPath = src // fall back to the original artifact path
 				}
+			}
+			sha, shaSource, shaErr := resolveStageSnapshotSHA(reportedSHA, pngPath)
+			if shaErr != nil {
+				fmt.Fprintf(stderr, "⚠️  could not hash stage snapshot: %v\n", shaErr)
 			}
 
 			// analyze the frame for blankness (the "window not rendering" case)
@@ -101,6 +105,12 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 				}
 			}
 			stale := snapshotIsStale(snap)
+			// Older connectors produced the PNG artifact but omitted result.sha256,
+			// which made --previous-sha256 silently ineffective. The persisted bytes
+			// are the same bytes under review, so the CLI hash is authoritative too.
+			if previousSha != "" && sha != "" && strings.EqualFold(previousSha, sha) {
+				stale = true
+			}
 
 			// 2) data bundle (the proof of what the screenshot shows) ------------
 			bundle := []struct {
@@ -138,6 +148,7 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 			manifest := map[string]any{
 				"stage":        stage,
 				"sha256":       sha,
+				"sha256Source": shaSource,
 				"snapshot":     pngPath,
 				"blank":        blank,
 				"stale":        stale,
@@ -188,6 +199,20 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 	c.Flags().StringVar(&previousSha, "previous-sha256", "", "prior stage's sha256 → detect+gate a stale (non-repainted) frame")
 	c.Flags().BoolVar(&allowStale, "allow-stale", false, "downgrade a stale (but non-blank) frame from error to warning")
 	return c
+}
+
+func resolveStageSnapshotSHA(reported, pngPath string) (sha, source string, err error) {
+	if strings.TrimSpace(reported) != "" {
+		return strings.TrimSpace(reported), "connector", nil
+	}
+	if strings.TrimSpace(pngPath) == "" {
+		return "", "unavailable", nil
+	}
+	raw, err := os.ReadFile(pngPath)
+	if err != nil {
+		return "", "unavailable", err
+	}
+	return sha256Hex(raw), "cli-artifact", nil
 }
 
 // outDirOrDefault resolves the stage output root.

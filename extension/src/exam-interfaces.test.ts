@@ -12,6 +12,7 @@ function withEda(mock: Record<string, unknown>, run: () => Promise<void>): Promi
 function footprintDocumentControl(uuid: string, libraryUuid: string, tabId: string): Record<string, unknown> {
 	let current = { uuid: 'previous', parentLibraryUuid: 'previous-library', documentType: 0, tabId: 'previous-tab' };
 	return {
+		lib_LibrariesList: { getSystemLibraryUuid: async () => 'system-library' },
 		dmt_SelectControl: { getCurrentDocumentInfo: async () => current },
 		dmt_EditorControl: {
 			getSplitScreenIdByTabId: async () => 'split-1',
@@ -23,6 +24,27 @@ function footprintDocumentControl(uuid: string, libraryUuid: string, tabId: stri
 		},
 	};
 }
+
+test('library.footprint.region_create refuses the immutable system library before opening or mutating', async () => {
+	let opened = 0;
+	let created = 0;
+	await withEda({
+		lib_LibrariesList: { getSystemLibraryUuid: async () => 'system-library' },
+		dmt_EditorControl: { openLibraryDocument: async () => { opened++; return 'tab'; } },
+		pcb_MathPolygon: { createPolygon: () => ({ getSource: () => [0, 0, 'L', 10, 0, 10, 10, 0, 10, 0, 0] }) },
+		pcb_PrimitiveRegion: { create: async () => { created++; return undefined; } },
+	}, async () => {
+		await assert.rejects(
+			() => runAction('library.footprint.region_create', {
+				uuid: 'system-footprint', libraryUuid: 'system-library',
+				points: [[0, 0], [10, 0], [10, 10], [0, 10]],
+			}),
+			/immutable system library.*no geometry was created/i,
+		);
+		assert.equal(opened, 0);
+		assert.equal(created, 0);
+	});
+});
 
 test('project.create forwards official fields and reports a created-but-not-opened partial outcome', async () => {
 	const calls: unknown[][] = [];

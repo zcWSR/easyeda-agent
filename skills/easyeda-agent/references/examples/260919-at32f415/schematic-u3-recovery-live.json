@@ -177,5 +177,13 @@
     "documentReloaded": true,
     "pcbImportChangesRun": false
   },
-  "restriction": "Do not run PCB import-changes from this schematic state until typed component identity preservation/reconciliation is implemented and verified; the saved PCB layout remains authoritative for this Layout iteration."
+  "restrictionAtCapture": "Do not run PCB import-changes from this schematic state until typed component identity preservation/reconciliation is implemented and verified; the saved PCB layout remains authoritative for this Layout iteration.",
+  "subsequentIdentityReconciliation": {
+    "status": "live-verified",
+    "data": "u3-identity-reconcile-live.json",
+    "schematicUniqueId": "gge60",
+    "pcbUniqueId": "gge60",
+    "identityRestrictionCleared": true,
+    "pcbImportChangesRun": false
+  }
 }

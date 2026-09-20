@@ -417,7 +417,7 @@ func AllActions() []ActionSpec {
 			Phase:       1,
 			Mutates:     true,
 			NeedsWindow: true,
-			Description: "Open an existing writable footprint, add a persistent rule/keep-out region, save the footprint editor, and verify the created primitive by readback. Intended for mechanical areas such as an LCD body keep-out; copy a system footprint into a writable library first.",
+			Description: "Open an existing writable footprint, add a persistent rule/keep-out region, save the footprint editor, and verify the created primitive by readback. EasyEDA system-library assets are immutable and are refused before the editor opens or geometry is created; keep an existing binding and use a parameterized PCB instance region, or explicitly author a verified writable-library variant.",
 			Inputs:      []string{"uuid", "libraryUuid", "points (closed polygon vertices in mil)", "layer optional (default MULTI=12)", "ruleType optional (default no-components)", "name optional", "lineWidth optional", "locked optional (default true)"},
 			Outputs:     []string{"tabId", "primitiveId", "saved", "requested", "actual", "verified", "partial/deleteRolledBack/saveRolledBack/absentAfterRollback/rolledBack on failure"},
 			VerifyWith:  []string{"library.footprint.get"},
@@ -719,6 +719,14 @@ func AllActions() []ActionSpec {
 			Inputs:      []string{"side (top|bottom)"},
 			Outputs:     []string{"side", "currentLayer", "focusedLayers", "note"},
 			VerifyWith:  []string{"pcb.layers.list", "pcb.snapshot"},
+		},
+		{
+			Name:        "pcb.view.filter.get",
+			Domain:      DomainPcb,
+			Phase:       2,
+			NeedsWindow: true,
+			Description: "Read the raw PCB canvas filter configuration through eda.pcb_Document.getCurrentFilterConfiguration. This is view-only and does not change component attributes or design data. The current public SDK has no matching setter, so automatic hiding/restoring of the UI's component-attributes category remains unsupported and must not fall back to pcb_PrimitiveAttribute.modify or GUI clicks.",
+			Outputs:     []string{"configuration", "readable", "writable=false", "componentAttributesVisible=null until a live fixture proves the raw key", "api getter/setter evidence"},
 		},
 		{
 			Name:        "pcb.stackup.set",

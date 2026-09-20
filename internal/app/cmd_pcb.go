@@ -434,6 +434,23 @@ so in a single-design project you can just run 'easyeda pcb new-board'.`,
 		pcb.AddCommand(c)
 	}
 
+	// pcb.view.filter.get — read the canvas filter state. The official SDK does
+	// not expose a setter, so this command intentionally has no hide/show flags.
+	pcb.AddCommand(&cobra.Command{
+		Use:   "view-filter",
+		Short: "Read PCB canvas filter state (component-attribute write is unsupported)",
+		Long: `Read the active PCB canvas filter configuration without changing the design or view.
+
+The current official EasyEDA SDK exposes only getCurrentFilterConfiguration; it
+does not expose a setter for the UI's "component attributes" visibility category.
+The raw configuration is returned as evidence. Do not use attribute visibility
+edits as a workaround because those change persistent design data.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return dispatch(cfg, "pcb.view.filter.get", window, nil, stdout, stderr)
+		},
+	})
+
 	// ── nets ──────────────────────────────────────────────────────────────
 	// pcb.nets.list
 	pcb.AddCommand(&cobra.Command{

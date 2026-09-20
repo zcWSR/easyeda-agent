@@ -24,6 +24,8 @@ metadata:
 - 接口缺失时将能力标为 `planned` / `unsupported`，先补工具和自动化验证。宿主持续加载、
   保存或回读失败时停止现场写入并报告数据不可用；不得刷新浏览器或从工程树手工恢复。
 - 截图和界面观察只能作为只读证据，不能产生工程变更，也不能替代 typed readback。
+- Layout 观察可临时隐藏元件属性，但只能用可回读/可恢复的 typed 视图接口；先保存旧状态，
+  无论观察图成功或失败都恢复并对账。接口缺失就标 `unsupported`，不得用 GUI 或修改属性内容兜底。
 
 ## 工作循环
 
@@ -43,8 +45,9 @@ metadata:
    读取。若 Web 编辑器停在加载动画或对象不可读，停止现场写入，保存故障证据并将结果标为
    `incomplete`；先修复 typed reload/open 能力再复测。报告事实级检查结果和未覆盖项，不用
    阶段签字或综合评分代替判断。
-7. PCB Layout 完成后 save → reload → dump，展示布局复核包并等待用户确认；用户可描述调整，
-   也可自行调整后回复“OK”，此时先回读并更新参数基线。明确确认前不进入整板布线；LDO/DCDC
+7. 参数化 PCB Layout 后生成 typed 整板预览并连续自检两轮：第 1 轮查空间/模块关系/视觉异常；
+   第 2 轮严格 save → reload → fresh dump → fresh render。任一轮修正都清零并从第 1 轮重来；
+   两轮均无待修的明显问题且无修正，才称 Layout 完成、展示复核包并等待用户确认。确认前不进入整板布线；LDO/DCDC
    模块内部短电流环路可随布局先完成。具体边界见 [pcb-layout.md](references/pcb-layout.md)。
 
 ## 按任务加载
@@ -74,7 +77,9 @@ metadata:
   未重开核验时标记 `incomplete`，截图仅用于发现遗漏。
 - PCB 先满足题目或机械约束，再安排接口、关键路径、核心与外围。固定尺寸题先板框和固定件；
   无固定尺寸的自建板可先排功能模块，再据占地与布线空间收紧板框。
-- 已有器件的 device、footprint、3D model 绑定正确时，添加 region/keepout 必须保持关联不变；不得为增加区域默认复制或重绑整套模型。
+- 已有器件的 device、footprint、3D model 绑定正确时，添加 region/keepout 必须保持关联不变；
+  不得为增加区域默认复制或重绑整套模型。系统库不可写，须在创建几何前拒绝；保持绑定的
+  实例/工程 region 未经现场验证时标 `incomplete`。
 - PCB 模块布局先 `pcb dump --out board.json`，再运行 `pcb layout-plan --from layout.json
   --board board.json --module <id> --candidates 3 --out <dir>`。输入明确成员、固定轴、允许角度及
   `member pad → owner pad`；同网去耦不得按最近焊盘重新分配。候选报告位置、板边、距离和

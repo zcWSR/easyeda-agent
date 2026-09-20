@@ -1,0 +1,20 @@
+{
+  "blank": false,
+  "dataFiles": [
+    "components.json",
+    "tracks.json",
+    "vias.json",
+    "pours.json",
+    "nets.json",
+    "drc.json"
+  ],
+  "drcPassKnown": true,
+  "drcPassed": false,
+  "frameColors": 319,
+  "frameContent": 0.9621808510638298,
+  "sha256": "a5ba5090e63cceb6c9d5a3af62fcaa7b02cf0a1cc1e94e37ab598e20ceec2dd1",
+  "sha256Source": "cli-artifact",
+  "snapshot": "docs/reviews/260919-layout-integrated-precheck-20260921.png",
+  "stage": "layout-integrated-20260921-a",
+  "stale": false
+}

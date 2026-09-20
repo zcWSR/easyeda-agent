@@ -4930,6 +4930,15 @@ const libraryFootprintRegionCreate: Handler = async (payload) => {
 	let primitiveId = '';
 	let actualState: Record<string, unknown> | null = null;
 	try {
+		const systemLibraryUuid = await eda.lib_LibrariesList.getSystemLibraryUuid();
+		if (systemLibraryUuid && libraryUuid === systemLibraryUuid) {
+			throw new ActionError(
+				ErrorCodes.PRECONDITION_REFUSED,
+				`Footprint "${uuid}" belongs to EasyEDA's immutable system library; no editor was opened and no geometry was created. `
+				+ 'Keep the existing device/footprint/3D-model binding and use a parameterized PCB instance region, '
+				+ 'or explicitly author a verified writable-library variant when changing the binding is intended.',
+			);
+		}
 		tabId = await activateLibraryDocument(
 			uuid, libraryUuid,
 			'4' as ELIB_LibraryType.FOOTPRINT, 4 as EDMT_EditorDocumentType.FOOTPRINT,
@@ -10143,6 +10152,52 @@ const pcbImportAutoroute: Handler = async (payload) => {
 };
 
 /**
+ * Read the PCB canvas filter configuration without changing design data or view
+ * state. The current public SDK exposes only this getter; there is no matching
+ * setter for the UI's "component attributes" visibility category. Keep the raw
+ * object intact so a future, fixture-verified typed setter can restore the whole
+ * view exactly instead of guessing individual keys.
+ */
+const pcbViewFilterGet: Handler = async () => {
+	const documentApi = eda.pcb_Document as unknown as {
+		getCurrentFilterConfiguration?: () => Promise<Record<string, unknown> | undefined>;
+	};
+	if (typeof documentApi.getCurrentFilterConfiguration !== 'function') {
+		throw new ActionError(
+			ErrorCodes.EDA_API_UNAVAILABLE,
+			'This EasyEDA host does not expose pcb_Document.getCurrentFilterConfiguration(). No view state was changed.',
+		);
+	}
+	let configuration: Record<string, unknown> | undefined;
+	try {
+		configuration = await documentApi.getCurrentFilterConfiguration();
+	}
+	catch (err) {
+		throw edaError(err, 'Failed to read the PCB canvas filter configuration.');
+	}
+	if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+		throw new ActionError(
+			ErrorCodes.EDA_CALL_FAILED,
+			'PCB canvas filter getter returned no configuration. No view state was changed.',
+		);
+	}
+	return {
+		result: {
+			configuration,
+			readable: true,
+			writable: false,
+			componentAttributesVisible: null,
+			componentAttributesPath: null,
+			api: {
+				getter: 'eda.pcb_Document.getCurrentFilterConfiguration',
+				setter: null,
+			},
+			note: 'The public SDK has no filter setter. Do not modify pcb_PrimitiveAttribute visibility as a workaround because that changes design data.',
+		},
+	};
+};
+
+/**
  * Capture the active PCB canvas as a PNG artifact. Reuses the canvas-agnostic
  * `dmt_EditorControl.getCurrentRenderedAreaImage`, so it mirrors schematic.snapshot
  * for the PCB. Same stale-frame caveat — judge layout/DRC by data, screenshot for
@@ -13269,6 +13324,7 @@ const HANDLERS: Record<string, Handler> = {
 	'pcb.save': pcbSave,
 	'pcb.export.dsn': pcbExportDsn,
 	'pcb.import_autoroute': pcbImportAutoroute,
+	'pcb.view.filter.get': pcbViewFilterGet,
 	'pcb.snapshot': pcbSnapshot,
 	'pcb.outline.set': pcbOutlineSet,
 	'pcb.outline.get': pcbOutlineGet,

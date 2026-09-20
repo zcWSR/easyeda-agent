@@ -27,10 +27,13 @@
   局部 GND 回路直接决定电源布局，所以允许随模块先完成并作为不可破坏约束。它不授权提前
   连接跨模块电源主干、普通信号、全局铺铜或缝合孔。
 - 生成、选择并执行各模块候选只代表对应局部布局完成。整板还要解决全部机械/禁区项目，
-  save → reload → dump 后向用户展示复核包；只有用户对该回读版本明确回复“OK”才能进入
-  上述电源模块例外以外的布线。
+  生成整板集成图并连续通过两轮 Agent 自检：第 1 轮检查空间/模块关系/视觉异常，第 2 轮严格
+  save → reload → fresh dump → fresh render。任一轮修正都清零重来；两轮无修正后才称 Layout
+  完成并向用户展示复核包。只有用户对该回读版本明确回复“OK”才能进入上述电源模块例外以外的布线。
+- 本 Demo 当前没有已验证的逐元件属性 typed 视图开关，因此不隐藏属性。将来接口可用时也必须
+  先保存旧可见性、只改视图、观察后恢复并回读；接口缺失保持 `unsupported`，禁止 GUI 操作。
 - 用户可以继续描述器件关系和空间调整，也可以自己调整后确认。后一种情况先重新 dump，将
-  实际 anchor/rotation 固化为新参数基线，再开始整板布线。
+  实际 anchor/rotation 固化为新参数基线，再从第 1 轮重新执行两轮自检。
 
 统一命令：
 
@@ -176,13 +179,26 @@ U3 本来就有完整的正式绑定：[只读回读](u3-existing-model-binding-
 `no-components` region（primitiveId `74049f69b7f01501`）；宿主没有保留可选 name。这个事实只
 证明 region typed 接口能在副本持久化，副本没有也不应默认绑定到 U3。直接向现有 source
 footprint 添加同一区域的尝试因 `pcb_Document.save returned false` 返回 partial，没有证明保存。
+随后 typed `lib libraries` 证明 `0819f05c4eef4c71ace90d822a990e87` 正是 EasyEDA
+`systemLibraryUuid`，因此失败根因是系统封装不可写。`library.footprint.region_create` 现已增加
+前置识别：遇系统库时在打开编辑器和创建几何前拒绝，不能再把这类失败当成可重试保存问题。
 
 一次 `schematic.rebind.footprint` 超时在删除原 U3 后没有完成重建。随后通过参数化 `sch place`
 恢复原器件并保存、typed reload；[恢复证据](schematic-u3-recovery-live.json) 显示原理图回到
 69 件，U3 的 13 个 pin/net、位置和原 footprint 一致，但 primitiveId 与 uniqueId 都已变化。
-这次事故说明不应为禁放区重绑已有正确模型。由于恢复后的原理图 U3 与 PCB U3 的 uniqueId
-仍不同，**禁止从这个原理图状态执行 PCB `import-changes`**；正确后续是补齐“在现有封装上
-增加并保存 region，同时回读确认三项关联不变”的 typed 事务，失败就保持本项未完成。
+这次事故说明不应为禁放区重绑已有正确模型。之后只用 typed `sch modify` 把原理图 U3 的
+uniqueId 从 `gge70` 恢复为 PCB U3 的 `gge60`；保存、真实重载后仍为 69 件、13 个 pin/net
+完全一致，device、symbol、footprint 与属性均未变化，[对账证据](u3-identity-reconcile-live.json)
+显示两侧 `gge60` 都只有 U3 一个拥有者。本次没有运行 PCB `import-changes`；先前因 identity
+不一致而设的禁令已经解除。禁放区仍是独立未完成项：不得写系统封装，也不得默认重绑个人副本，
+需补齐并现场验证保持现有绑定的实例级/工程级 typed region 能力。
+
+随后对现有 U3 bbox 做了一次完全 typed 的板级 region 负例：创建 layer 12、`ruleType:[2]`
+的 top-level 区域后，DRC 从 216 个既有 Connection Error 增加为 217 个，并新增
+`Device to Prohibited Region`，对象正是该 region 与 owner U3。该候选随即 typed 删除，保存、
+真实重载后 region 数回到 0，DRC 也精确恢复为 216。完整输入、对象 ID 与前后哈希见
+[u3-instance-region-negative-live.json](u3-instance-region-negative-live.json)。因此普通板级区域不是
+封装内禁放区的合格替代；后续接口必须能表达 owner 豁免，否则继续 `incomplete`。
 
 ## 样例八：CAN 终端电阻与 ESD 保留当前关系
 
@@ -252,17 +268,27 @@ bbox 关系；个人库副本 region 的实证也不能外推成当前 U3 实例
 
 当前八组模块候选及两批共 19 件外围写入已经完成并 `live-verified`，这证明候选算法、坐标/
 角度执行和持久化链路可用。它**不等于考试整板 Layout 已完成或已获用户确认**：LCD/U3 的
-现有 source footprint 禁放 region 尚未保存，恢复后的原理图 U3 与 PCB U3 identity 也尚未
-通过专用 typed 工具对账。因此本样例的 `layoutReview.status` 仍应记为 `not-ready`，不得进入
-新的整板布线写入，也不得运行 PCB `import-changes`。现存 LDO 15 段铜属于上文的局部电源
-模块例外，不代表布线阶段已经开始。
+source footprint 位于不可写系统库，当前实例尚无经过现场验证的禁放 region。因此本样例的
+`layoutReview.status` 仍为 `not-ready`，不得进入新的整板布线写入。U3 原理图/PCB identity
+已经对账；本次没有运行 PCB `import-changes`。现存 LDO 15 段铜属于上文的局部电源模块例外，
+不代表布线阶段已经开始。
+
+当前已经通过 typed `pcb stage-snapshot` 生成一张整板预检查图，保存于
+`docs/reviews/260919-layout-integrated-precheck-20260921.png`：画面非空、内容占比 96.22%，
+CLI 在旧连接器未返回哈希时从落盘 PNG 补算出 SHA256
+`a5ba5090e63cceb6c9d5a3af62fcaa7b02cf0a1cc1e94e37ab598e20ceec2dd1`；第二次抓取相同字节时
+正确识别为 `stale`。由于 U3 禁放区仍未完成，且当前部署连接器还不能 typed 控制元件属性显隐，
+该图只算 precheck，不计入正式两轮；`layoutReview.consecutivePasses=0`。此前的候选 SVG、局部图、
+保存重载与浏览器重开证据继续有效，但不能替代“整板图 + 连续两轮无修正”的 Layout 完成证据。
 
 上述缺口关闭后，复核包至少列出：最新 board dump SHA256、69 件器件、90×50mm/R3 板框、
 固定件与 CN1 单轴约束、U3 禁放区、0 overlap/off-board/禁区违规、关键模块关系、现存 15 段
-LDO 铜及预留通道。展示整板预览后等待用户：
+LDO 铜及预留通道、整板图，以及两轮 review manifest。第 1 轮图用于空间/模块关系/视觉异常；
+第 2 轮必须来自 save → reload 后的 fresh dump 与 fresh `pcb stage-snapshot`。两轮都没有待修的
+明显布局/视觉 finding，也没有执行修复后，展示第 2 轮整板预览并等待用户：
 
-- 用户提出调整：修改关系/参数并重新生成候选，复核后再次展示；
-- 用户自行调整并说“OK”：重新 dump，核对并固化现场 anchor/rotation，再记录确认；
+- 用户提出调整：修改关系/参数并重新生成候选，连续通过数清零后再次执行两轮；
+- 用户自行调整并说“OK”：重新 dump，核对并固化现场 anchor/rotation，清零并重跑两轮后再记录确认；
 - 用户直接确认“OK/可以布线”：记录用户原话、时间和 board dump SHA256，随后才进入布线。
 
 这个记录是设计取舍的来源，不是 subagent 签字、综合评分或旧 stage 放行。

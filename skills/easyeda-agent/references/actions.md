@@ -164,6 +164,7 @@ EasyEDA 交互界面兜底。能力边界与未来 typed 验收见 [project-impo
 - `pcb.layers.set_current` — 切换当前编辑层（`--layer` 接受 id|层名|top|bottom|inner1）→ `easyeda pcb layer-set --layer bottom`
 - `pcb.layers.visibility` — 显示/隐藏/聚焦层做视觉 QA：`--preset top-only|bottom-only|copper-only|silk-only`，或 `--show/--hide`（可加 `--exclusive` 只留所选）→ `easyeda pcb layer-visibility --preset bottom-only`
 - `pcb.view.side` — 切到顶面/底面视图（选该面铜层为当前层 + 聚焦该面铜+丝印），随后 `pcb snapshot` 即反映该面。注意：EasyEDA 无原生画布翻面 API，这是「层聚焦」近似而非物理翻板 → `easyeda pcb view-side --side bottom`
+- `pcb.view.filter.get` — 只读返回当前 PCB 画布过滤配置 → `easyeda pcb view-filter`。当前官方 SDK 只有 getter，没有“元件属性”显隐 setter；因此自动隐藏/恢复保持 `unsupported`，不能用 `pcb_PrimitiveAttribute.modify` 改持久属性，也不能点击 GUI 兜底。
 - `pcb.nets.list` — PCB 全部网络
 
 ### 长度约束：差分对 / 等长网络组（#176）
