@@ -6,6 +6,31 @@
   "webEditorVersion": "3.2.203",
   "project": "ceshi",
   "purpose": "记录代表性步骤的真实回读和工具缺口；不是完成态整板答案",
+  "layoutReview": {
+    "status": "not-ready",
+    "requiresExplicitUserConfirmationBeforeBoardRouting": true,
+    "confirmationBaseline": null,
+    "blockingItems": [
+      "U3 现有 source footprint 的 no-components region 尚未保存并绑定到当前实例",
+      "恢复后的原理图 U3 与 PCB U3 identity 尚未通过专用 typed 工具对账"
+    ],
+    "powerModuleLocalCopperException": {
+      "allowedBeforeConfirmation": true,
+      "scope": [
+        "输入电容到电源芯片",
+        "电源芯片到输出电容",
+        "模块局部 GND 回流",
+        "必要的 EP 或地过孔"
+      ],
+      "excluded": [
+        "跨模块电源主干",
+        "普通信号",
+        "全局铺铜",
+        "缝合孔"
+      ],
+      "currentEvidence": "LDO 15 段 TOP/20mil 铜已保存重载；移动模块时必须与器件一起重算"
+    }
+  },
   "schematic": {
     "documentUuid": "f4351c9ef51e8321",
     "components": 69,

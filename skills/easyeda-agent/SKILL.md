@@ -43,6 +43,9 @@ metadata:
    读取。若 Web 编辑器停在加载动画或对象不可读，停止现场写入，保存故障证据并将结果标为
    `incomplete`；先修复 typed reload/open 能力再复测。报告事实级检查结果和未覆盖项，不用
    阶段签字或综合评分代替判断。
+7. PCB Layout 完成后 save → reload → dump，展示布局复核包并等待用户确认；用户可描述调整，
+   也可自行调整后回复“OK”，此时先回读并更新参数基线。明确确认前不进入整板布线；LDO/DCDC
+   模块内部短电流环路可随布局先完成。具体边界见 [pcb-layout.md](references/pcb-layout.md)。
 
 ## 按任务加载
 
