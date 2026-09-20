@@ -1,5 +1,7 @@
 # PCB 整板图片能力边界
 
+官方 API 请求：[easyeda/pro-api-sdk#41](https://github.com/easyeda/pro-api-sdk/issues/41)。
+
 EasyEDA Pro 4.1.60 的 PCB 右键菜单提供“复制为 SVG / 复制为 PNG”。对官方类型包
 `@jlceda/pro-api-types@0.4.25`、`pro-api` 包装层和 Web PCB bundle 交叉核对后，结论如下。
 
