@@ -559,8 +559,8 @@
       "source": [
         "考试说明.pdf p2,p7"
       ],
-      "problem": "设置 6mil 间距与 8mil 信号默认/最小线宽",
-      "startState": "可导出当前完整 DRC rules",
+      "problem": "设置 Track→Track 6mil 与信号默认/最小线宽 8mil",
+      "startState": "可导出当前完整 DRC rules；从 config get 核对样例规则名确实存在",
       "parameters": [
         {
           "name": "trackClearance",
@@ -585,23 +585,26 @@
         "template": "pcbReadback"
       },
       "commands": [
-        "easyeda pcb drc-rules --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules-set --from <RULES.json> --dry-run --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules-set --from <RULES.json> --doc <PCB_DOC_UUID> --project ceshi"
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config clearance --name copperThickness1oz --track-to-track 6 --dry-run --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config clearance --name copperThickness1oz --track-to-track 6 --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config track --name copperThickness1oz --min 8 --default 8 --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi"
       ],
       "observations": [
         "保存重开后规则精确回读为题目值"
       ],
-      "rationale": "完整规则副本写回可避免只改显示值或漏字段",
+      "rationale": "按字段修改真实规则，保留未指定的间距矩阵格和其他字段；6mil 不适用于所有对象类型",
       "knownErrorsAndFixes": [
         {
           "error": "只修改一项导致其他规则被默认覆盖",
-          "fix": "导出完整规则 JSON，修改副本后 drc-rules-set --from"
+          "fix": "用 config get 保留原配置，经 config clearance/track 显式修改目标字段，回读并比较其他字段"
         }
       ],
       "verificationStatus": "live-verified",
       "pending": [],
-      "liveEvidence": "Web 3.2.203完整规则写入并整页刷新回读：间距6mil，信号默认/最小8mil"
+      "liveEvidence": "Web 3.2.203完整规则写入并整页刷新回读：间距6mil，信号默认/最小8mil；2026-09-20 后续 config 入口已 typed 写入、保存重载、幂等重放与恢复，详见 pcb-config.md",
+      "referenceExample": "../../pcb-config.md"
     },
     {
       "id": "PCB-03",
@@ -609,7 +612,7 @@
         "考试说明.pdf p2,p7"
       ],
       "problem": "建立 PWR 规则和 PWR_Class 电源网成员",
-      "startState": "完整网表与 DRC rules 可读取",
+      "startState": "完整网表与 DRC rules 可读取；从 config get 核对样例规则名确实存在",
       "parameters": [
         {
           "name": "powerWidthDefault",
@@ -634,13 +637,12 @@
         "template": "pcbReadback"
       },
       "commands": [
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config track --name PWR --copy-from copperThickness1oz --min 8 --default 20 --doc <PCB_DOC_UUID> --project ceshi",
         "easyeda pcb net-class create --name PWR_Class --net +5V --net +3V3 --net GND --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb net-class list --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules --doc <PCB_DOC_UUID> --project ceshi > /tmp/260919-rules-before.json",
-        "edit /tmp/260919-rules-before.json into /tmp/260919-rules-pwr.json: keep complete ruleConfiguration, add PWR default=20mil/min=8mil, and bind PWR_Class in netRules",
-        "easyeda pcb drc-rules-set --from /tmp/260919-rules-pwr.json --dry-run --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules-set --from /tmp/260919-rules-pwr.json --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config bind --class PWR_Class --track-rule PWR --dry-run --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config bind --class PWR_Class --track-rule PWR --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi",
         "easyeda pcb net-class list --doc <PCB_DOC_UUID> --project ceshi"
       ],
       "observations": [
@@ -654,12 +656,13 @@
         },
         {
           "error": "只创建 PWR_Class 成员却未创建/绑定 PWR 规则",
-          "fix": "从完整 live ruleConfiguration 生成副本，写 PWR 与 netRules，先 dry-run 再写入并双向回读"
+          "fix": "用 config track 建 PWR，再用 config bind 关联类及成员子项，回读规则值、成员和绑定"
         }
       ],
       "verificationStatus": "live-verified",
       "pending": [],
-      "liveEvidence": "PWR默认20mil/最小8mil；PWR_Class父子规则绑定+5V/+3V3/GND，整页刷新后保持"
+      "liveEvidence": "PWR默认20mil/最小8mil；PWR_Class父子规则绑定+5V/+3V3/GND，整页刷新后保持；2026-09-20 后续 config 入口已 typed 写入、保存重载、幂等重放与恢复，详见 pcb-config.md",
+      "referenceExample": "../../pcb-config.md"
     },
     {
       "id": "PCB-04",
@@ -667,7 +670,7 @@
         "考试说明.pdf p2,p7"
       ],
       "problem": "设置过孔最小外径/孔径 24/12mil",
-      "startState": "完整 DRC rules 可读取",
+      "startState": "完整 DRC rules 可读取；从 config get 核对样例规则名确实存在",
       "parameters": [
         {
           "name": "viaOuterMin",
@@ -686,11 +689,10 @@
         "template": "pcbReadback"
       },
       "commands": [
-        "easyeda pcb drc-rules --doc <PCB_DOC_UUID> --project ceshi > /tmp/260919-rules-before.json",
-        "edit /tmp/260919-rules-before.json into /tmp/260919-rules-full.json: keep complete ruleConfiguration and set via minimum outer=24mil, hole=12mil",
-        "easyeda pcb drc-rules-set --from /tmp/260919-rules-full.json --dry-run --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules-set --from /tmp/260919-rules-full.json --doc <PCB_DOC_UUID> --project ceshi",
-        "easyeda pcb drc-rules --doc <PCB_DOC_UUID> --project ceshi"
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config via --name viaSize --min-outer 24 --min-hole 12 --dry-run --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config via --name viaSize --min-outer 24 --min-hole 12 --doc <PCB_DOC_UUID> --project ceshi",
+        "easyeda pcb config get --doc <PCB_DOC_UUID> --project ceshi"
       ],
       "observations": [
         "规则回读显示 24/12mil，实际过孔不小于下限"
@@ -699,12 +701,13 @@
       "knownErrorsAndFixes": [
         {
           "error": "把孔径和外径写反",
-          "fix": "在完整 rules 副本中设置并 dry-run 比较"
+          "fix": "用 min-outer/min-hole 显式区分，先 dry-run 再写入、保存与回读；默认值和上限需容纳题定最小值"
         }
       ],
       "verificationStatus": "live-verified",
       "pending": [],
-      "liveEvidence": "过孔外径/孔径最小24/12mil，整页刷新后保持"
+      "liveEvidence": "过孔外径/孔径最小24/12mil，整页刷新后保持；2026-09-20 后续 config 入口已 typed 写入、保存重载、幂等重放与恢复，详见 pcb-config.md",
+      "referenceExample": "../../pcb-config.md"
     },
     {
       "id": "PCB-05",
@@ -1007,7 +1010,8 @@
             "C6 100nF"
           ],
           "unit": "VOUT→load",
-          "modifiable": false
+          "modifiable": true,
+          "basis": "本例候选供电焊盘触达顺序；电容仍并联。原题要求靠近输出端及顶层短地回路，没有唯一 PCB 走向答案。"
         },
         {
           "name": "returnLayer",
@@ -1034,7 +1038,7 @@
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "LDO输出C5/C6压紧后，用实际铜证明输入/输出顺序与顶层GND回流；保存重开再读"
+        "结合真实 VOUT/TAB 焊盘压紧 C5/C6，用实际铜证明输入顺序、候选输出路径与顶层 GND 回流；保存重开再读"
       ],
       "referenceExample": "ldo-placement.md",
       "liveEvidence": "第一轮五件相对放置已保存刷新；独立核查发现输出C5/C6距VOUT/TAB约206/303mil，电源铜和顶层GND回流未执行"
@@ -1049,8 +1053,12 @@
       "parameters": [
         {
           "name": "decouplingOwnership",
-          "value": "one cap per relevant supply pin",
-          "unit": "pin→cap",
+          "value": {
+            "C14": "U6.1 VDD",
+            "C15": "U6.5 VDDA",
+            "C16": "U6.17 VDD"
+          },
+          "unit": "cap→pin",
           "modifiable": false
         },
         {
@@ -1126,7 +1134,7 @@
       "pending": [
         "在 ceshi 真实页面执行并完成 save → doc reload → readback"
       ],
-      "liveEvidence": "晶振两信号约100/152mil、负载电容约100/119mil，但200mil守护区被11件侵入；需先重排再验证走线"
+      "liveEvidence": "历史距离记录：晶振信号约100/152mil、负载电容约100/119mil；200mil守护区内有11件是自定搜索范围的观察，不是考试违规。需按脚次序、实际短路径及顶层包地净空继续验证。"
     },
     {
       "id": "LAY-06",
@@ -1167,7 +1175,7 @@
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "回读U3封装级component-keepout及实例绑定；消歧CN1 rendered bbox描边；修正7组<12mil装配间隙后再保存回读"
+        "回读U3封装级component-keepout及实例绑定；消歧CN1 rendered bbox描边；按实际本体/装配空间评估7组小间隙，12mil仅是原检查的建议阈值；修改后保存回读"
       ],
       "liveEvidence": "69件均TOP、实际bbox 0重叠、layout-lint 0 off-board；但LCD禁放区对象未被快照证明，因此不升级为live-verified"
     },
@@ -1225,10 +1233,11 @@
       "startState": "PWR 规则和负载路径已明确",
       "parameters": [
         {
-          "name": "trunkWidth",
+          "name": "powerRuleDefaultWidth",
           "value": 20,
           "unit": "mil",
-          "modifiable": false
+          "modifiable": false,
+          "basis": "PWR 规则默认值；实际主干可按电流加粗，不表示所有电源铜固定20mil"
         },
         {
           "name": "branchWidthMin",
@@ -1237,13 +1246,14 @@
           "modifiable": false
         },
         {
-          "name": "viaOuterHole",
+          "name": "viaOuterHoleMin",
           "value": [
             24,
             12
           ],
           "unit": "mil",
-          "modifiable": false
+          "modifiable": false,
+          "basis": "外径/孔径下限，实际过孔可按载流与空间增大"
         }
       ],
       "steps": {
@@ -1270,22 +1280,24 @@
     {
       "id": "RTE-03",
       "source": [
-        "考试说明.pdf p5,p8"
+        "考试说明.pdf p4-p5,p8"
       ],
-      "problem": "晶振短直、顶层、无换层并保留顶层包地净空",
+      "problem": "晶振靠 MCU、不在板边；短直、避免底层并保留顶层包地净空",
       "startState": "X1/C20/C21 已靠近 U6 OSC pins",
       "parameters": [
         {
           "name": "layer",
           "value": "TOP",
           "unit": "layer",
-          "modifiable": false
+          "modifiable": true,
+          "basis": "本例推荐策略；原题要求短直、避免底层，没有单列晶振绝对零过孔禁令。调整时须记录实际路径与回流理由。"
         },
         {
           "name": "viaCount",
           "value": 0,
           "unit": "via per net",
-          "modifiable": false
+          "modifiable": true,
+          "basis": "本例推荐策略；原题要求短直、避免底层，没有单列晶振绝对零过孔禁令。调整时须记录实际路径与回流理由。"
         },
         {
           "name": "pathStyle",
@@ -1306,8 +1318,8 @@
       "rationale": "晶振环路对寄生和回流敏感",
       "knownErrorsAndFixes": [
         {
-          "error": "绕远、换层或贴板边",
-          "fix": "先布晶振双网并锁定通道，再处理普通信号"
+          "error": "绕远、贴板边，或把推荐 TOP/0via 误作考试硬阈值",
+          "fix": "按 OSC 脚次序重排 X1/C20/C21 并求短路径，优先顶层；以原题定性要求和实际回流评估"
         }
       ],
       "verificationStatus": "offline-verified",
@@ -1315,7 +1327,7 @@
         "先重排X1/C20/C21以保持OSC脚左右次序，再生成短解；现场应用、保存重开并回读track/via/DRC"
       ],
       "referenceExample": "critical-routing.md",
-      "offlineEvidence": "真实pad+bbox+6mil离线规划得到TOP/0via方案，但OSC_IN长882.7mil，作为布局反例而非最终路线"
+      "offlineEvidence": "旧统一6mil障碍简化模型得到TOP/0via方案，但OSC_IN长882.7mil；这是布局反例，尚未按对象类型规则重新规划或现场验证"
     },
     {
       "id": "RTE-04",
@@ -1370,7 +1382,7 @@
       "source": [
         "考试说明.pdf p5,p8"
       ],
-      "problem": "保持 CANH/CANL 顶层无过孔、120Ω 跨接拓扑和近端 ESD",
+      "problem": "CANH/CANL 顶层无过孔，各先经 R12 对应焊盘再到 CN1；120Ω 仍跨接 H/L，ESD 靠端子",
       "startState": "U5/D1/R12/CN1 网络拓扑已核对",
       "parameters": [
         {
@@ -1390,6 +1402,24 @@
           "value": 0,
           "unit": "via per net",
           "modifiable": false
+        },
+        {
+          "name": "requiredPadOrder",
+          "value": {
+            "CANH": [
+              "U5.7",
+              "R12.CANH pad",
+              "CN1.2"
+            ],
+            "CANL": [
+              "U5.6",
+              "R12.CANL pad",
+              "CN1.1"
+            ]
+          },
+          "unit": "ordered pads per net",
+          "modifiable": false,
+          "basis": "说明 p5,p8；R12 焊盘编号按实际网映射读取，不猜测"
         }
       ],
       "steps": {
@@ -1399,21 +1429,25 @@
         "template": "routeReadback"
       },
       "observations": [
-        "R12 跨 CANH/CANL；D1 靠 CN1；两网层与 via count 符合要求"
+        "H/L 实际铜路各先到 R12 对应焊盘再到 CN1；R12 跨两网，D1 靠 CN1 并短路径回地；两网层与 via 数符合要求"
       ],
       "rationale": "终端和 ESD 的拓扑/位置职责不同，不能串接或远置",
       "knownErrorsAndFixes": [
         {
           "error": "把 120Ω 串在线上或 ESD 靠收发器",
           "fix": "先验证网表跨接，再量端子到 ESD 与走线路径"
+        },
+        {
+          "error": "只验证 R12 跨接，把 U5→D1→CN1 加 R12 支路当作完成题定路径",
+          "fix": "把每网 R12 焊盘列为必经节点，按实际铜验证先后；从焊盘末端出线，不横穿阻容焊盘中间"
         }
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "将D1横向对齐CN1信号脚后重算；现场应用、保存重开并回读拓扑、track/via/DRC"
+        "先按 U5→R12对应焊盘→CN1 重算两网，D1 靠端子且对齐信号脚、缩短地回路；按真实规则规划并现场验证 track/via/DRC 与保存持久化"
       ],
       "referenceExample": "critical-routing.md",
-      "offlineEvidence": "真实pad+bbox+6mil离线规划保持U5→D1→CN1与R12跨接，但CANL长1422.4mil，先反馈布局"
+      "offlineEvidence": "旧统一6mil障碍简化模型保持 U5→D1→CN1 与 R12 跨接，但未验证 R12 必经顺序；CANL 长1422.4mil，仅作待修反例，不能代表题目路径已通过"
     },
     {
       "id": "RTE-06",
