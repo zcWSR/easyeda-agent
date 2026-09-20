@@ -156,18 +156,25 @@ C19 `(2806.104,942.9)mil @ 180°`、C18 `(2833.704,809.636)mil @ 270°`；两段
 取舍。三个最近对象对分别是 R4↔R5、固定核心 U3↔R3、C7↔LCD 禁放代理；外部最小值不是
 移动外围之间的间隙，后续应通过走线通道继续判断，不能用总分掩盖。
 
-LCD region 的现场事实必须单独记录。个人库可写副本
+U3 本来就有完整的正式绑定：[只读回读](u3-existing-model-binding-live.json) 证明它是
+`C2890616 / N096-1608TBBIG11-H13`，绑定 `OLED-SMD_ST7735S` 封装和 3D model
+`55cc08024bd249a298d835f2dd067767`。这些都不是 Agent 绘制的；增加 LCD 本体禁放区必须保持
+现有 device、footprint 和 3D model 关联，不应把“加 region”实现成“换模型”。
+
+此前新增的几何只有个人库可写副本
 `EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO`（footprint UUID
 `5e1662059e174644a40d45f813b437d5`，library UUID
 `f60b2174579745258ada9b72bbe2f52b`）已保存一个 layer 12、`ruleType:[2]`、locked 的
 `no-components` region（primitiveId `74049f69b7f01501`）；宿主没有保留可选 name。这个事实只
-证明个人库副本可持久化 region，尚未证明 U3 原理图/PCB 实例已经绑定该副本。
+证明 region typed 接口能在副本持久化，副本没有也不应默认绑定到 U3。直接向现有 source
+footprint 添加同一区域的尝试因 `pcb_Document.save returned false` 返回 partial，没有证明保存。
 
 一次 `schematic.rebind.footprint` 超时在删除原 U3 后没有完成重建。随后通过参数化 `sch place`
 恢复原器件并保存、typed reload；[恢复证据](schematic-u3-recovery-live.json) 显示原理图回到
 69 件，U3 的 13 个 pin/net、位置和原 footprint 一致，但 primitiveId 与 uniqueId 都已变化。
-在 typed 重绑定能够保持组件身份并完成实例对账前，**禁止从这个原理图状态执行 PCB
-`import-changes`**；当前 PCB 上已验证的 U3 与外围布局保持原状。
+这次事故说明不应为禁放区重绑已有正确模型。由于恢复后的原理图 U3 与 PCB U3 的 uniqueId
+仍不同，**禁止从这个原理图状态执行 PCB `import-changes`**；正确后续是补齐“在现有封装上
+增加并保存 region，同时回读确认三项关联不变”的 typed 事务，失败就保持本项未完成。
 
 ## 样例八：CAN 终端电阻与 ESD 保留当前关系
 

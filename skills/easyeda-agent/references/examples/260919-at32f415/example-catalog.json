@@ -28,7 +28,8 @@
     "layout-after-peripherals-tracks-live.json",
     "layout-after-peripherals-lint-live.json",
     "layout-after-browser-reopen-verification-live.json",
-    "schematic-u3-recovery-live.json"
+    "schematic-u3-recovery-live.json",
+    "u3-existing-model-binding-live.json"
   ],
   "stepTemplates": {
     "schematicCompare": {
@@ -881,7 +882,7 @@
         "考试说明.pdf p3"
       ],
       "problem": "在 LCD 封装轮廓内建立元件禁放区",
-      "startState": "U3 footprint 副本可编辑",
+      "startState": "U3 已正确绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model；只缺封装内 no-components region",
       "parameters": [
         {
           "name": "regionType",
@@ -900,30 +901,34 @@
         "template": "pcbReadback"
       },
       "commands": [
-        "easyeda lib footprint region --help",
-        "easyeda pcb region list --doc <PCB_DOC_UUID> --project ceshi"
+        "easyeda sch list --include-device-identity --doc <SCH_DOC_UUID> --project ceshi",
+        "easyeda lib device get --uuid <DEVICE_UUID> --library <LIBRARY_UUID> --project ceshi",
+        "easyeda lib footprint get --uuid <SOURCE_FOOTPRINT_UUID> --library <LIBRARY_UUID> --project ceshi",
+        "easyeda lib footprint region --help"
       ],
       "observations": [
-        "个人库可写副本包含已保存的 no-components region；当前 U3 实例尚未绑定新 footprint，因此不能声称考试板已具备封装级禁放区"
+        "只读回读确认 U3 已绑定 C2890616、OLED-SMD_ST7735S 与 3D model 55cc08024bd249a298d835f2dd067767；这些不是 Agent 绘制的",
+        "Agent 新增的唯一几何是未绑定个人库副本中的一个 no-components region；现有 source footprint 的原位保存尝试返回 partial"
       ],
-      "rationale": "封装级禁元件区与铜禁布区不同，且必须随实例保存",
+      "rationale": "封装级禁元件区与铜禁布区不同；增加区域必须保持现有 device、footprint、3D model 关联不变",
       "knownErrorsAndFixes": [
         {
-          "error": "只在板上画临时框或误建 no-copper",
-          "fix": "用 lib footprint region 写副本，保存并验证实例绑定；接口不持久化则标 unsupported 并补 typed 能力"
+          "error": "把“给既有 LCD 封装增加禁放区”误做成复制封装并重绑整个模型",
+          "fix": "先回读 device/footprint/3D model 关联；只在现有 source footprint 上增加 region，并在保存后核对三项关联完全不变。宿主不支持持久化就保持本项 incomplete，不重绑。"
         },
         {
-          "error": "重绑定超时但已删除原 U3，随后把恢复后的原理图直接 import 到 PCB",
-          "fix": "先参数化恢复原器件并保存重载；primitiveId/uniqueId 变化时禁止 PCB import-changes，修复 typed 身份保持和部分执行回报后再绑定"
+          "error": "重绑定超时删除原 U3 后，继续把恢复后的原理图 import 到 PCB",
+          "fix": "参数化恢复原器件并保存重载；原理图/PCB uniqueId 不一致时禁止 PCB import-changes。"
         }
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "修复 region 闭合多边形几何等价/name 忽略回读，再完成当前 U3 原理图和 PCB 实例绑定",
-        "重绑定修复前保持 PCB import-changes 禁止状态"
+        "补齐并验证现有 OLED-SMD_ST7735S source footprint 的原位 region 保存事务；不复制或重绑现有模型",
+        "保存后回读 no-components region，并确认 device、footprint、3D model 关联及 PCB U3 实例均未变化",
+        "保持 PCB import-changes 禁止状态，直到原理图/PCB U3 identity 被专门对账修复"
       ],
       "referenceExample": "layout-candidates.md",
-      "liveEvidence": "个人库副本 EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO 已保存 layer 12、ruleType [2]、locked 的 no-components region；宿主忽略可选 name。一次 rebind 超时删除 U3 后已用原器件参数化恢复，保存重载后原理图69件且13脚网络一致，但 primitiveId/uniqueId 已变化（schematic-u3-recovery-live.json）；当前实例绑定未完成。"
+      "liveEvidence": "u3-existing-model-binding-live.json：当前 U3 的 C2890616、OLED-SMD_ST7735S 与 3D model 绑定已只读实证；个人库副本只证明 region 接口，未绑定 U3。现有 source footprint 的 region 保存尝试返回 partial，故题目禁放区仍未完成。"
     },
     {
       "id": "LAY-01",

@@ -94,7 +94,7 @@ PCB `import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验
 | PCB-05 | 说明 p2 | 90×50mm、线宽 0.254mm、R3 真圆角、左下显示原点、锁定 | [固定机械样例](fixed-mechanics.md)；保存及整页刷新回读已 `live-verified` |
 | PCB-06 | 说明 p2 | 四孔、U6、CARD1 的固定题面坐标、角度和锁定 | 现场确认本批输入为 footprint anchor；六件刷新后坐标、角度和锁定保持 |
 | PCB-07 | 说明 p3 | CN1 只固定 y=42mm、180°，x 是自由参数 | 现场候选 x=69mm；题定 y/角度保持，rendered bbox 顶边约超 1.17mil 的冲突单独保留 |
-| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 个人库可写副本已现场保存 layer 12 / `ruleType:[2]` 的 no-components region；当前 U3 实例绑定未完成，重绑定恢复后身份已变化，禁止 PCB `import-changes` |
+| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 当前 U3 已实证绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model；个人库副本 region 只是未绑定接口试验。应在现有 source footprint 原位增加区域并证明三项关联不变，禁止为此重绑模型；U3 identity 修复前仍禁止 PCB `import-changes` |
 
 ### 布局关系
 

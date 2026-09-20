@@ -481,6 +481,14 @@
   },
   "lcdFootprintComponentKeepout": {
     "status": "partial-live-verified",
+    "existingU3Binding": {
+      "data": "u3-existing-model-binding-live.json",
+      "device": "C2890616 / N096-1608TBBIG11-H13",
+      "footprint": "OLED-SMD_ST7735S",
+      "model3dUuid": "55cc08024bd249a298d835f2dd067767",
+      "verifiedReadOnly": true,
+      "mustRemainUnchanged": true
+    },
     "personalLibraryCopy": {
       "name": "EA_AGENT__U3_LCD_COMPONENT_KEEPOUT_DEMO",
       "footprintUuid": "5e1662059e174644a40d45f813b437d5",
@@ -496,11 +504,12 @@
     },
     "instanceBinding": {
       "completed": false,
-      "reason": "schematic.rebind.footprint 超时且发生部分执行；恢复后的 U3 身份已变化",
+      "reason": "个人库副本不应为增加禁放区而绑定；此前不必要的 schematic.rebind.footprint 超时且发生部分执行，恢复后的 U3 身份已变化",
       "recoveryData": "schematic-u3-recovery-live.json",
       "pcbImportChangesAllowed": false
     },
-    "evidenceBoundary": "只证明个人库副本能持久化 no-components region；不证明当前原理图或 PCB U3 已绑定该副本"
+    "correctNextStep": "在现有 OLED-SMD_ST7735S source footprint 上原位创建并保存 no-components region，随后回读确认 device、footprint、3D model 与 PCB U3 实例全部不变；宿主不支持就保持 incomplete",
+    "evidenceBoundary": "只证明现有 U3 模型绑定正确，以及个人库副本能持久化 no-components region；尚未证明现有 source footprint 已保存题目区域"
   },
   "pcbLdo": {
     "status": "live-verified",

@@ -71,6 +71,7 @@ metadata:
   未重开核验时标记 `incomplete`，截图仅用于发现遗漏。
 - PCB 先满足题目或机械约束，再安排接口、关键路径、核心与外围。固定尺寸题先板框和固定件；
   无固定尺寸的自建板可先排功能模块，再据占地与布线空间收紧板框。
+- 已有器件的 device、footprint、3D model 绑定正确时，添加 region/keepout 必须保持关联不变；不得为增加区域默认复制或重绑整套模型。
 - PCB 模块布局先 `pcb dump --out board.json`，再运行 `pcb layout-plan --from layout.json
   --board board.json --module <id> --candidates 3 --out <dir>`。输入明确成员、固定轴、允许角度及
   `member pad → owner pad`；同网去耦不得按最近焊盘重新分配。候选报告位置、板边、距离和
@@ -86,5 +87,4 @@ metadata:
 `candidate-rejected`，不能冒充交付验证。未实现的 typed 能力标 `planned` / `unsupported`，
 不得改走 GUI；新接口先用当前 `--help` 核对，离线测试不等于已在用户的 EDA 构建现场验证。
 
-修改底层 action、daemon 或连接器时，同步更新对应样例和工具说明。修改 Skill 后运行
-`python3 scripts/pack-skill.py --check`；它只验证受控包与链接，不代表样例已在现场通过。
+修改底层 action、daemon 或连接器时同步更新样例；修改 Skill 后运行 `python3 scripts/pack-skill.py --check`，它不代表现场验证。

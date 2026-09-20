@@ -54,6 +54,10 @@ easyeda apply candidates/candidate-01.apply.json
 并核对坐标、角度、固定件、板框、模块成员和铜段数。完整可迁移例见
 [260919 模块候选布局](examples/260919-at32f415/layout-candidates.md)。
 
+Region/keepout 是附加约束，不是换模型的理由。既有器件已经正确绑定 device、footprint 与
+3D model 时，先回读三项身份，只在原 source footprint 上原位增加区域；保存后再次逐项核对
+关联和 PCB 实例。宿主不能持久化就标 incomplete 并补 typed 接口，不能复制封装后默认 rebind。
+
 ### Layout adjustment (deterministic — EasyEDA exposes no align/grid API)
 
 - `easyeda pcb refine` — **打分驱动的布局精修环(#167 #153)**。读 `pcb layout-score` 逐维归因,

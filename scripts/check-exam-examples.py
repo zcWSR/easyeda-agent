@@ -67,6 +67,7 @@ def main() -> None:
     can_pair_report = load("can-route-plan-pair-negative-report.json")
     can_layout_candidate = load("layout-candidates-can-current-board/candidate-01.json")
     browser_reopen = load("layout-after-browser-reopen-verification-live.json")
+    u3_binding = load("u3-existing-model-binding-live.json")
     ldo_candidate = load("ldo-layout-candidate.json")
     ldo_route = load("ldo-route-live.json")
 
@@ -465,6 +466,14 @@ def main() -> None:
     assert latest_reopen["tracksEqualToSavedBaseline"] is True
     for field in ("componentsSha256", "outlineSha256", "tracksResultSha256"):
         assert len(latest_reopen[field]) == 64
+
+    assert u3_binding["status"] == "live-verified-read-only"
+    assert u3_binding["schematicU3"]["lcsc"] == "C2890616"
+    assert u3_binding["schematicU3"]["footprintName"] == "OLED-SMD_ST7735S"
+    assert u3_binding["schematicU3"]["model3dUuid"] == "55cc08024bd249a298d835f2dd067767"
+    assert u3_binding["pcbU3"]["padCount"] == 13
+    assert u3_binding["previousWork"]["personalFixture"]["boundToU3"] is False
+    assert u3_binding["boardTopLevelRegions"]["count"] == 0
 
     assert live["status"] == "partial-live-verified"
     assert live["purpose"].endswith("不是完成态整板答案")
