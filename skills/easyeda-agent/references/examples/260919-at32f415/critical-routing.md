@@ -9,8 +9,10 @@
 
 状态：`partial-live-verified`。旧晶振/CAN 路线仍只做了离线反例分析；晶振的第一步
 “修正 X1/C20/C21 焊盘次序”已经在 Web EDA 通过 typed 修改、保存、重载和独立只读核查，
-见 [crystal-placement-live.json](crystal-placement-live.json)。晶振铜和 CAN 仍未现场写入。
-后续原文复核发现旧 CAN 计划未证明 R12 主路径顺序；离线 passed 不表示完整题目拓扑已验证。
+见 [crystal-placement-live.json](crystal-placement-live.json)。CAN 又完成了一轮真实布局迭代：
+D1/CN1 的 H/L 支路已改成对称关系，但 R12 候选暴露两处 H/L 飞线相交，作为负例保留在
+[can-placement-iteration-live.json](can-placement-iteration-live.json)。晶振铜和 CAN 铜仍未现场写入。
+后续原文复核发现旧 CAN 计划未证明 R12 主路径顺序；离线 passed 或布局命令成功都不表示完整题目拓扑已验证。
 结果证明“几何上能布通”仍可能是差布局；本样例的完成动作是把绕行原因反馈给布局参数，而不是
 为了让工程看起来更完整而落下 77 段不理想走线。
 
@@ -84,6 +86,29 @@ easyeda doc reload <PCB_DOC_UUID> --project ceshi --json
 下一批才按 U6.2→X1.1→C21.1、U6.3→X1.3→C20.1 规划 8mil TOP 短线。当前连接器 1.5.1
 缺 pad source shape 与 `arcsAvailable`，`pcb net-path` 会 fail-closed；新版 typed
 连接器未生效前不写晶振铜，也不以 AABB 或同网名降级判 PASS。
+
+## CAN 第一批现场迭代：保留局部改善，拒绝整组候选
+
+第一轮保持 U5 和题定 `CN1 y=42mm / 180°` 不动，把 D1 旋转到 270°并令其 H/L 与 CN1
+信号脚中心对齐；R12 候选移动到中心 `(2630,1510)mil`、0°。所有动作经 typed CLI 写入，
+保存、`doc reload` 后同一 primitive 和 pads 保持。完整命令、原始回读哈希和两轮独立核查见
+[can-placement-iteration-live.json](can-placement-iteration-live.json)。
+
+这轮得到一个可保留的局部关系和一个必须拒绝的结论：
+
+- D1.1→CN1.2 与 D1.2→CN1.1 都约 `168.94mil`，比修改前约 `217/295mil` 对称；D1 与
+  CN1 的 bbox 净距约 `10.06mil`，只说明器件未重叠，不能把这条缝当走线通道。
+- R12.1=CANH 在左、R12.2=CANL 在右，仍是跨接 120Ω；但纯 MST 飞线出现两处 H/L
+  相交。最初“预计不会先天交叉”的离线候选被真实回读否定。
+- 将 R12 的 y 对齐到 D1 信号 pad 的 `1488.8mil` 也不是修法：它会让 R12.2 落在
+  CANH 水平段、D1.1 落在 CANL 水平段，把点交叉变成异网共线穿越。
+- U5.6 右侧还有 U5.5 NC。按 8mil 线和 6mil 净距膨胀后，该 pad 的禁入矩形为
+  `x=2402.6..2447.4, y=1408.9..1502.3mil`；只分别给两网找最短路会漏掉相互穿越。
+
+因此当前 R12 坐标只作为负例，不升级为正向布局答案，也不继续凭单一 crossing 数盲移。
+下一步必须做 H/L 双线联合寻路：每网带 R12 必经节点，D1 作为靠端子的短支路，统一检查
+pad/track/NC/板框/既有铜、8mil 线宽、6mil 净距和 45°转折。只有计划给出可执行段并通过
+独立几何检查后，才再移动 R12；当前连接器证据不足时仍不落铜。
 
 ## 执行形态与回读
 

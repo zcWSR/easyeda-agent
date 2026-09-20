@@ -203,7 +203,51 @@
       ]
     }
   },
+  "pcbCanPlacementIteration": {
+    "status": "live-verified",
+    "outcome": "rejected-as-positive-example",
+    "verificationScope": "U5/R12/D1/CN1 第一轮布局修改、保存重开、真实焊盘与负面发现；不包含 CAN 铜、R12 最终位置、D1 地回流或 DRC 通过",
+    "data": "can-placement-iteration-live.json",
+    "placement": {
+      "fixedDuringIteration": ["U5", "CN1"],
+      "movedRefs": ["R12", "D1"],
+      "allTop": true,
+      "overlaps": 0,
+      "outsideOutline": 0,
+      "tightSpacingAt6Mil": 0,
+      "d1Cn1SignalDistanceMilBefore": [217.014, 294.967],
+      "d1Cn1SignalDistanceMilAfter": [168.937, 168.937],
+      "d1Cn1BboxGapMil": 10.056,
+      "crossings": 57,
+      "canCrossings": 2,
+      "ratsnestMil": 27224.77
+    },
+    "routing": {
+      "CANH": {"tracks": 0, "arcs": 0, "vias": 0},
+      "CANL": {"tracks": 0, "arcs": 0, "vias": 0}
+    },
+    "officialDrc": {
+      "total": 216,
+      "counts": {"Connection Error": 216},
+      "canSignalConnectionErrors": 8
+    },
+    "independentReview": {
+      "status": "completed-with-findings",
+      "accepted": "D1/CN1的H左/L右对称关系、R12实际pad网、保存重开和0铜/0via回读成立",
+      "rejected": [
+        "最初候选的无交叉预测被真实两处CANH/CANL飞线相交否定",
+        "R12 y=1488.8的简单对齐会造成异网共线穿越",
+        "没有H/L双线联合寻路和实际铜回读前，不给出新的可信R12单一坐标"
+      ]
+    }
+  },
   "observedToolIssues": [
+    {
+      "id": "same-window-parallel-doc-guard",
+      "symptom": "同一Web窗口并发运行多个带--doc的typed只读命令时，pcb check被文档过渡保护拒绝",
+      "recovery": "停止并发，确认前一条完成后串行重跑；subagent只并行离线分析，或在主Agent停止访问窗口时只读核查",
+      "liveRetest": "串行采集components/layout-lint/check/DRC/tracks/vias全部成功"
+    },
     {
       "id": "web-doc-reload-spinner",
       "symptom": "doc reload关闭PCB后openDocument不返回，留下about:blank标签和持续加载动画",
@@ -237,6 +281,7 @@
   ],
   "notClaimed": [
     "第一轮布局的独立复核发现LED板边、去耦、晶振守护区、CAN和LCD禁放证据缺口，不能称布局完成",
+    "CAN的D1/CN1局部关系已改善，但R12当前坐标只作为相交负例；有序主路径和R12最终位置未完成",
     "完整PCB布线、双面GND、泪滴、丝印和PCB DRC=0尚未执行",
     "LCD可写封装副本与实例绑定尚未在新connector现场验证",
     "shape-aware pcb net-path 与 pad-anchor 修复尚未在加载新版连接器的 Web 窗口复测"

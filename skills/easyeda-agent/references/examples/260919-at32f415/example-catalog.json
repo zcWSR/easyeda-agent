@@ -15,6 +15,7 @@
     "source-connectivity.json",
     "initial-placement.json",
     "crystal-placement-live.json",
+    "can-placement-iteration-live.json",
     "ldo-layout-candidate.json",
     "ldo-route-live.json",
     "live-validation.json"
@@ -1461,10 +1462,17 @@
       ],
       "verificationStatus": "offline-verified",
       "pending": [
-        "先按 U5→R12对应焊盘→CN1 重算两网，D1 靠端子且对齐信号脚、缩短地回路；按真实规则规划并现场验证 track/via/DRC 与保存持久化"
+        "保留已现场验证的 D1/CN1 对称关系；对 R12 做 H/L 双线联合寻路，统一检查 U5.5 NC、焊盘端部、异网线距、D1支路和既有铜；候选通过离线几何核查后再移动并现场验证 track/via/DRC 与保存持久化"
       ],
       "referenceExample": "critical-routing.md",
-      "offlineEvidence": "旧统一6mil障碍简化模型保持 U5→D1→CN1 与 R12 跨接，但未验证 R12 必经顺序；CANL 长1422.4mil，仅作待修反例，不能代表题目路径已通过"
+      "offlineEvidence": "旧统一6mil障碍简化模型保持 U5→D1→CN1 与 R12 跨接，但未验证 R12 必经顺序；CANL 长1422.4mil，仅作待修反例，不能代表题目路径已通过",
+      "livePlacementIteration": {
+        "status": "live-verified",
+        "outcome": "rejected-as-positive-example",
+        "data": "can-placement-iteration-live.json",
+        "verified": "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；69件仍全TOP、0 overlap、0 off-board、0 tight-spacing；CANH/CANL仍为0 track/0 arc/0 via",
+        "rejected": "R12=(2630,1510) 的纯MST有两处H/L相交；R12 y=1488.8会造成异网共线穿越；没有联合寻路证据时不把任何新坐标写成正例"
+      }
     },
     {
       "id": "RTE-06",

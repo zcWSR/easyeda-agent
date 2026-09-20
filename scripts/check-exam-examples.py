@@ -60,6 +60,7 @@ def main() -> None:
     placement = load("initial-placement.json")
     live = load("live-validation.json")
     crystal_placement = load("crystal-placement-live.json")
+    can_placement = load("can-placement-iteration-live.json")
     ldo_candidate = load("ldo-layout-candidate.json")
     ldo_route = load("ldo-route-live.json")
 
@@ -258,6 +259,33 @@ def main() -> None:
     assert all(len(value) == 64 for value in crystal_placement["evidence"].values())
     assert crystal_placement["notClaimed"]
 
+    assert can_placement["status"] == "live-verified"
+    assert can_placement["outcome"] == "rejected-as-positive-example"
+    assert can_placement["documentUuid"] == "2e719e9419653c72"
+    assert can_placement["electricalTopology"]["orderedMainPaths"] == {
+        "CANH": ["U5.7", "R12.1", "CN1.2"],
+        "CANL": ["U5.6", "R12.2", "CN1.1"],
+    }
+    can_after = can_placement["afterReload"]
+    assert can_after["d1ToCn1SignalDistanceMil"] == {
+        "CANH": 168.937,
+        "CANL": 168.937,
+    }
+    assert close(can_after["bboxGapMil"]["D1-CN1"], 10.056)
+    assert can_after["layoutLint"]["canCrossings"] == [
+        {"x": 2751.9, "y": 1498.45},
+        {"x": 2634.81, "y": 1505.24},
+    ]
+    assert all(
+        route == {"tracks": 0, "arcs": 0, "vias": 0}
+        for route in can_after["routing"].values()
+    )
+    assert can_after["officialDrc"]["canSignalConnectionErrors"] == 8
+    assert can_placement["nextSearch"]["status"] == "pending-offline-plan-and-live-copper"
+    assert can_placement["independentVerification"]["status"] == "completed-with-findings"
+    assert all(len(value) == 64 for value in can_placement["evidence"].values())
+    assert can_placement["negativeFindings"] and can_placement["notClaimed"]
+
     expected_catalog_ids = {
         *(f"SCH-{i:02d}" for i in range(1, 11)),
         *(f"PCB-{i:02d}" for i in range(1, 9)),
@@ -282,6 +310,19 @@ def main() -> None:
             "before live mutation"
         ),
     }
+    assert catalog_entries["RTE-05"]["livePlacementIteration"] == {
+        "status": "live-verified",
+        "outcome": "rejected-as-positive-example",
+        "data": "can-placement-iteration-live.json",
+        "verified": (
+            "D1/CN1 的 H/L 保护支路由约217/295mil改为约169/169mil；69件仍全TOP、"
+            "0 overlap、0 off-board、0 tight-spacing；CANH/CANL仍为0 track/0 arc/0 via"
+        ),
+        "rejected": (
+            "R12=(2630,1510) 的纯MST有两处H/L相交；R12 y=1488.8会造成异网共线穿越；"
+            "没有联合寻路证据时不把任何新坐标写成正例"
+        ),
+    }
     forbidden_execution_terms = (
         "gui", "cua", "属性面板", "工程树", "刷新浏览器", "刷新整个内置浏览器",
         "mouse", "keyboard", "canvas", "property panel", "project tree",
@@ -296,6 +337,7 @@ def main() -> None:
         )
     assert {
         "initial-placement.json", "crystal-placement-live.json",
+        "can-placement-iteration-live.json",
         "ldo-layout-candidate.json", "ldo-route-live.json",
         "live-validation.json",
     } <= set(catalog["sourceData"])
@@ -397,6 +439,18 @@ def main() -> None:
     assert crystal_live["routing"]["OSC_IN"] == {"tracks": 0, "arcs": 0, "vias": 0}
     assert crystal_live["routing"]["OSC_OUT"] == {"tracks": 0, "arcs": 0, "vias": 0}
     assert crystal_live["independentReview"]["status"] == "completed-with-findings"
+    can_live = live["pcbCanPlacementIteration"]
+    assert can_live["status"] == "live-verified"
+    assert can_live["outcome"] == "rejected-as-positive-example"
+    assert can_live["placement"]["canCrossings"] == 2
+    assert can_live["routing"]["CANH"] == {"tracks": 0, "arcs": 0, "vias": 0}
+    assert can_live["routing"]["CANL"] == {"tracks": 0, "arcs": 0, "vias": 0}
+    assert can_live["officialDrc"]["canSignalConnectionErrors"] == 8
+    assert can_live["independentReview"]["status"] == "completed-with-findings"
+    assert any(
+        issue["id"] == "same-window-parallel-doc-guard"
+        for issue in live["observedToolIssues"]
+    )
     assert live["notClaimed"], "partial live validation must list unverified work"
 
     live_count = sum(entry["verificationStatus"] == "live-verified" for entry in catalog_entries.values())

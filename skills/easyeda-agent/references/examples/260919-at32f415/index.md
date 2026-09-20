@@ -9,7 +9,8 @@
 [initial-placement.json](initial-placement.json)，代表性步骤的真实回读和未完成项见
 [live-validation.json](live-validation.json)；关键网络如何反向修正布局见
 [晶振/CAN 规划样例](critical-routing.md)，晶振第一批实际布局见
-[crystal-placement-live.json](crystal-placement-live.json)，LDO 第二轮可执行参数见
+[crystal-placement-live.json](crystal-placement-live.json)，CAN 第一轮现场负例见
+[can-placement-iteration-live.json](can-placement-iteration-live.json)，LDO 第二轮可执行参数见
 [LDO 布局候选](ldo-layout-candidate.json)，保存重开后的局部铜见
 [LDO 实际路线](ldo-route-live.json)。
 
@@ -23,7 +24,8 @@
 
 当前总状态：`partial-live-verified`。原理图逐端点连接、默认 DRC、真圆角板框、显示原点、
 固定件、规则/网络类、69 件初始布局、LDO 第二轮局部布局/局部铜，以及晶振 X1/C20/C21 的
-次序修正已在 Web 3.2.203 保存并通过 typed reload 回读；完整布线、
+次序修正已在 Web 3.2.203 保存并通过 typed reload 回读。CAN 的 D1/CN1 对称关系也已现场
+回读，但 R12 候选因两处 H/L 飞线相交被保留为负例；完整布线、
 LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
 `live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
 该文件保留初始批次；后续配置入口的 typed 保存/重载实测见
@@ -105,7 +107,7 @@ LCD 可写封装副本、丝印、泪滴和最终 PCB DRC 仍未验证。具体�
 | RTE-02 | 说明 p5、p8 | 电源主干按电流加粗，过孔按载流能力，流向清楚 | PWR 规则 + 实际每段/过孔回读 |
 | RTE-03 | 说明 p4–5、p8 | 晶振靠 MCU、不在板边；短直、避免底层、顶层包地净空 | [关键网络规划](critical-routing.md)：X1/C20/C21 次序已现场修正；铜仍待新版 connector 下验证。TOP/0via 是推荐策略，非题目明文零过孔禁令 |
 | RTE-04 | 说明 p5、p8 | USB_D+/D- 顶层、无过孔、类差分，不额外要求等长 | 不自行增加等长约束；回读两网层与 via 数 |
-| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [关键网络离线规划](critical-routing.md)：跨接连接与主路径顺序分别检查 |
+| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [CAN 现场迭代](can-placement-iteration-live.json)：D1/CN1 对称关系已回读；R12 候选和简单对齐修法均作为相交反例，铜与最终位置仍待双线联合寻路 |
 | RTE-06 | 说明 p5、p8 | PA9/10、PA11/12、PA13/14 顶层且不换层 | 分网回读 layer 与 via count |
 | RTE-07 | 说明 p5 | U6 EP 添加散热过孔；其他焊盘不允许 via-in-pad | EP 与普通焊盘使用不同判据 |
 | RTE-08 | 说明 p6、p8 | 普通信号同网过孔不超过 2；GND 扇孔与缝合孔 | 按网计数并检查地回流，不以总 via 数判断 |

@@ -32,7 +32,9 @@ metadata:
 3. 运行 `easyeda health`，读取目标页、器件、引脚、网络、板框和规则；用
    `easyeda <domain> <command> --help` 与 `easyeda actions` 确认当前参数。位号或
    `primitiveId` 不明确时先查清。安装、升级或连接异常才读
-   [environment-setup.md](references/environment-setup.md) 并运行显式版本对账。
+   [environment-setup.md](references/environment-setup.md) 并运行显式版本对账。页面已打开不等于
+   connector 已连接；`health.windows` 出现目标工程/文档后才访问 EDA。同一窗口的 typed 调用
+   串行执行，subagent 只并行做离线分析或在主 Agent 停止访问窗口时做只读核查。
 4. 保留原始快照，在副本或参数 JSON 中替换样例参数。先确定连接与功能所有权，再计算几何；
    使用现有 typed action、Cobra 子命令和 `easyeda apply`，不另造执行语言。
 5. 可 dry-run 的动作先看计划；写入后读取实际对象与差异。遇部分成功、超时或 stale ID，
