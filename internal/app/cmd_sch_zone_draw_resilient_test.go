@@ -149,6 +149,11 @@ func plannedTitleText(tg zonePartitionTarget, id string) zoneSurveyText {
 	return zoneSurveyText{ID: id, Content: tg.Title, X: tg.TX, Y: tg.TY}
 }
 
+// plannedZoneGeom is the frame the plan asks for, as the page would report it.
+func plannedZoneGeom(tg zonePartitionTarget, id string) map[string]layoutBBox {
+	return map[string]layoutBBox{id: tg.Rect}
+}
+
 // ── 假失败定律:报失败但已落地 → 收编 id,绝不重发 ─────────────────────────
 
 func TestDrawOneZoneFakeFailureLandedIsAdoptedNotResent(t *testing.T) {
@@ -300,8 +305,9 @@ func TestMatchExistingZoneFrame(t *testing.T) {
 	prev := &workflow.SchZoneFrames{Rects: []string{"rA", "rB"}, Texts: []string{"tA", "tB"}}
 
 	s := zoneFrameSurvey{
-		Rects: map[string]bool{"rB": true},
-		Texts: []zoneSurveyText{plannedTitleText(tg, "tB")},
+		Rects:    map[string]bool{"rB": true},
+		RectGeom: plannedZoneGeom(tg, "rB"),
+		Texts:    []zoneSurveyText{plannedTitleText(tg, "tB")},
 	}
 	rid, tid, ok := matchExistingZoneFrame(tg, prev, s)
 	if !ok || rid != "rB" || tid != "tB" {
@@ -317,13 +323,13 @@ func TestMatchExistingZoneFrame(t *testing.T) {
 	// 标题内容对但锚点漂了(plan 变了)→ 不算已画。
 	moved := plannedTitleText(tg, "tB")
 	moved.X += 10
-	s = zoneFrameSurvey{Rects: map[string]bool{"rB": true}, Texts: []zoneSurveyText{moved}}
+	s = zoneFrameSurvey{Rects: map[string]bool{"rB": true}, RectGeom: plannedZoneGeom(tg, "rB"), Texts: []zoneSurveyText{moved}}
 	if _, _, ok := matchExistingZoneFrame(tg, prev, s); ok {
 		t.Fatal("a title at a stale anchor must not count as drawn")
 	}
 
 	// 标题在画布上但不在记录里(用户自己的文字)→ 不算。
-	s = zoneFrameSurvey{Rects: map[string]bool{"rB": true}, Texts: []zoneSurveyText{plannedTitleText(tg, "t_user")}}
+	s = zoneFrameSurvey{Rects: map[string]bool{"rB": true}, RectGeom: plannedZoneGeom(tg, "rB"), Texts: []zoneSurveyText{plannedTitleText(tg, "t_user")}}
 	if _, _, ok := matchExistingZoneFrame(tg, prev, s); ok {
 		t.Fatal("an unrecorded title text must not count as drawn")
 	}
@@ -333,10 +339,55 @@ func TestMatchExistingZoneFrame(t *testing.T) {
 	}
 }
 
+// #234: 搬件后框的左上角常常不动 —— 标题锚点逐字不变,只有宽/高变了。
+// 判据只要不看矩形几何,就会报「已经正确」并零写入,旧框留在画布上。
+func TestMatchExistingZoneFrameRejectsAStaleRectUnderAnUnchangedTitle(t *testing.T) {
+	tg := resilientTarget() // Rect 100,200 → 400,500;标题锚点在左上角
+	prev := &workflow.SchZoneFrames{Rects: []string{"rB"}, Texts: []string{"tB"}}
+	title := []zoneSurveyText{plannedTitleText(tg, "tB")}
+
+	// 成员往右/往下挪 → 计划的框变大,左上角(MinX/MaxY)一点没动。
+	stale := tg.Rect
+	stale.MaxX -= 60
+	stale.MinY += 40
+	if stale.MinX != tg.Rect.MinX || stale.MaxY != tg.Rect.MaxY {
+		t.Fatal("this case is only meaningful while the title corner is unchanged")
+	}
+	s := zoneFrameSurvey{Rects: map[string]bool{"rB": true},
+		RectGeom: map[string]layoutBBox{"rB": stale}, Texts: title}
+	if _, _, ok := matchExistingZoneFrame(tg, prev, s); ok {
+		t.Fatal("a frame whose bbox no longer matches the plan must be redrawn, not kept")
+	}
+
+	// 几何读不到(旧连接器、getAll 抛错、矩形被旋转)= 未知,不是「没变」。
+	s.RectGeom = map[string]layoutBBox{}
+	if _, _, ok := matchExistingZoneFrame(tg, prev, s); ok {
+		t.Fatal("unreadable geometry must be treated as not drawn")
+	}
+
+	// 浮点噪声仍然算同一个框,否则每次都白重画一遍。
+	near := tg.Rect
+	near.MaxX += zoneAnchorEps / 2
+	s.RectGeom = map[string]layoutBBox{"rB": near}
+	if _, _, ok := matchExistingZoneFrame(tg, prev, s); !ok {
+		t.Fatal("a difference below the anchor tolerance must still count as drawn")
+	}
+}
+
 func TestParseZoneFrameSurvey(t *testing.T) {
 	s := parseZoneFrameSurvey(map[string]any{
 		"ok":    true,
 		"rects": []any{"r1", "r2"},
+		"rectGeom": []any{
+			// create(MinX, MaxY, w, h) ⇒ 读回来是 {x:MinX, y:MaxY, width, height}。
+			map[string]any{"id": "r1", "x": 100.0, "y": 500.0, "width": 300.0, "height": 300.0, "rotation": 0.0},
+			// EasyEDA Pro 3.2.149 会把 TopLeftY 镜像成负数，几何仍应与 r1 相同。
+			map[string]any{"id": "r4", "x": 100.0, "y": -500.0, "width": 300.0, "height": 300.0, "rotation": 0.0},
+			map[string]any{"id": "r2", "x": 0.0, "y": 10.0, "width": 10.0, "height": 10.0, "rotation": 90.0}, // 旋转过 → 不是我们画的形态
+			map[string]any{"id": "r3", "x": 0.0, "y": 10.0, "width": 0.0, "height": 10.0, "rotation": 0.0},   // 退化
+			map[string]any{"id": "", "x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0, "rotation": 0.0},
+			"garbage",
+		},
 		"texts": []any{
 			map[string]any{"id": "t1", "content": "POWER", "x": 104.0, "y": 478.0},
 			"garbage",
@@ -344,6 +395,16 @@ func TestParseZoneFrameSurvey(t *testing.T) {
 	})
 	if !s.Rects["r1"] || !s.Rects["r2"] || len(s.Texts) != 1 {
 		t.Fatalf("parsed survey = %+v", s)
+	}
+	// 几何只收可信的那些;收不到的 id 仍在 Rects 里,只是几何「未知」。
+	if got := s.RectGeom["r1"]; got != (layoutBBox{MinX: 100, MinY: 200, MaxX: 400, MaxY: 500}) {
+		t.Fatalf("r1 geometry = %+v", got)
+	}
+	if got := s.RectGeom["r4"]; got != (layoutBBox{MinX: 100, MinY: 200, MaxX: 400, MaxY: 500}) {
+		t.Fatalf("r4 mirrored-y geometry = %+v", got)
+	}
+	if len(s.RectGeom) != 2 {
+		t.Fatalf("only r1 and r4 are usable geometry, got %+v", s.RectGeom)
 	}
 	if s.Texts[0] != (zoneSurveyText{ID: "t1", Content: "POWER", X: 104, Y: 478}) {
 		t.Fatalf("text = %+v", s.Texts[0])

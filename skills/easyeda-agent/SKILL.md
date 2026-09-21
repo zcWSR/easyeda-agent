@@ -78,6 +78,16 @@ metadata:
 | 选型、标准电路、库器件 | [part-selection.md](references/part-selection.md)、[library-authoring.md](references/library-authoring.md)、[standard-parts.json](references/standard-parts.json) |
 | action 或队列字段 | [actions.md](references/actions.md)；未知官方接口先 `easyeda api search/show` |
 
+常用辅助脚本（在 Skill 根目录运行，Windows 用 `python`）：
+[`scripts/lint.sh`](scripts/lint.sh) 原理图 lint、
+[`scripts/parts-select.py`](scripts/parts-select.py) 选型、
+[`scripts/bom-enrich.py`](scripts/bom-enrich.py) BOM 补 LCSC C 号、
+[`scripts/blocks-pin-audit.py`](scripts/blocks-pin-audit.py) 块引脚审计、
+[`scripts/parts-relocalize.py`](scripts/parts-relocalize.py) 按当前站点重解析
+`standard-parts.json` 的 `deviceUuid`（国际版器件 uuid 与国内版不同，`block-apply`
+首个 place 就 “connector did not respond” 时用它，详见
+[part-selection.md](references/part-selection.md#站点差异deviceuuid-必须按当前版本重解析)）。
+
 ## 不可省略的事实
 
 - 原理图坐标 y 向上、网格 5 raw；PCB 命令通常用 mil。单位、原点、anchor 与 bbox center

@@ -219,6 +219,17 @@ skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv> --out <out> # 写入文件
 # 器件选型
 skills/easyeda-agent/scripts/parts-select.py --help
 
+# standard-parts.json 的 deviceUuid 按当前站点重解析(需连编辑器)。国际版
+# (easyeda.com) 与国内版 libraryUuid 相同但器件 uuid 不同,canonical 文件里的 143 件
+# 在国际版 0/143 命中,`sch block-apply` 第一个 place 就 "connector did not respond"
+# (平台对未知 uuid 不回执 → 表现成超时)。脚本按 ≤20 个 C 号一批走 `lib by-lcsc`,
+# 写副本(--out 必填,绝不就地覆盖);uuid 变了的把原值留在 deviceUuidOrigin,没解析到的
+# 原样保留并标 "_relocalize":"unresolved"。结果是站点局部的,**不要提交回 canonical 文件**。
+# 判据与限制见 skills/easyeda-agent/references/part-selection.md。
+skills/easyeda-agent/scripts/parts-relocalize.py --out /tmp/parts.intl.json --project <project>
+skills/easyeda-agent/scripts/parts-relocalize.py --dry-run --json   # 只查询不落盘
+# 离线回归(纯函数,不跑 CLI):python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
 # calibrate.js 仅作历史算法参考，不再粘贴到 EDA 的 debug.exec_js。
 # 需要重新校准时先提供 typed 校准 action/Cobra，再由参数化命令运行与回读。
 skills/easyeda-agent/scripts/calibrate.js

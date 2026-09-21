@@ -209,6 +209,7 @@ release-assets:
 	@echo "  packaging skills..."
 	python3 scripts/pack-skill.py --out "$(DIST)/skills.tar.gz"
 	cp install.sh $(DIST)/install.sh
+	cp install.ps1 $(DIST)/install.ps1
 	python3 scripts/release-check.py "$(VERSION)" $(LOCAL_CHECK) --write-checksums "$(DIST)" --artifacts "$(DIST)"
 	@echo "✅ Local release assets ready in $(DIST)/ — nothing published"
 
@@ -223,7 +224,7 @@ release: ## build reviewed sources, tag and publish GitHub Release (explicit pub
 	@awk '/^## \[$(VERSION:v%=%)\]/{f=1} f&&/^## \[/&&!/^## \[$(VERSION:v%=%)\]/{exit} f' extension/CHANGELOG.md > $(DIST)/changelog-section.md
 	@{ \
 		cat $(DIST)/changelog-section.md; \
-		printf '\n---\n\nAlready installed? Upgrade in place:\n```\neasyeda update          # CLI binary (sha256-verified) + skill dirs\neasyeda update --check  # report only\n```\n\nFirst install:\n```\ncurl -fsSL https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.sh | bash\n```\n\nInstalls/updates:\n- easyeda CLI/daemon\n- easyeda-agent skill for Codex (~/.codex/skills), Codex Desktop shared (~/.agents/skills), and/or Claude Code (~/.claude/skills) when detected\n- prints EasyEDA connector .eext import URL\n\nThe connector .eext is never auto-updated for sideloads. Connector patch drift within the same major.minor line is compatible; re-import only when `easyeda update` reports a major/minor mismatch.\n\nSkill targets: set `EASYEDA_INSTALL_SKILLS=codex,agents,claude` to force targets, `none` to skip, or `EASYEDA_SKILL_PRESERVE=1` to keep local edits.\n\n`checksums.txt` lists sha256 for every asset above.\n'; \
+		printf '\n---\n\nAlready installed? Upgrade in place:\n```\neasyeda update          # CLI binary (sha256-verified) + skill dirs\neasyeda update --check  # report only\n```\n\nFirst install (macOS/Linux):\n```\ncurl -fsSL https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.sh | bash\n```\n\nFirst install (native Windows, PowerShell 5.1+):\n```\nirm https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.ps1 | iex\n```\n\nInstalls/updates:\n- easyeda CLI/daemon\n- easyeda-agent skill for Codex (~/.codex/skills), Codex Desktop shared (~/.agents/skills), and/or Claude Code (~/.claude/skills) when detected\n- prints EasyEDA connector .eext import URL\n\nThe connector .eext is never auto-updated for sideloads. Connector patch drift within the same major.minor line is compatible; re-import only when `easyeda update` reports a major/minor mismatch.\n\nSkill targets: set `EASYEDA_INSTALL_SKILLS=codex,agents,claude` to force targets, `none` to skip, or `EASYEDA_SKILL_PRESERVE=1` to keep local edits.\n\n`checksums.txt` lists sha256 for every asset above.\n'; \
 	} > $(DIST)/release-notes.md
 	gh release create $(VERSION) \
 		$(DIST)/easyeda_darwin_amd64 \
@@ -234,6 +235,7 @@ release: ## build reviewed sources, tag and publish GitHub Release (explicit pub
 		$(DIST)/easyeda-agent-connector.eext \
 		$(DIST)/skills.tar.gz \
 		$(DIST)/install.sh \
+		$(DIST)/install.ps1 \
 		$(DIST)/checksums.txt \
 		--title "easyeda-agent $(VERSION)" \
 		--notes-file $(DIST)/release-notes.md

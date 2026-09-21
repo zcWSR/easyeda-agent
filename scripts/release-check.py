@@ -14,8 +14,10 @@ import zipfile
 ASSETS = [
     "easyeda_darwin_amd64", "easyeda_darwin_arm64",
     "easyeda_linux_amd64", "easyeda_linux_arm64", "easyeda_windows_amd64.exe",
-    "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh",
+    "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh", "install.ps1",
 ]
+# Installer scripts are published verbatim; the packaged copy must match the source.
+INSTALLERS = ["install.sh", "install.ps1"]
 
 
 def skill_version(text: str) -> str:
@@ -77,7 +79,7 @@ def check_artifacts(repo: Path, dist: Path, version: str) -> None:
             raise ValueError(f"invalid checksum asset entry: {line}")
         expected[name] = digest
     if set(expected) != set(ASSETS):
-        raise ValueError("checksums.txt must name all eight release assets with bare filenames")
+        raise ValueError(f"checksums.txt must name all {len(ASSETS)} release assets with bare filenames")
     for name in ASSETS:
         if hashlib.sha256((dist / name).read_bytes()).hexdigest() != expected[name]:
             raise ValueError(f"checksum mismatch: {name}")
@@ -87,8 +89,14 @@ def check_artifacts(repo: Path, dist: Path, version: str) -> None:
         item = archive.extractfile("easyeda-agent/SKILL.md")
         if item is None or skill_version(item.read().decode()) != version:
             raise ValueError("packaged SKILL.md has the wrong version")
-    if (dist / "install.sh").read_bytes() != (repo / "install.sh").read_bytes():
-        raise ValueError("packaged install.sh differs from source")
+    for name in INSTALLERS:
+        if (dist / name).read_bytes() != (repo / name).read_bytes():
+            raise ValueError(f"packaged {name} differs from source")
+    # install.ps1 is executed by `irm | iex`: a BOM would break the first token and
+    # Windows PowerShell 5.1 decodes a BOM-less script with the system ANSI codepage.
+    installer_ps1 = (dist / "install.ps1").read_bytes()
+    if not installer_ps1.isascii():
+        raise ValueError("install.ps1 must be pure ASCII (no BOM, no literal non-ASCII text)")
     os_name = platform.system().lower()
     arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
     if arch and os_name in {"darwin", "linux"}:

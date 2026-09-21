@@ -94,8 +94,24 @@ func buildPartitionZoneDrawJS(t zonePartitionTarget, colorJS []byte) string {
 // idempotency probe before drawing, (b) the landed-or-not verification after a
 // reported failure, and (c) the settle read that empirically raises the next
 // write's success probability on a degraded connector.
+//
+// rectIds stays the id source of record — every landed/stranded check diffs
+// ids, and that must not start depending on a richer read that can fail.
+// rectGeom is a BEST-EFFORT extra: the same getState_* geometry
+// buildSchFrameSurveyJS already reads, used only to tell an already-correct
+// frame from one whose planned bbox has since changed. A page where getAll()
+// throws simply yields no geometry, and every zone is then redrawn.
 func buildZoneSurveyJS() string {
 	return `const rectIds = await eda.sch_PrimitiveRectangle.getAllPrimitiveId();
+let allRects = [];
+try { allRects = await eda.sch_PrimitiveRectangle.getAll(); } catch (err) { allRects = []; }
+const rectGeom = [];
+for (const r of (Array.isArray(allRects) ? allRects : [])) {
+  try {
+    rectGeom.push({ id: r.getState_PrimitiveId(), x: r.getState_TopLeftX(), y: r.getState_TopLeftY(),
+      width: r.getState_Width(), height: r.getState_Height(), rotation: r.getState_Rotation() });
+  } catch (err) { /* one unreadable rect must not cost the whole survey */ }
+}
 let allTexts = [];
 try { allTexts = await eda.sch_PrimitiveText.getAll(); } catch (err) { allTexts = []; }
 const textInfo = (Array.isArray(allTexts) ? allTexts : []).map(t => ({
@@ -104,13 +120,17 @@ const textInfo = (Array.isArray(allTexts) ? allTexts : []).map(t => ({
   x: t.getState_X(),
   y: t.getState_Y(),
 }));
-return { ok: true, rects: Array.isArray(rectIds) ? rectIds : [], texts: textInfo };`
+return { ok: true, rects: Array.isArray(rectIds) ? rectIds : [], rectGeom, texts: textInfo };`
 }
 
 // zoneFrameSurvey is the parsed light read of the page's graphics.
+// Rects is the authoritative id set; RectGeom holds geometry for the subset of
+// those ids the page could report it for, so a missing entry means "unknown",
+// never "unchanged".
 type zoneFrameSurvey struct {
-	Rects map[string]bool
-	Texts []zoneSurveyText
+	Rects    map[string]bool
+	RectGeom map[string]layoutBBox
+	Texts    []zoneSurveyText
 }
 
 type zoneSurveyText struct {
@@ -129,9 +149,31 @@ func (s zoneFrameSurvey) hasText(id string) bool {
 }
 
 func parseZoneFrameSurvey(v map[string]any) zoneFrameSurvey {
-	out := zoneFrameSurvey{Rects: map[string]bool{}}
+	out := zoneFrameSurvey{Rects: map[string]bool{}, RectGeom: map[string]layoutBBox{}}
 	for _, id := range asStringSlice(v["rects"]) {
 		out.Rects[id] = true
+	}
+	geom, _ := v["rectGeom"].([]any)
+	for _, it := range geom {
+		m, _ := it.(map[string]any)
+		if m == nil {
+			continue
+		}
+		id := asString(m["id"])
+		// A rotated frame is not one of ours in the form we draw; leaving it
+		// out of RectGeom means "unknown", which redraws rather than keeps.
+		if id == "" || asFloat(m["rotation"]) != 0 {
+			continue
+		}
+		x, y := asFloat(m["x"]), schFrameRectTopY(asFloat(m["y"]))
+		w, h := asFloat(m["width"]), asFloat(m["height"])
+		if w <= 0 || h <= 0 {
+			continue
+		}
+		// Same convention as the create call (x, y = MinX, MaxY) and as
+		// schModuleFrames. EasyEDA Pro 3.2.149 mirrors rectangle TopLeftY
+		// on readback, so use the shared normalizer before comparing bboxes.
+		out.RectGeom[id] = layoutBBox{MinX: x, MinY: y - h, MaxX: x + w, MaxY: y}
 	}
 	raw, _ := v["texts"].([]any)
 	for _, it := range raw {
@@ -164,9 +206,19 @@ func findSurveyTitleText(s zoneFrameSurvey, t zonePartitionTarget) (string, bool
 // matchExistingZoneFrame decides whether one partition is ALREADY correctly
 // drawn on the page: its planned title text exists (content+anchor exact),
 // that text id is in the prior per-page record, and the record's PAIRED rect
-// (rects[i] ↔ texts[i], the push order of every draw path) is still alive.
+// (rects[i] ↔ texts[i], the push order of every draw path) is still alive AND
+// still has the planned bbox.
 // Anything weaker is treated as "not drawn" — the stale ids get cleared and
 // the zone redrawn, which errs toward one extra write, never a duplicate.
+//
+// The bbox comparison is why the survey reads rect geometry at all. The title
+// anchor alone cannot stand in for it: the anchor is the frame's TOP-LEFT
+// corner (TX = TitleBBox.MinX+4, TY = TitleBBox.MaxY-fontSize), and a zone
+// frame is grown from the union of its members' bodies, so a member moving
+// right or down changes the frame's width/height while leaving that corner
+// untouched. Matching on the anchor alone reported "kept (already correct)"
+// and wrote nothing, leaving the pre-move frame on the canvas with parts
+// outside it (#234).
 func matchExistingZoneFrame(t zonePartitionTarget, prev *workflow.SchZoneFrames, s zoneFrameSurvey) (rectID, textID string, ok bool) {
 	if prev == nil {
 		return "", "", false
@@ -186,9 +238,23 @@ func matchExistingZoneFrame(t zonePartitionTarget, prev *workflow.SchZoneFrames,
 		if rid == "" || !s.Rects[rid] {
 			return "", "", false
 		}
+		live, known := s.RectGeom[rid]
+		if !known || !sameZoneRect(live, t.Rect) {
+			return "", "", false
+		}
 		return rid, id, true
 	}
 	return "", "", false
+}
+
+// sameZoneRect compares a live frame with its planned bbox on the same
+// tolerance the title anchor uses — both come from one plan and one draw call,
+// so anything beyond float noise is a real difference.
+func sameZoneRect(live, planned layoutBBox) bool {
+	return absF(live.MinX-planned.MinX) <= zoneAnchorEps &&
+		absF(live.MinY-planned.MinY) <= zoneAnchorEps &&
+		absF(live.MaxX-planned.MaxX) <= zoneAnchorEps &&
+		absF(live.MaxY-planned.MaxY) <= zoneAnchorEps
 }
 
 // zoneDrawDeps injects the side-effecting pieces so the retry logic is

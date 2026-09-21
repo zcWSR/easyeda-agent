@@ -109,15 +109,25 @@ Release `.eext` to align CLI, connector, and Skill versions; EasyEDA has its own
 > the same** — the SAME listing is re-uploaded; in-place auto-update for existing
 > installs is unaffected, no action needed.
 
+macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.sh | bash
+```
+
+Native Windows (Windows PowerShell 5.1 or PowerShell 7):
+
+```powershell
+irm https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.ps1 | iex
 ```
 
 The one-line script installs/updates the `easyeda` CLI/daemon, auto-detects
 installed clients and installs/updates the `easyeda-agent` skill into each —
 Codex (`~/.codex/skills/easyeda-agent`) and Claude Code
 (`~/.claude/skills/easyeda-agent`) — and prints the connector `.eext` import URL.
-Control skill install with env vars:
+Both scripts fetch `checksums.txt` first and verify every asset's SHA-256, the
+CLI `--version` and the skill's `metadata.version` before replacing an installed
+file. Control skill install with env vars:
 
 ```bash
 curl -fsSL .../install.sh | EASYEDA_INSTALL_SKILLS=codex,claude bash  # force targets
@@ -125,6 +135,19 @@ curl -fsSL .../install.sh | EASYEDA_INSTALL_SKILLS=none bash  # skip skills
 curl -fsSL .../install.sh | EASYEDA_SKILL_PRESERVE=1 bash  # keep local edits
 curl -fsSL .../install.sh | EASYEDA_VERSION='<vX.Y.Z>' bash  # pin a release (skips the API)
 ```
+
+```powershell
+$env:EASYEDA_INSTALL_SKILLS = 'codex,claude'   # same knobs on Windows
+$env:EASYEDA_VERSION = '<vX.Y.Z>'              # pin a release (skips the API)
+irm .../install.ps1 | iex
+```
+
+`install.ps1` installs to `%USERPROFILE%\.local\bin` and never edits PATH
+silently: if that directory is not on the user PATH it prints the exact command
+to add it, and only changes the user PATH when you pass `-AddToPath` (running it
+as a file) or set `$env:EASYEDA_ADD_TO_PATH=1`. The machine PATH is never
+touched. If `easyeda.exe` is locked by a running daemon, the old file is renamed
+aside so the upgrade still completes — restart the daemon afterwards.
 
 **Hitting `403` / GitHub API rate limit?** The script calls `api.github.com` once to
 resolve the latest release, and unauthenticated calls are capped at 60 requests/hour

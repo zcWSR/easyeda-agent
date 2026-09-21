@@ -46,6 +46,25 @@ for (const t of texts) {
 return {rectangles:rs,texts:ts};`
 }
 
+// schFrameRectTopY normalises the y that sch_PrimitiveRectangle reports back.
+//
+// Measured on EasyEDA Pro 3.2.149: create() takes the visual TOP-LEFT corner on
+// the y-UP canvas - the same (MinX, MaxY) writeZoneRectangleCreateJS passes -
+// but getState_TopLeftY() mirrors it about y=0, so a frame drawn at MaxY=813
+// reads back as -813. x/width/height round-trip unchanged, and both
+// sch_PrimitiveText and sch_PrimitiveComponent report y unmirrored, so the
+// asymmetry is confined to this one getter.
+//
+// A schematic sheet occupies y>=0, so a rectangle whose top edge sits at y<0 is
+// not a position a frame can actually hold: mirroring exactly then repairs the
+// affected builds and leaves a build that round-trips y byte-for-byte alone.
+func schFrameRectTopY(y float64) float64 {
+	if y < 0 {
+		return -y
+	}
+	return y
+}
+
 func parseSchFrameSurvey(v map[string]any) (schFrameSurvey, error) {
 	s := schFrameSurvey{Rectangles: map[string]map[string]any{}, Texts: map[string]map[string]any{}}
 	for key, target := range map[string]map[string]map[string]any{"rectangles": s.Rectangles, "texts": s.Texts} {
@@ -58,6 +77,12 @@ func parseSchFrameSurvey(v map[string]any) (schFrameSurvey, error) {
 			id, _ := m["id"].(string)
 			if !ok || id == "" || target[id] != nil {
 				return s, fmt.Errorf("invalid/duplicate %s identity", key)
+			}
+			// Survey rectangles reach every consumer in y-UP sheet coordinates,
+			// so the frame bbox a check builds and the bbox a component reports
+			// are comparable without a per-call-site flip.
+			if y, isNum := m["y"].(float64); key == "rectangles" && isNum && plFinite(y) {
+				m["y"] = schFrameRectTopY(y)
 			}
 			target[id] = m
 		}

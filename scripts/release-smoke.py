@@ -24,7 +24,7 @@ import zipfile
 ASSETS = (
     "easyeda_darwin_amd64", "easyeda_darwin_arm64", "easyeda_linux_amd64",
     "easyeda_linux_arm64", "easyeda_windows_amd64.exe",
-    "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh",
+    "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh", "install.ps1",
 )
 # These helpers are directly executable in the public package. Other Python
 # helpers are intentionally invoked via python3 and need only read permission.
@@ -55,7 +55,7 @@ def check_assets(directory):
         checksum, name = match.groups()
         require(name in ASSETS and name not in expected, f"unexpected/duplicate checksum asset: {name}")
         expected[name] = checksum
-    require(set(expected) == set(ASSETS), "checksums.txt must cover all eight release assets")
+    require(set(expected) == set(ASSETS), f"checksums.txt must cover all {len(ASSETS)} release assets")
     for name, checksum in expected.items():
         path = directory / name
         require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0, f"missing/empty asset: {name}")

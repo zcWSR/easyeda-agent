@@ -122,7 +122,7 @@ esac
 
 case "$OS" in
   darwin|linux) ;;
-  *) fatal "Unsupported OS: $OS (Windows: download easyeda_windows_amd64.exe manually)" ;;
+  *) fatal "Unsupported OS: $OS (native Windows: run install.ps1 in PowerShell — irm https://raw.githubusercontent.com/${REPO}/main/install.ps1 | iex)" ;;
 esac
 
 BINARY_NAME="easyeda_${OS}_${ARCH}"

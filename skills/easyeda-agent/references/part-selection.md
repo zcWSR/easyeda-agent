@@ -113,6 +113,51 @@ fields (they follow the new device), rolls back on failure, and reports a
 Property-only assignment (writing a C# onto a part without changing the device)
 stays `easyeda sch modify --patch '{"supplierId":"C…"}'`.
 
+## 站点差异：deviceUuid 必须按当前版本重解析
+
+**已验证事实**（Windows 11 + EasyEDA Pro 桌面版 3.2.149 **国际版**（easyeda.com）+
+easyeda-agent v1.5.1）：国际版与国内版（lceda.cn）的系统库 **libraryUuid 相同**
+（`0819f05c4eef4c71ace90d822a990e87`），但**器件 uuid 不同**。
+[`standard-parts.json`](./standard-parts.json) 的 `deviceUuid` 采自国内版，在国际版上
+**143 件全部对不上（0/143）**。
+
+症状：`easyeda sch block-apply <block>` 在**第一个** place 就失败，报
+
+```
+schematic.component.place failed: connector did not respond
+```
+
+平台对未知器件 uuid 不给任何回执，所以表现成超时，不是 “not found”。证据：同一台机器上
+`easyeda lib by-lcsc --lcsc C8678` 返回 `804240ef97df427480be2a5281ccea31`，而文件里写的是
+`009407eaaa604eb9b6f73cc3868f316d`。`lib by-lcsc` 是按当前连接的编辑器解析的，是本地事实源。
+
+### 工作流
+
+```bash
+# 1. 按当前连接的编辑器重解析，写到副本；--out 必填，绝不就地覆盖源文件
+python3 scripts/parts-relocalize.py --out /tmp/parts.intl.json --project <project>
+# 2. 用这份副本 apply
+easyeda sch block-apply <block> --parts /tmp/parts.intl.json --project <project>
+```
+
+在 Skill 根目录运行（Windows 用 `python`）。脚本把所有 LCSC C 号按 ≤20 个一批送
+`easyeda lib by-lcsc`，逐件比对：uuid 相同 → 原样；不同 → 写入解析到的 `deviceUuid`，
+原值保留在 `deviceUuidOrigin`；没解析到 → 条目一个字段不动、加标记
+`"_relocalize": "unresolved"`。返回的 `libraryUuid` 与文件不一致时只告警、**不改写**
+（标 `"_relocalize": "libraryUuid-mismatch"`）。`--dry-run` 只查询不落盘，`--json` 输出
+机器可读摘要，`--easyeda` / `--window` 分别指定二进制与目标窗口。需要已连接的编辑器。
+
+### 限制
+
+- **结果是该站点/该账号局部的**：不要提交回 `standard-parts.json`，仓库里的 canonical
+  值仍是国内版身份；每台机器各自生成副本，换版本或换站点重跑。
+- **会有未解析项**：实测 143 件解析出 140 件，3 件未解析（含 `lcsc` 写成占位符
+  `(onboard)` 的 `ic.pc817_sop4`）。未解析件保留原 uuid，apply 到该件仍可能失败；按
+  summary 打印的 key 逐个人工处理，不要让脚本猜。
+- **同一 C 号解析到多个器件时不选**，标 unresolved 交人判定。
+- **块的 `schematic_layout` 模板仍可能与国际版符号的引脚几何对不上** —— 那是另一个已知
+  问题，重定位 uuid 不解决它；apply 成功后仍须 `sch layout-lint` / `sch check` 回读。
+
 ## Known limitations / refinements
 
 - **Basic-search page depth** — *fixed*: the base-filtered query fetches a generous
