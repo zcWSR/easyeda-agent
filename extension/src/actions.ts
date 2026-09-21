@@ -15,6 +15,8 @@ import { readProjectFootprintSourceArchive } from './native-footprint-source';
 import {
 	assertLegacySimpleWireOperation,
 	classifyWireContact,
+	classifyWireSegment,
+	isDegenerateWireSegment,
 	physicalWireIslands,
 	readObservedWireSegments,
 	WIRE_CONTACT_EPS,
@@ -1067,9 +1069,25 @@ export const schematicComponentsList: Handler = async (payload) => {
 	// of one physical device (U1.A/U1.B) share the device identity and are NOT
 	// flagged.
 	const ambiguousDesignators = new Set<string>();
+	// Whether the netlist behind every pin's `net` was actually fetched+parsed. When
+	// it was not, `net` is FORCED to null on every pin of every component. Reporting
+	// that flag is not cosmetic: a run of nulls used to read as "all these pins are
+	// unconnected", which is a conclusion about the DESIGN drawn from a failed READ
+	// (reported 2026-09-20: a reviewer concluded "net unreachable from the platform"
+	// for block instances while the real cause was a muted netlist export).
+	let pinNetsAvailable = false;
+	let pinNetsError: string | undefined;
 	if (includePins && includePinNets) {
-		try { pinNetsByDesignator = (await collectNetlistPinNets()).byDesignator; }
-		catch { pinNetsByDesignator = null; }
+		try {
+			const collected = await collectNetlistPinNets();
+			pinNetsByDesignator = collected.byDesignator;
+			pinNetsAvailable = collected.available;
+			pinNetsError = collected.error;
+		}
+		catch (err) {
+			pinNetsByDesignator = null;
+			pinNetsError = describeThrown(err);
+		}
 		if (pinNetsByDesignator) {
 			try {
 				const everywhere = allPages ? components : await eda.sch_PrimitiveComponent.getAll(undefined, true);
@@ -1167,6 +1185,9 @@ export const schematicComponentsList: Handler = async (payload) => {
 					// null (not '') distinguishes "known floating" from "netlist unavailable"
 					// — and a cross-page-collided designator's nets are FORCED to null
 					// (netAmbiguous) rather than confidently wrong (issue #136).
+					// A MISSING netlist forces null for the same reason: with no netlist
+					// there is no way to tell "no net" from "not read", so claiming a net
+					// is unconnected would be a design conclusion drawn from a failed read.
 					rec.net = netByNumber ? (netByNumber.get(String(rec.pinNumber ?? '')) ?? '') : null;
 					return rec;
 				});
@@ -1175,6 +1196,10 @@ export const schematicComponentsList: Handler = async (payload) => {
 			catch (err) {
 				record.pinsAvailable = false;
 				record.pinsError = describeThrown(err);
+			}
+			if (includePins && includePinNets) {
+				record.netlistAvailable = pinNetsAvailable;
+				if (!pinNetsAvailable) record.netlistError = pinNetsError ?? 'netlist unavailable';
 			}
 		}
 		serialized.push(record);
@@ -1206,6 +1231,12 @@ export const schematicComponentsList: Handler = async (payload) => {
 			count: serialized.length,
 			wires,
 			...(includeWires ? { wiresAvailable, ...(wiresError ? { wiresError } : {}) } : {}),
+			// Netlist trust flag: without it a caller cannot tell "every pin is
+			// genuinely unconnected" from "the netlist read failed, so every pin's net
+			// is null". Emitted only when the caller asked for pin nets at all.
+			...(includePins && includePinNets
+				? { pinNetsAvailable, ...(pinNetsAvailable ? {} : { pinNetsError: pinNetsError ?? 'netlist unavailable' }) }
+				: {}),
 			...(connectivitySummary ? { connectivitySummary } : {}),
 		},
 	};
@@ -3296,6 +3327,45 @@ export function collectWireSegments(wires: Parameters<typeof readObservedWireSeg
 	return readObservedWireSegments(wires);
 }
 
+/** A whole primitive with no real geometry: every observed segment is zero-length.
+ * The platform really does leave these behind (live B04_2_1 2026-09-20: 31 such
+ * primitives on one page), and they carry no connectivity at all.
+ *
+ * The "every" is deliberate and is the conservative half of the rule: if a
+ * primitive mixes a degenerate record with a real one, dropping the degenerate
+ * record could silently change what that wire connects to, so such a primitive is
+ * left completely alone. Verified against real data before relying on it — all 48
+ * degenerate primitives in that project were single-segment, so none mixed.
+ */
+function isWhollyDegenerateWire(own: CheckWireSegment[]): boolean {
+	return own.length > 0 && own.every(s => isDegenerateWireSegment(s.seg));
+}
+
+/**
+ * Wire segments usable for CONTACT reasoning, degenerates removed.
+ *
+ * `schematic.check` and `schematic.bridgeCheck` both build their connectivity model
+ * from this. Before this filter, a single zero-length primitive anywhere on the
+ * page made `physicalWireIslands` throw `Unknown wire contact.`, which took BOTH
+ * commands down for the whole page (and the `check` stage of `sch gate` with them)
+ * — even though `zero-length-wire` was already a documented WARN rule that the code
+ * could never reach. Dropping them here, at one shared point, is what lets that
+ * existing rule report them instead of aborting the run.
+ */
+export function connectivityWireSegments(segments: CheckWireSegment[]): CheckWireSegment[] {
+	const byWire = new Map<string, CheckWireSegment[]>();
+	for (const s of segments) {
+		const own = byWire.get(s.wirePrimitiveId) ?? [];
+		own.push(s);
+		byWire.set(s.wirePrimitiveId, own);
+	}
+	const dropped = new Set<string>();
+	for (const [wirePid, own] of byWire) {
+		if (isWhollyDegenerateWire(own)) dropped.add(wirePid);
+	}
+	return segments.filter(s => !dropped.has(s.wirePrimitiveId));
+}
+
 // Result of reading the JSON-authoritative netlist. `available` distinguishes
 // "netlist fetched+parsed" (trust its pin→net facts, even the ABSENCE of a net)
 // from "couldn't fetch/parse" (netlist muted → geometry alone decides). Without
@@ -3304,20 +3374,24 @@ export function collectWireSegments(wires: Parameters<typeof readObservedWireSeg
 interface NetlistPinNets {
 	byDesignator: Map<string, Map<string, string>>;
 	available: boolean;
+	/** Why the netlist could not be fetched/parsed. Set only when available===false,
+	 * so callers can report a CAUSE instead of silently degrading to "no nets". */
+	error?: string;
 }
 
 async function collectNetlistPinNets(_allPages = false): Promise<NetlistPinNets> {
 	const byDesignator = new Map<string, Map<string, string>>();
-	const muted = (): NetlistPinNets => ({ byDesignator, available: false });
+	const muted = (error?: string): NetlistPinNets =>
+		({ byDesignator, available: false, ...(error ? { error } : {}) });
 	let file: File | undefined;
 	try { file = await eda.sch_ManufactureData.getNetlistFile(); }
-	catch { return muted(); }
-	if (!file) return muted();
+	catch (err) { return muted(describeThrown(err)); }
+	if (!file) return muted('netlist export returned no file');
 	let parsed: unknown;
 	try { parsed = JSON.parse(await file.text()); }
-	catch { return muted(); }
+	catch (err) { return muted(`netlist JSON parse failed: ${describeThrown(err)}`); }
 	const components = (parsed as { components?: Record<string, NetlistComponentInfo> })?.components;
-	if (!components || typeof components !== 'object') return muted();
+	if (!components || typeof components !== 'object') return muted('netlist JSON carries no components map');
 	for (const comp of Object.values(components)) {
 		const designator = String(comp.props?.Designator ?? '');
 		if (!designator || !comp.pinInfoMap) continue;
@@ -3445,8 +3519,12 @@ const schematicCheck: Handler = async (payload) => {
 		throw edaError(err, 'Failed to read schematic for design check.');
 	}
 	if (!Array.isArray(components) || !Array.isArray(wires)) throw new Error('Incomplete design-check component/wire enumeration.');
+	// Degenerate (zero-length) primitives are removed BEFORE any contact reasoning;
+	// see connectivityWireSegments. They are still counted and reported below by the
+	// zero-length-wire rule, which reads this same collection.
 	const wireSegs = collectWireSegments(wires);
-	const segs = wireSegs.map(w => w.seg);
+	const connectivitySegs = connectivityWireSegments(wireSegs);
+	const segs = connectivitySegs.map(w => w.seg);
 
 	// Connection anchors that legitimately terminate a stub but are NOT real pins:
 	// netflag / netport / netlabel components. A pin sitting on one of these (e.g. an
@@ -3899,7 +3977,9 @@ const schematicBridgeCheck: Handler = async (payload) => {
 		throw edaError(err, 'Failed to read schematic for bridge check.');
 	}
 	if (!Array.isArray(components) || !Array.isArray(wires)) throw new Error('Incomplete bridge component/wire enumeration.');
-	const wireSegs = collectWireSegments(wires);
+	// Same degenerate-primitive removal as `schematic.check`: without it a single
+	// zero-length wire made the whole bridge check throw. See connectivityWireSegments.
+	const wireSegs = connectivityWireSegments(collectWireSegments(wires));
 	const COINCIDE_TOL = CHECK_EPS * 8;
 
 	// Netflags/netports/netlabels carry the net name we aggregate per tree.
@@ -4233,7 +4313,7 @@ const schematicRead: Handler = async (payload) => {
 	}
 
 	// JSON-authoritative pin→net per designator (same source as schematic.check).
- const { byDesignator: pinNets } = await collectNetlistPinNets(allPages);
+	const { byDesignator: pinNets, available: netlistAvailable, error: netlistError } = await collectNetlistPinNets(allPages);
 
 	const netToPins = new Map<string, Array<string>>();
 	const floating: Array<string> = [];
@@ -4302,6 +4382,11 @@ const schematicRead: Handler = async (payload) => {
 			netCount: nets.length,
 			floatingPins: floating,
 			floatingPinCount: floating.length,
+			// When the netlist is muted, EVERY pin lands in floatingPins and every
+			// per-pin net is null. That is not a statement about the design; the flag
+			// (and the cause) have to travel with the data so nobody reads it as one.
+			netlistAvailable,
+			...(netlistAvailable ? {} : { netlistError: netlistError ?? 'netlist unavailable' }),
 			check,
 		},
 	};

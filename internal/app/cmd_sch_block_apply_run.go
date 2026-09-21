@@ -302,6 +302,22 @@ func validateBlockLayoutResult(result map[string]any) error {
 		if !ok {
 			return fmt.Errorf("layout geometry incomplete: component %s has no pins array", blockLayoutComponentLabel(m, i))
 		}
+		// Pin GEOMETRY being proven is not pin→NET being proven. A muted netlist export
+		// leaves every pin's `net` null while `pinsAvailable` stays true (that flag only
+		// covers the pin API), and downstream readers treat a null net as an unconnected
+		// pin. Require the connector's explicit netlist verdict: an absent key means an
+		// older connector, which is "not proven", not "fine".
+		if netlistAvailable, reported := m["netlistAvailable"].(bool); !reported || !netlistAvailable {
+			cause := "connector did not report netlist availability"
+			if reported {
+				cause = "the netlist export was unavailable, so every pin's net reads as null"
+				if detail := strings.TrimSpace(asString(m["netlistError"])); detail != "" {
+					cause += ": " + detail
+				}
+			}
+			return fmt.Errorf("layout geometry incomplete: component %s pin→net attribution was not proven (%s)",
+				blockLayoutComponentLabel(m, i), cause)
+		}
 		for pinIndex, item := range pins {
 			pin, ok := item.(map[string]any)
 			if !ok {

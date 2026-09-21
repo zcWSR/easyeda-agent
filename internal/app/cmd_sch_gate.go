@@ -171,10 +171,10 @@ func gateLayoutStage(cfg *appConfig, window string, minGap, pinEps float64, allP
 	// The summary MUST mention the geometry-provenance counts, not just the
 	// pairwise ones: under --strict those are what usually fails, and a summary
 	// reading "0 overlap, 0 pin-coincidence…" beside a FAIL is unreadable.
-	st.Summary = fmt.Sprintf("%d overlap, %d pin-coincidence, %d tight, %d off-grid, %d out-of-sheet, %d no-bbox, %d unchecked-pin, %d unproven-pin, %d invalid-geometry (zone-check=%s sheet-check=%s)",
+	st.Summary = fmt.Sprintf("%d overlap, %d pin-coincidence, %d tight, %d off-grid, %d out-of-sheet, %d no-bbox, %d unchecked-pin, %d unproven-pin, %d nets-unproven, %d invalid-geometry (zone-check=%s sheet-check=%s)",
 		len(rep.Overlaps), len(rep.PinCoincidences), len(rep.TightPairs),
 		len(rep.GridViolations), len(rep.OutOfSheet), len(rep.NoBBox),
-		len(rep.UncheckedPins), len(rep.UnprovenPins), len(rep.InvalidGeometry),
+		len(rep.UncheckedPins), len(rep.UnprovenPins), len(rep.NetsUnproven), len(rep.InvalidGeometry),
 		rep.ZoneCheckStatus, rep.SheetCheckStatus)
 
 	add := func(n int, label string) {
@@ -191,6 +191,7 @@ func gateLayoutStage(cfg *appConfig, window string, minGap, pinEps float64, allP
 		add(len(rep.NoBBox), "component without bbox (--strict)")
 		add(len(rep.UncheckedPins), "unchecked pin geometry (--strict)")
 		add(len(rep.UnprovenPins), "unproven pin geometry (--strict;连接器未给 pinsAvailable 契约)")
+		add(len(rep.NetsUnproven), "unproven pin nets (--strict;网表导出不可用,引脚 net 全为 null —— 是读取失败,不是电路悬空)")
 		add(len(rep.InvalidGeometry), "invalid geometry value (--strict)")
 		if rep.ZoneCheckStatus == "unavailable" {
 			st.BlockingReasons = append(st.BlockingReasons,

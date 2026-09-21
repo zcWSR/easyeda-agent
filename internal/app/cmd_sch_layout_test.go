@@ -165,6 +165,76 @@ func TestParseLayoutCompsHonorsExplicitPinReadStatus(t *testing.T) {
 	}
 }
 
+// Pin GEOMETRY being proven is not pin→NET being proven. A muted netlist export
+// leaves every pin's `net` null while pinsAvailable stays true, so a reader cannot
+// tell "this pin has no net" from "no net could be read". These cases pin the
+// contract: an explicit true is trusted, an explicit false is a distinct finding,
+// and an absent key counts as NOT proven.
+func TestLayoutNetsUnprovenDistinguishesMutedNetlistFromLegacyConnector(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+	// Mirrors what parseLayoutComps produces for a modern connector: pinsAvailable
+	// present means PinsProofKnown is true, so none of these land in the legacy bucket.
+	// U1 geometry+nets proven; U2 geometry proven but netlist explicitly unavailable;
+	// U3 geometry proven, connector too old to report nets; U4 geometry itself unproven.
+	comps := []layoutComp{
+		{ID: "id-U1", Designator: "U1", ComponentType: "part", PinsAvailable: true, PinsProofKnown: true, NetlistAvailable: boolPtr(true)},
+		{ID: "id-U2", Designator: "U2", ComponentType: "part", PinsAvailable: true, PinsProofKnown: true, NetlistAvailable: boolPtr(false)},
+		{ID: "id-U3", Designator: "U3", ComponentType: "part", PinsAvailable: true, PinsProofKnown: true},
+		{ID: "id-U4", Designator: "U4", ComponentType: "part", PinsAvailable: false, PinsProofKnown: true, NetlistAvailable: boolPtr(true)},
+	}
+	got := netsUnproven(comps)
+	want := []string{"U2", "U3"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("netsUnproven = %v, want %v", got, want)
+	}
+	// The legacy-connector bucket must NOT absorb the netlist case: they need
+	// different fixes, so conflating them sends the reader to the wrong one.
+	if legacy := unprovenPinGeometry(comps); len(legacy) != 0 {
+		t.Fatalf("netlist unavailability must not be reported as a legacy pin contract: %v", legacy)
+	}
+	// U4's geometry is unproven, so it must be reported there and NOT double-counted.
+	if unchecked := uncheckedPinGeometry(comps); len(unchecked) != 1 || unchecked[0] != "U4" {
+		t.Fatalf("U4 must be reported as having no pin geometry: %v", unchecked)
+	}
+
+	// The strict gate must refuse a report whose nets are unproven.
+	rep := layoutReport{NetsUnproven: got, ZoneCheckStatus: "not-configured"}
+	applyLayoutStrictGate(&rep, true)
+	if rep.OK {
+		t.Fatal("strict gate must fail while pin→net attribution is unproven")
+	}
+	// And a report whose nets ARE proven must not be refused by this rule.
+	ok := layoutReport{OK: true, UnprovenPins: unprovenPinGeometry(comps[:1]), NetsUnproven: netsUnproven(comps[:1]), ZoneCheckStatus: "not-configured"}
+	applyLayoutStrictGate(&ok, true)
+	if !ok.OK {
+		t.Fatalf("a fully proven part must pass the strict gate: %s", ok.Summary)
+	}
+	// The strict summary must name the category, so a reader is not sent looking for
+	// a circuit defect when the actual event was a failed netlist read.
+	// layoutReportInMM is where the strict summary is built, so exercise that path.
+	report := layoutReport{OK: true, Total: 1, NetsUnproven: got, ZoneCheckStatus: "not-configured"}
+	applyLayoutStrictGate(&report, true)
+	summary := layoutReportInMM(report).Summary
+	if !strings.Contains(summary, "2 nets-unproven") {
+		t.Fatalf("strict summary must surface the nets-unproven count, got %q", summary)
+	}
+}
+
+func TestLayoutNetsProvenDoesNotFailStrictGate(t *testing.T) {
+	proven := true
+	comps := []layoutComp{
+		{ID: "id-U1", Designator: "U1", ComponentType: "part", PinsAvailable: true, PinsProofKnown: true, NetlistAvailable: &proven},
+	}
+	if got := netsUnproven(comps); len(got) != 0 {
+		t.Fatalf("proven netlist reported as unproven: %v", got)
+	}
+	rep := layoutReport{OK: true, UnprovenPins: unprovenPinGeometry(comps), NetsUnproven: netsUnproven(comps), ZoneCheckStatus: "not-configured"}
+	applyLayoutStrictGate(&rep, true)
+	if !rep.OK {
+		t.Fatalf("a fully proven part must pass the strict gate: %s", rep.Summary)
+	}
+}
+
 func TestParseLayoutCompsRejectsMalformedOrNonFiniteGeometry(t *testing.T) {
 	result := map[string]any{"components": []any{
 		map[string]any{

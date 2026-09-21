@@ -93,28 +93,28 @@ func blockApplyPartsFixture(t *testing.T) string {
 const blockApplyOverlapGeometry = `{"ok":true,"result":{"components":[
 	{"componentType":"part","designator":"LED1","primitiveId":"pid-led",
 	 "bbox":{"minX":390,"minY":290,"maxX":410,"maxY":310},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"1","x":400,"y":300}]},
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"1","x":400,"y":300}]},
 	{"componentType":"part","designator":"R1","primitiveId":"pid-r",
 	 "bbox":{"minX":400,"minY":295,"maxX":420,"maxY":315},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"1","x":415,"y":305}]}
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"1","x":415,"y":305}]}
 ]}}`
 
 const blockApplyCleanGeometry = `{"ok":true,"result":{"components":[
 	{"componentType":"part","designator":"LED1","primitiveId":"pid-led",
 	 "bbox":{"minX":390,"minY":290,"maxX":400,"maxY":300},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"1","x":390,"y":295}]},
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"1","x":390,"y":295}]},
 	{"componentType":"part","designator":"R1","primitiveId":"pid-r",
 	 "bbox":{"minX":410,"minY":290,"maxX":420,"maxY":300},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"1","x":420,"y":295}]}
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"1","x":420,"y":295}]}
 ]}}`
 
 const blockApplyPinCoincidenceGeometry = `{"ok":true,"result":{"components":[
 	{"componentType":"part","designator":"LED1","primitiveId":"pid-led",
 	 "bbox":{"minX":390,"minY":290,"maxX":405,"maxY":310},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"1","x":405,"y":300}]},
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"1","x":405,"y":300}]},
 	{"componentType":"part","designator":"R1","primitiveId":"pid-r",
 	 "bbox":{"minX":405,"minY":290,"maxX":420,"maxY":310},
-	 "pinsAvailable":true,"pins":[{"pinNumber":"2","x":405,"y":300}]}
+	 "pinsAvailable":true,"netlistAvailable":true,"pins":[{"pinNumber":"2","x":405,"y":300}]}
 ]}}`
 
 func blockApplyPlaceResponse(call int, includeID bool) string {

@@ -60,7 +60,17 @@ type layoutComp struct {
 	Pins           []layoutPin
 	PinsAvailable  bool // true when the connector confirmed the pins read succeeded
 	PinsProofKnown bool // true only for the explicit pinsAvailable connector contract
-	GeometryErrors []string
+	// NetlistAvailable is the connector's explicit answer to "was the netlist that
+	// every pin's `net` comes from actually fetched and parsed?".
+	//
+	// The two flags above prove pin GEOMETRY only. A muted netlist export leaves
+	// every pin's `net` null while `pinsAvailable` stays true (the pin API did
+	// succeed), so without this flag a caller cannot tell "this pin has no net" from
+	// "no net could be read" — and `net: null` on every pin reads as a statement
+	// about the design. Nil means the connector did not report it (builds before
+	// this field existed), which callers must treat as "not proven", not as "fine".
+	NetlistAvailable *bool
+	GeometryErrors   []string
 }
 
 // schLayoutPartType is the componentType of a real placed device. Only these
@@ -190,7 +200,13 @@ type layoutReport struct {
 	ZoneCheckError   string          `json:"zoneCheckError,omitempty"`
 	UncheckedPins    []string        `json:"uncheckedPins,omitempty"`
 	UnprovenPins     []string        `json:"unprovenPins,omitempty"`
-	InvalidGeometry  []string        `json:"invalidGeometry,omitempty"`
+	// NetsUnproven lists parts whose pin geometry IS proven but whose pin→net
+	// attribution is not, because the connector reported the netlist as unavailable
+	// (or did not report netlistAvailable at all). Kept separate from UnprovenPins
+	// on purpose: that one blames a legacy connector contract, this one blames a
+	// failed netlist read, and conflating them sends the reader to the wrong fix.
+	NetsUnproven    []string        `json:"netsUnproven,omitempty"`
+	InvalidGeometry []string        `json:"invalidGeometry,omitempty"`
 	PinEps           float64         `json:"pinEps"`
 	Summary          string          `json:"summary"`
 }
@@ -287,6 +303,28 @@ func unprovenPinGeometry(comps []layoutComp) []string {
 	return out
 }
 
+// netsUnproven identifies parts whose pin GEOMETRY is proven but whose pin→net
+// attribution is not: the connector either reported the netlist as unavailable or
+// did not report netlistAvailable at all. A muted netlist export leaves every pin's
+// `net` null, so "this pin has no net" and "no net could be read" are otherwise
+// indistinguishable — and the difference decides whether a downstream reader may
+// treat a null net as an unconnected pin. Strict mode must not call that a
+// completed connectivity proof, and the reason must NOT be attributed to a legacy
+// connector contract (that is what UnprovenPins is for) because the fix differs.
+func netsUnproven(comps []layoutComp) []string {
+	var out []string
+	for _, c := range comps {
+		if !c.PinsAvailable {
+			continue // geometry itself is unproven; that is reported separately
+		}
+		if c.NetlistAvailable == nil || !*c.NetlistAvailable {
+			out = append(out, label(c))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func invalidLayoutGeometry(comps []layoutComp) []string {
 	var out []string
 	for _, c := range comps {
@@ -341,6 +379,7 @@ func applyLayoutStrictGate(rep *layoutReport, strict bool) {
 		len(rep.NoBBox) > 0 ||
 		len(rep.UncheckedPins) > 0 ||
 		len(rep.UnprovenPins) > 0 ||
+		len(rep.NetsUnproven) > 0 ||
 		len(rep.InvalidGeometry) > 0 ||
 		rep.ZoneCheckStatus == "unavailable" {
 		rep.OK = false
@@ -380,10 +419,10 @@ func layoutReportInMM(rep layoutReport) layoutReport {
 	rep.MeasurementUnit = "mm"
 	rep.CoordinateUnit = "0.01inch"
 	rep.AnchorGridUnit = "0.01inch"
-	rep.Summary = fmt.Sprintf("strict=%t: %d components (%d with bbox): %d overlap, %d tight (<%.2fmm), %d pin-coincidence, %d off-grid, %d out-of-sheet, %d unchecked-bbox, %d unchecked-pins, %d unproven-pins, %d invalid-geometry; zoneCheck=%s sheetCheck=%s",
+	rep.Summary = fmt.Sprintf("strict=%t: %d components (%d with bbox): %d overlap, %d tight (<%.2fmm), %d pin-coincidence, %d off-grid, %d out-of-sheet, %d unchecked-bbox, %d unchecked-pins, %d unproven-pins, %d nets-unproven, %d invalid-geometry; zoneCheck=%s sheetCheck=%s",
 		rep.Strict, rep.Total, rep.WithBBox, len(rep.Overlaps), len(rep.TightPairs), rep.MinGap,
 		len(rep.PinCoincidences), len(rep.GridViolations), len(rep.OutOfSheet),
-		len(rep.NoBBox), len(rep.UncheckedPins), len(rep.UnprovenPins),
+		len(rep.NoBBox), len(rep.UncheckedPins), len(rep.UnprovenPins), len(rep.NetsUnproven),
 		len(rep.InvalidGeometry), rep.ZoneCheckStatus, rep.SheetCheckStatus)
 	return rep
 }
@@ -576,10 +615,10 @@ func runLayoutLint(cfg *appConfig, window string, minGap, pinEps float64, allPag
 	if !rep.OK {
 		// 每一个能让 OK=false 的判据都必须出现在这句里 —— 少一个就会出现
 		// 「所有计数都是 0 却非零退出」的不可归因失败(记忆:真机验的是报告读起来对不对)。
-		return fmt.Errorf("layout-lint: %d overlap(s), %d pin-coincidence(s), %d tight pair(s), %d off-grid anchor(s), %d out-of-sheet, %d unchecked bbox(s), %d unchecked pin-set(s), %d unproven pin-set(s), %d invalid geometry value(s), zone-check=%s sheet-check=%s",
+		return fmt.Errorf("layout-lint: %d overlap(s), %d pin-coincidence(s), %d tight pair(s), %d off-grid anchor(s), %d out-of-sheet, %d unchecked bbox(s), %d unchecked pin-set(s), %d unproven pin-set(s), %d unproven pin-net(s), %d invalid geometry value(s), zone-check=%s sheet-check=%s",
 			len(rep.Overlaps), len(rep.PinCoincidences), len(rep.TightPairs),
 			len(rep.GridViolations), len(rep.OutOfSheet), len(rep.NoBBox),
-			len(rep.UncheckedPins), len(rep.UnprovenPins), len(rep.InvalidGeometry),
+			len(rep.UncheckedPins), len(rep.UnprovenPins), len(rep.NetsUnproven), len(rep.InvalidGeometry),
 			rep.ZoneCheckStatus, rep.SheetCheckStatus)
 	}
 	return nil
@@ -664,6 +703,7 @@ func collectLayoutLintWith(cfg *appConfig, window string, minGap, pinEps float64
 	rep.AnchorGridRaw = schAnchorGrid
 	rep.GridViolations = detectOffGridAnchors(realParts, schAnchorGrid, acCoordEps)
 	rep.UnprovenPins = unprovenPinGeometry(realParts)
+	rep.NetsUnproven = netsUnproven(realParts)
 	rep.InvalidGeometry = invalidLayoutGeometry(realParts)
 	sortFindings(rep.GridViolations)
 
@@ -768,6 +808,11 @@ func parseLayoutComps(result map[string]any) ([]layoutComp, error) {
 		pins, pinsArray := pinsRaw.([]any)
 		explicitAvailable, proofPresent := m["pinsAvailable"].(bool)
 		c.PinsProofKnown = proofPresent
+		// Netlist provenance: absent means an older connector did not report it, which
+		// is "not proven" rather than "fine" (see netsUnproven).
+		if v, ok := m["netlistAvailable"].(bool); ok {
+			c.NetlistAvailable = &v
+		}
 		if pinErr := strings.TrimSpace(asString(m["pinsError"])); pinErr != "" {
 			c.GeometryErrors = append(c.GeometryErrors, "pin read failed: "+pinErr)
 			explicitAvailable = false
@@ -926,6 +971,10 @@ func renderLayoutReport(rep layoutReport, w io.Writer) {
 	if len(rep.UnprovenPins) > 0 {
 		fmt.Fprintf(w, "  %s  unproven-pins  %d component(s) came from a legacy connector that did not distinguish an empty pin set from a failed SDK read: %v\n",
 			softSeverity, len(rep.UnprovenPins), rep.UnprovenPins)
+	}
+	if len(rep.NetsUnproven) > 0 {
+		fmt.Fprintf(w, "  %s  nets-unproven  %d component(s) have proven pin geometry but no proven pin→net attribution (the netlist export was unavailable, so every pin's net reads as null — that is a failed READ, not an unconnected DESIGN): %v\n",
+			softSeverity, len(rep.NetsUnproven), rep.NetsUnproven)
 	}
 	if len(rep.InvalidGeometry) > 0 {
 		fmt.Fprintf(w, "  %s  invalid-geometry  %d malformed component geometry value(s): %v\n",

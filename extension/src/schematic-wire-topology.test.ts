@@ -1,8 +1,8 @@
 /// <reference types="@jlceda/pro-api-types" />
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collectWireSegments, planSchDeleteCascadeTrees, runAction, schematicComponentsList, schematicPinDisconnect } from './actions';
-import { classifyWireContact, parseObservedWireLine, physicalWireIslands, type WireSegment } from './schematic-wire-topology';
+import { collectWireSegments, connectivityWireSegments, planSchDeleteCascadeTrees, runAction, schematicComponentsList, schematicPinDisconnect } from './actions';
+import { classifyWireContact, classifyWireSegment, isDegenerateWireSegment, parseObservedWireLine, physicalWireIslands, type WireSegment } from './schematic-wire-topology';
 
 const H: WireSegment = [-20, 0, 20, 0];
 const V: WireSegment = [0, -20, 0, 20];
@@ -64,6 +64,106 @@ test('contact matrix is invariant under reversal, rotation and translation; name
 	assert.equal(physicalWireIslands([{seg:H},{seg:V}], [{x:0,y:0}]).length,1);
 	assert.equal(classifyWireContact([0,0,1,1],H),'unknown');
 	assert.throws(() => physicalWireIslands([{seg:[0,0,1,1]}]));
+});
+
+// ─── Zero-length wire regression (live B04_2_1, 2026-09-20) ───────────────
+//
+// A single zero-length wire primitive anywhere on a page made
+// `physicalWireIslands` throw `Unknown wire contact.`, so `schematic.check` AND
+// `schematic.bridgeCheck` failed for the WHOLE page — and with them the `check`
+// stage of `sch gate`, which in turn skipped `bridge-check` and `drc`. Reproduced
+// on 4 pages of one real project (31 / 15 / 4 / 2 zero-length primitives).
+//
+// These primitives are contact-neutral by geometry, so the fix drops them from
+// contact reasoning and lets the pre-existing `zero-length-wire` WARN rule report
+// them. The non-orthogonal refusal is deliberately NOT relaxed here.
+
+test('zero-length segments are contact-neutral: classified, never "unknown"', () => {
+	const zero: WireSegment = [1105,870,1105,870];
+	assert.equal(classifyWireSegment(zero),'degenerate');
+	assert.ok(isDegenerateWireSegment(zero));
+	assert.equal(classifyWireSegment(H),'horizontal');
+	assert.equal(classifyWireSegment(V),'vertical');
+	assert.equal(classifyWireSegment([0,0,1,1]),'non-orthogonal');
+	// A non-finite coordinate must never masquerade as a harmless degenerate.
+	assert.equal(classifyWireSegment([0,0,NaN,0]),'non-orthogonal');
+
+	// Every pairing with a real segment is disjoint — this is what used to return
+	// 'unknown' and abort the run.
+	for (const other of [H, V, [0,0,1,1] as WireSegment]) {
+		assert.equal(classifyWireContact(zero, other),'disjoint');
+		assert.equal(classifyWireContact(other, zero),'disjoint');
+	}
+	assert.equal(classifyWireContact(zero, [1105,870,1105,870]),'disjoint');
+
+	// A page that contains a zero-length wire still partitions instead of throwing.
+	assert.equal(physicalWireIslands([{seg:H},{seg:zero}]).length,2);
+});
+
+test('real B04_2_1 shape: one zero-length primitive among real stubs no longer aborts the island model', () => {
+	// The exact observed encodings that killed the run: three orthogonal segment
+	// records plus a single-segment zero-length primitive at its own coordinate.
+	// `e1894` @ (1105,870) is the first trigger named by the differential replay of
+	// the stored artifacts (scripts/replay-zero-length-wires-diff.ts) — where the
+	// PRE-FIX code throws on all three real pages (31/15/2 zero-length primitives)
+	// and the fixed code partitions them.
+	const raw = [400,650,320,650,400,350,400,650,780,350,400,350];
+	const real = collectWireSegments([wire('b', raw, 'XB5')]);
+	const zero = collectWireSegments([wire('e1894', [1105,870,1105,870], 'PGND')]);
+	assert.equal(zero.length,1);
+
+	// Pre-fix this threw `Unknown wire contact.` and took check + bridge-check down.
+	assert.equal(physicalWireIslands([...real, ...zero]).length,2);
+
+	// connectivityWireSegments removes the degenerate primitive and keeps real
+	// segment indices aligned for the reporting that follows.
+	const kept = connectivityWireSegments([...real, ...zero]);
+	assert.deepEqual(kept.map(s => s.seg), real.map(s => s.seg));
+	assert.equal(kept.length,3);
+
+	// Sub-pixel drift is what the platform actually emits; it must classify the same
+	// way as an exactly-zero record (observed: [329.9999999999999,69.99999999999987]).
+	const drift = collectWireSegments([wire(
+		'drift',
+		[329.9999999999999,69.99999999999987,329.9999999999999,69.99999999999987],
+		'A',
+	)]);
+	assert.ok(isDegenerateWireSegment(drift[0].seg));
+	assert.equal(physicalWireIslands([...real, ...drift]).length,2);
+
+	// The conservative half of the rule: a primitive that MIXES a degenerate record
+	// with a real one is left completely alone rather than silently shortened.
+	const mixed = collectWireSegments([wire('mixed', [...H, ...([0,0,0,0] as number[])], 'A')]);
+	assert.equal(mixed.length,2);
+	assert.equal(connectivityWireSegments(mixed).length,2);
+	assert.deepEqual(connectivityWireSegments([]),[]);
+});
+
+test('check and bridge survive a page whose only defect is a zero-length wire, and still report it', async t => {
+	// installScene already anchors pins at the four coords below, so the degenerate
+	// record at (0,0) is exactly the field shape that aborted the run.
+	installScene(t,{});
+	const api=(globalThis as any).eda;
+	api.sch_PrimitiveWire.getAll=async()=>[wire('h',H),wire('v',V),wire('zero',[0,0,0,0],'A')];
+
+	// bridge-check must not throw; the degenerate primitive is simply not an island.
+	const bridge:any=await runAction('schematic.bridgeCheck',{});
+	assert.equal(bridge.result.summary.wireTreesTotal,2);
+
+	// check must not throw either, and must surface the degenerate primitive through
+	// the rule that already existed for it.
+	const check:any=await runAction('schematic.check',{});
+	assert.equal(check.result.summary.zeroLengthWires,1);
+	const zeroFinding=check.result.findings.find((f:any)=>f.type==='zero-length-wire');
+	assert.ok(zeroFinding,'zero-length-wire must be reported instead of aborting the run');
+	assert.equal(zeroFinding.level,'warn');
+	assert.equal(zeroFinding.wirePrimitiveId,'zero');
+});
+
+test('a non-orthogonal segment is still refused, now with the offending segment named', () => {
+	assert.throws(() => physicalWireIslands([{seg:[0,0,1,1]}]),/Non-orthogonal wire segment/);
+	assert.throws(() => physicalWireIslands([{seg:[0,0,1,1]}]),/0,0,1,1/);
+	assert.throws(() => physicalWireIslands([{seg:[0,0,1,1]}]),/index=0/);
 });
 
 test('cascade removes only target-exclusive physical island; same primitive crossing a survivor is retained', () => {

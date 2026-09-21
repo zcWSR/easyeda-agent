@@ -116,6 +116,12 @@ func parseSchDesignatorBaseline(raw []byte) (schDesignatorBaseline, error) {
 		if c["pinsAvailable"] != true || c["netAmbiguous"] == true {
 			return out, fmt.Errorf("%s: unambiguous pin inventory unavailable", pid)
 		}
+		// Pin geometry being proven is not pin→NET being proven: a muted netlist
+		// export leaves every pin's `net` null while pinsAvailable stays true, and this
+		// plan must not bind a designator off a null that only means "could not read".
+		if c["netlistAvailable"] != true || c["netlistError"] != nil {
+			return out, fmt.Errorf("%s: pin→net attribution unavailable (netlist export failed, so pin nets are null rather than absent)", pid)
+		}
 		pins, ok := c["pins"].([]any)
 		if !ok || len(pins) == 0 {
 			return out, fmt.Errorf("%s: pin inventory unavailable", pid)

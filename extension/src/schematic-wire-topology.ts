@@ -58,14 +58,47 @@ export function wirePointOnSegment(p: WireAnchor, s: WireSegment): boolean {
 	return Math.abs((p.x - s[0]) * (s[3] - s[1]) - (p.y - s[1]) * (s[2] - s[0])) <= e * Math.max(1, Math.hypot(s[2] - s[0], s[3] - s[1]));
 }
 
+/** A segment's usable axis. `degenerate` is a zero-length record: the platform
+ * really does return these (live B04_2_1 2026-09-20: 31 on PWR, 15 on P1, 2 on
+ * CAN, all single-segment primitives) and they are contact-neutral by geometry —
+ * they span no interval, so `h === v` and no directional information exists.
+ * `non-orthogonal` (true 45°/arbitrary angle) stays a refusal: contact reasoning
+ * below assumes axis-aligned records.
+ */
+export type WireSegmentAxis = 'horizontal' | 'vertical' | 'degenerate' | 'non-orthogonal';
+
+/** Classify one observed segment record. Finite-check first so a non-finite
+ * coordinate can never masquerade as `degenerate`. */
+export function classifyWireSegment(s: WireSegment): WireSegmentAxis {
+	if (!s.every(Number.isFinite)) return 'non-orthogonal';
+	const h = Math.abs(s[1] - s[3]) <= WIRE_CONTACT_EPS;
+	const v = Math.abs(s[0] - s[2]) <= WIRE_CONTACT_EPS;
+	if (h && v) return 'degenerate';
+	if (h) return 'horizontal';
+	if (v) return 'vertical';
+	return 'non-orthogonal';
+}
+
+/** True for a zero-length segment record (both endpoints coincide within eps). */
+export function isDegenerateWireSegment(s: WireSegment): boolean {
+	return classifyWireSegment(s) === 'degenerate';
+}
+
 export function classifyWireContact(a: WireSegment, b: WireSegment): WireContact {
 	const e = WIRE_CONTACT_EPS;
 	const axis = (s: WireSegment): number => {
 		if (!s.every(Number.isFinite)) return -1;
 		const h = Math.abs(s[1] - s[3]) <= e, v = Math.abs(s[0] - s[2]) <= e;
+		if (h && v) return -2; // zero-length: spans nothing, contacts nothing
 		return h === v ? -1 : h ? 0 : 1;
 	};
 	const aa = axis(a), bb = axis(b);
+	// A zero-length record cannot touch anything, however it is paired. Saying
+	// 'disjoint' here (instead of letting it fall into 'unknown') is what keeps one
+	// stray degenerate segment from taking `sch check` / `bridge-check` down for a
+	// whole page. The degenerate segment itself is still reported by the
+	// `zero-length-wire` WARN rule, which is where it belongs.
+	if (aa === -2 || bb === -2) return 'disjoint';
 	if (aa < 0 || bb < 0) return 'unknown';
 	if (aa === bb) {
 		const fixed = aa === 0 ? 1 : 0, moving = 1 - fixed;
@@ -90,11 +123,23 @@ export function physicalWireIslands(segments: Array<{ seg: WireSegment }>, ancho
 	const parent = segments.map((_, i) => i);
 	const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
 	const union = (a: number, b: number) => { parent[find(a)] = find(b); };
+	// Degenerate records are contact-neutral (see classifyWireContact): keeping them
+	// in the partition is harmless — each lands in its own island — and it keeps the
+	// segment indices aligned with the caller's array so reporting can still name
+	// the offending primitive. Non-orthogonal records are still refused, but the
+	// refusal now names the segment instead of being an unlocatable one-liner.
+	const describe = (i: number): string => {
+		const s = segments[i]?.seg;
+		return `index=${i} seg=[${s?.join(',')}]`;
+	};
 	for (let i = 0; i < segments.length; i++) {
-		if (classifyWireContact(segments[i].seg, segments[i].seg) === 'unknown') throw new Error('Unknown non-orthogonal or zero-length wire topology.');
+		const own = classifyWireSegment(segments[i].seg);
+		if (own === 'non-orthogonal') throw new Error(`Non-orthogonal wire segment cannot be reasoned about (${
+			describe(i)}). Refusing rather than guessing contact topology.`);
+		if (own === 'degenerate') continue;
 		for (let j = i + 1; j < segments.length; j++) {
 			const relation = classifyWireContact(segments[i].seg, segments[j].seg);
-			if (relation === 'unknown') throw new Error('Unknown wire contact.');
+			if (relation === 'unknown') throw new Error(`Unknown wire contact between ${describe(i)} and ${describe(j)}.`);
 			if (relation === 'endpoint-touch' || relation === 'collinear-overlap' || (relation === 'proper-cross' && anchors.some(p => wirePointOnSegment(p, segments[i].seg) && wirePointOnSegment(p, segments[j].seg)))) union(i, j);
 		}
 	}
@@ -112,7 +157,10 @@ export function assertLegacySimpleWireOperation(segments: ObservedWireSegment[],
 	for (const id of selected) {
 		const own = segments.filter(s => s.wirePrimitiveId === id);
 		if (own.length === 0) continue; // selected component/marker, not a wire
-		if (own.length !== 1 || classifyWireContact(own[0].seg, own[0].seg) === 'unknown') throw new Error(`Wire ${id} is not one simple observed segment; take a fresh raw snapshot and use data-driven sch compose --preserve-instances.`);
+		if (own.length !== 1) throw new Error(`Wire ${id} has ${own.length} observed segments, not one; take a fresh raw snapshot and use data-driven sch compose --preserve-instances.`);
+		const axis = classifyWireSegment(own[0].seg);
+		if (axis === 'degenerate') throw new Error(`Wire ${id} is a zero-length segment at (${own[0].seg[0]},${own[0].seg[1]}); delete it instead of moving or disconnecting it.`);
+		if (axis === 'non-orthogonal') throw new Error(`Wire ${id} is not axis-aligned (seg=[${own[0].seg.join(',')}]); take a fresh raw snapshot and use data-driven sch compose --preserve-instances.`);
 		plans.set(id, own[0].seg);
 	}
 	const moved = (s: ObservedWireSegment): WireSegment => delta && selected.has(s.wirePrimitiveId)

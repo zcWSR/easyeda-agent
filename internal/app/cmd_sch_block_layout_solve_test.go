@@ -553,7 +553,7 @@ func TestBslExpandForMarkers_CountsMarkersAndPushes(t *testing.T) {
 const bslLiveGeometry = `{"components":[
  {"componentType":"sheet","bbox":{"minX":0,"minY":0,"maxX":1170,"maxY":825}},
  {"componentType":"part","designator":"U3","primitiveId":"pid-u",
-  "bbox":{"minX":654,"minY":414,"maxX":726,"maxY":506},"pinsAvailable":true,
+  "bbox":{"minX":654,"minY":414,"maxX":726,"maxY":506},"pinsAvailable":true,"netlistAvailable":true,
   "pins":[{"pinNumber":"1","pinName":"GND","x":654,"y":420},
           {"pinNumber":"2","pinName":"TXD","x":654,"y":436},
           {"pinNumber":"3","pinName":"RXD","x":654,"y":452},
@@ -562,16 +562,16 @@ const bslLiveGeometry = `{"components":[
           {"pinNumber":"6","pinName":"D-","x":654,"y":500},
           {"pinNumber":"7","pinName":"NC","x":726,"y":460}]},
  {"componentType":"part","designator":"D1","primitiveId":"pid-d",
-  "bbox":{"minX":590,"minY":432,"maxX":638,"maxY":488},"pinsAvailable":true,
+  "bbox":{"minX":590,"minY":432,"maxX":638,"maxY":488},"pinsAvailable":true,"netlistAvailable":true,
   "pins":[{"pinNumber":"1","x":590,"y":460}]},
  {"componentType":"part","designator":"J1","primitiveId":"pid-j",
-  "bbox":{"minX":532,"minY":420,"maxX":580,"maxY":490},"pinsAvailable":true,
+  "bbox":{"minX":532,"minY":420,"maxX":580,"maxY":490},"pinsAvailable":true,"netlistAvailable":true,
   "pins":[{"pinNumber":"A1","x":580,"y":455}]},
  {"componentType":"part","designator":"C8","primitiveId":"pid-c8",
-  "bbox":{"minX":700,"minY":560,"maxX":720,"maxY":580},"pinsAvailable":true,
+  "bbox":{"minX":700,"minY":560,"maxX":720,"maxY":580},"pinsAvailable":true,"netlistAvailable":true,
   "pins":[{"pinNumber":"1","x":700,"y":570}]},
  {"componentType":"part","designator":"X9","primitiveId":"pid-foreign",
-  "bbox":{"minX":300,"minY":430,"maxX":%d,"maxY":480},"pinsAvailable":true,
+  "bbox":{"minX":300,"minY":430,"maxX":%d,"maxY":480},"pinsAvailable":true,"netlistAvailable":true,
   "pins":[{"pinNumber":"1","x":300,"y":455}]}
 ]}`
 

@@ -36,6 +36,10 @@ func preserveComposeFixture(t *testing.T) (*schCompositionPlan, map[string]any) 
 		raw["name"] = "={Value}"
 		raw["subPartName"] = "device.1"
 		raw["addIntoBom"], raw["addIntoPcb"] = false, true
+		// A modern connector answers the netlist question explicitly; without it the
+		// designator plan must refuse (a null pin net can mean "not connected" or
+		// "could not read"), so the fixture has to state it like the real one does.
+		raw["pinsAvailable"], raw["netlistAvailable"] = true, true
 		for _, key := range []string{"manufacturer", "manufacturerId", "supplier", "supplierId"} {
 			raw[key] = ""
 		}
