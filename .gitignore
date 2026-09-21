@@ -16,6 +16,9 @@
 # Local runtime state
 /.easyeda-agent/
 /artifacts/
+/.agents/worktrees/
+/.agents/settings.local.json
+/.agents/skills/*/__pycache__/
 
 # Editor
 .idea/

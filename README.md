@@ -224,6 +224,8 @@ EasyEDA Pro project
 
 ## 开发与贡献
 
+- 文档导航与信息归属：[docs/README.md](docs/README.md)
+- 跨项目查询、维护 Skill 和多客户端兼容：[Agent 协作设计](docs/agent-collaboration.md)
 - 开发环境：[docs/dev-environment.md](docs/dev-environment.md)
 - 电路块贡献：[standard-blocks-contributing.md](skills/easyeda-agent/references/standard-blocks-contributing.md)
 - Skill 入口：[skills/easyeda-agent/SKILL.md](skills/easyeda-agent/SKILL.md)

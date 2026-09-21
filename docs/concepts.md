@@ -8,6 +8,18 @@
 
 ---
 
+## Agent 协作入口与文档归属
+
+**公开设计 Skill** 指 `skills/easyeda-agent/`，是可独立安装的 EDA 工作流与知识包。
+**仓库协作 Skill** 指 `.agents/skills/easyeda-repo-*/`，通过安装链接定位源码 checkout，
+用于跨项目查询和维护；它依赖仓库内容，不属于公开设计包，也不增加 EDA 执行通道。
+**兼容入口** 只引用同一规范源：`CLAUDE.md → AGENTS.md`、`.claude → .agents`；
+仓库中的设计 Skill 链接仍指向 `skills/easyeda-agent/`。
+
+**文档归属** 指每类信息有一个维护位置：协作规则、操作知识、架构理由、验证证据分别维护，
+入口和索引只路由到该位置。历史报告说明特定版本发生过什么，不覆盖当前规范，也不证明新版
+已验证。具体导航与归属表见 [文档索引](README.md)，设计理由见 [Agent 协作设计](agent-collaboration.md)。
+
 ## 原理图架构基准入口
 
 [数据驱动架构基准](../skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)

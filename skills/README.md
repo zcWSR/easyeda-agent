@@ -17,6 +17,10 @@ daemon, and connector name.
 
 ## Install
 
+源码协作入口 `$easyeda-repo-lookup` / `$easyeda-repo-maintain` 在 `.agents/skills/`，
+安装方法见 [Agent 协作设计](../docs/agent-collaboration.md)。它们不进入此处的公开包；
+`.agents/skills/easyeda-agent` 仅相对链接到本目录的规范源。
+
 Install the `easyeda` CLI/daemon first, then import the EasyEDA connector URL printed
 by the installer:
 
