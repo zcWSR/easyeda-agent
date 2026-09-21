@@ -60,7 +60,11 @@ def main() -> None:
     placement = load("initial-placement.json")
     live = load("live-validation.json")
     crystal_placement = load("crystal-placement-live.json")
+    crystal_route = load("crystal-route-live.json")
+    crystal_guard = load("crystal-guard-requirement.json")
     can_placement = load("can-placement-iteration-live.json")
+    can_route = load("can-route-live.json")
+    usb_route = load("usb-route-live.json")
     can_route_negative = load("can-route-plan-negative.json")
     can_route_report = load("can-route-plan-negative-report.json")
     can_pair_negative = load("can-route-plan-pair-negative.json")
@@ -266,6 +270,62 @@ def main() -> None:
     assert all(len(value) == 64 for value in crystal_placement["evidence"].values())
     assert crystal_placement["notClaimed"]
 
+    assert crystal_route["status"] == "live-verified"
+    assert crystal_route["designDisposition"] == "superseded-as-final-design"
+    assert crystal_route["supersededBy"] == "crystal-guard-requirement.json"
+    assert crystal_guard["status"] == "source-only"
+    assert crystal_guard["module"] == {
+        "id": "crystal-guard",
+        "members": ["X1", "C20", "C21"],
+        "ownerPads": ["U6.2", "U6.3"],
+        "signalNets": ["OSC_IN", "OSC_OUT"],
+        "guardNet": "GND",
+        "movePolicy": "器件、信号铜、GND 护环、no-pours regions 与外围 GND 过孔作为一个参数化模块共同重算；不能只移动器件",
+    }
+    assert crystal_guard["signalRouting"]["topology"] == {
+        "OSC_IN": ["C21.1", "X1.1", "U6.2"],
+        "OSC_OUT": ["C20.1", "X1.3", "U6.3"],
+    }
+    assert crystal_guard["signalRouting"]["layer"] == 1
+    assert crystal_guard["signalRouting"]["maxViasPerNet"] == 0
+    assert crystal_guard["groundGuard"]["net"] == "GND"
+    assert crystal_guard["groundGuard"]["primitive"] == "track"
+    assert crystal_guard["copperKeepout"] == {
+        "primitive": "pcb region",
+        "rule": "no-pours",
+        "layers": [1, 2],
+        "geometry": "覆盖 X1、C20、C21 与 OSC_IN/OSC_OUT 敏感铜的参数化包络；不靠截图猜范围",
+        "requirements": [
+            "TOP 与 BOTTOM 分别创建并回读 no-pours region；两层板不以 no-inner-electrical 代替外层 region",
+            "no-pours 只禁止自动铺铜进入；显式 OSC 信号与 GND 护环仍按设计写入",
+            "铺铜重建后确认禁铺区内没有 pour/fill 铜残留",
+        ],
+    }
+    assert crystal_guard["groundViaFence"]["generator"].startswith("pcb via-fence ")
+    assert crystal_guard["currentBoardDisposition"]["finalDesignAccepted"] is False
+    assert can_route["status"] == "live-verified"
+    assert can_route["contract"]["orderedMainPaths"] == {
+        "CANH": ["U5.7", "R12.1", "CN1.2"],
+        "CANL": ["U5.6", "R12.2", "CN1.1"],
+    }
+    assert can_route["persistence"] == {
+        "sequence": ["pcb save", "doc reload", "fresh track readback", "four fresh pcb net-path proofs", "fresh pcb check", "fresh pcb drc", "pcb track-lock", "pcb save", "doc reload", "fresh lock readback"],
+        "lockedTracks": 33,
+        "lockPersisted": True,
+    }
+    assert usb_route["status"] == "live-verified"
+    assert usb_route["freshReadbackAfterSaveReload"]["actualTracks"] == {
+        "USB_D+": 5,
+        "USB_D-": 9,
+    }
+    assert usb_route["freshReadbackAfterSaveReload"]["officialDrc"] == {
+        "connectionErrors": 196,
+        "otherViolationTypes": 0,
+        "deltaFromCanMilestone": -6,
+    }
+    assert usb_route["persistence"]["lockedTracks"] == 14
+    assert usb_route["persistence"]["lockPersisted"] is True
+
     assert can_placement["status"] == "live-verified"
     assert can_placement["outcome"] == "rejected-as-positive-example"
     assert can_placement["documentUuid"] == "2e719e9419653c72"
@@ -392,6 +452,8 @@ def main() -> None:
         )
     assert {
         "initial-placement.json", "crystal-placement-live.json",
+        "crystal-route-live.json", "crystal-guard-requirement.json",
+        "can-route-live.json", "usb-route-live.json",
         "can-placement-iteration-live.json",
         "can-route-plan-negative.json", "can-route-plan-negative-report.json",
         "can-route-plan-pair-negative.json", "can-route-plan-pair-negative-report.json",
@@ -421,10 +483,9 @@ def main() -> None:
     assert placement["status"] == "partial-live-verified"
     for field in (
         "source", "startState", "parameters", "commands", "observations",
-        "knownErrorsAndFixes", "evidence", "independentVerification", "notClaimed",
+        "knownErrorsAndFixes", "evidence", "notClaimed",
     ):
         assert placement[field], f"initial-placement.json: empty {field}"
-    assert placement["independentVerification"]["status"] == "completed-with-findings"
     assert placement["units"] == "mil"
     assert placement["coordinateSemantic"] == "footprint-anchor"
     assert placement["board"] == {

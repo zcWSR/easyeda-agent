@@ -10,7 +10,11 @@
 [live-validation.json](live-validation.json)；关键网络如何反向修正布局见
 [晶振/CAN 规划样例](critical-routing.md)，晶振第一批实际布局见
 [crystal-placement-live.json](crystal-placement-live.json)，CAN 第一轮现场负例见
-[can-placement-iteration-live.json](can-placement-iteration-live.json)，LDO 第二轮可执行参数见
+[can-placement-iteration-live.json](can-placement-iteration-live.json)，晶振实际 TOP/8mil/0via 有序铜路见
+[crystal-route-live.json](crystal-route-live.json)；该铜路事实仍有效，但用户复核后不再接受为最终晶振区，
+替代验收要求见 [晶振护环模块要求](crystal-guard-requirement.json)。CAN 实际主路径与保护支路见
+[can-route-live.json](can-route-live.json)，USB-C 四个重复数据焊盘与 U4 的实际 TOP/8mil/0via 铜路见
+[usb-route-live.json](usb-route-live.json)，LDO 第二轮可执行参数见
 [LDO 布局候选](ldo-layout-candidate.json)，保存重开后的局部铜见
 [LDO 实际路线](ldo-route-live.json)。LED 板边、MCU 逐脚去耦和 LDO 刚体变换的候选生成见
 [模块候选 Layout](layout-candidates.md)；其中 CAN/SD/USB-UART/LCD 第二批外围的保存重载结果见
@@ -27,33 +31,6 @@
 | `物料清单.xlsx`，BOM 表第 3-29 行 | 27 行物料，数量展开为 69 个唯一位号；位号、封装、值、商品编号和功能区见 `bom-instances.json` | `offline-verified`；尚未与 EasyEDA 实例逐件回读 |
 | `原理图.pdf` 第 1 页 | 一张 A4 原理图，15 个功能区；`source-connectivity.json` 转录 69 个器件、233 个端子和 13 处明确 NC | `source-only`；蜂鸣器 NC 在图面未标数字号，派生局部网名可改，真实 symbol pin、pad 与 pin→pad 映射必须现场读取 |
 | `考试说明.pdf` 第 1-8 页 | 原理图、规则、机械、布局、布线、丝印和评分要求 | 已逐页提取并视觉抽查；不是完成态设计 |
-
-当前总状态：`partial-live-verified`。原理图逐端点连接、默认 DRC、真圆角板框、显示原点、
-固定件、规则/网络类、69 件初始布局、LDO 第二轮局部布局/局部铜，以及晶振 X1/C20/C21 的
-次序修正已在 Web 3.2.203 保存并通过 typed reload 回读。CAN/SD/USB-UART/LCD 的 11 个外围
-也已按模块候选保存重载；浏览器重开后 69 件几何、板框与 15 段 LDO 铜仍保持。CAN 的
-D1/CN1 对称关系已现场回读，R12/D1 当前位置和方向由零位移刚体候选接受；两处 H/L 最短
-飞线相交只保留为布线反例，不再否定 Layout。LCD 的
-no-components region 只在未绑定的个人库副本中保存；U3 的 source footprint 位于不可写系统库，
-当前实例仍没有经过证明的禁放区。一次重绑定超时删除 U3 后虽已参数化恢复到 69 件和相同
-13 脚网络，primitiveId/uniqueId 当时发生了变化；随后已用 typed 修改把原理图 U3 的 uniqueId
-恢复为 PCB 的 `gge60`，
-保存重载后 69 件、13 脚网络和绑定均不变，因此该 identity 禁令已解除；本次没有实际运行
-`import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
-`live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
-当前 8 组模块候选和 19 件外围的布局写入已验证。U3 系统封装不可写，且系统封装无损复制到
-当前工程库在带/不带分类的两次现场调用中均由宿主拒绝，因此该组合能力已标 `unsupported`，
-本 Demo 跳过封装 region 写入；当前实例的题定禁放区仍未完成。布局算法继续使用 U3 实测外形
-作为避让代理，但不能把代理记为考点通过。当前已用 typed `pcb stage-snapshot` 生成一张整板**预检查图**，画面非空、
-内容占比 96.22%，CLI 从落盘 PNG 补算 SHA256；但它保持属性可见，且不计入正式两轮自检。
-当前连续通过数仍为 0，不能称 Layout 完成，也尚未取得用户对当前回读版本的“OK”。缺口补齐后
-必须重新生成正式整板图：第 1 轮检查空间/模块关系/视觉异常，第 2 轮严格 save → reload → fresh dump → fresh
-render；任一轮修正均清零重来。连续两轮均无待修明显问题且无修正后再展示布局事实和预览，用户可要求继续调整或
-自行调整后确认。明确确认前只允许参数化完成
-LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地过孔，不得进入跨模块电源主干、
-普通信号或全局铜写入。现存 LDO 15 段铜属于这一例外。
-该文件保留初始批次；后续配置入口的 typed 保存/重载实测见
-[PCB 配置样例](../../pcb-config.md)，不要继续沿用早期的“新入口未现场验证”结论。
 
 ## 15 个原理图功能区
 
@@ -120,7 +97,7 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 | LAY-02 | 说明 p4 | RGB 靠 TYPE-C；光敏远离 RGB | [模块候选 Layout](layout-candidates.md)：按真实板框中心线和 pad 所有权生成 3 个板边候选，选择理由与铜限制分开记录 |
 | LAY-03 | 说明 p4、p7 | LDO 输入/输出电容靠对应引脚，大电容在前、小电容在后 | [LDO 样例](ldo-placement.md)；第二轮布局与15段TOP/20mil局部铜已 `live-verified`，整板主干不在本条范围内 |
 | LAY-04 | 说明 p4、p7 | MCU 等电源脚逐脚去耦，电源先经过电容再入芯片 | [模块候选 Layout](layout-candidates.md)：C14/C15/C16 分别绑定 U6.1/.5/.17；同一所有权表达已迁移到 CAN、SD、CH340N 与 LCD，布局只证明所属 pad 距离，实际铜路径另验 |
-| LAY-05 | 说明 p4 | 晶振靠 MCU、不在板边；蜂鸣器/背光驱动整体放置 | [晶振现场布局](crystal-placement-live.json) 已验证 X1/C20/C21 次序修正；LCD 背光链已按候选保存重载，蜂鸣器和两组实际铜仍待验证 |
+| LAY-05 | 说明 p4；用户 2026-09-22 复核 | 晶振靠 MCU 但保留受控间距；X1、负载电容、信号铜、GND 护环、禁铺区和外围地孔作为整体；蜂鸣器/背光驱动整体放置 | [晶振现场布局](crystal-placement-live.json) 只保留为次序修正证据；[晶振护环模块要求](crystal-guard-requirement.json) 已把现状标为需要重做。LCD 背光链已按候选保存重载，蜂鸣器实际铜仍待验证 |
 | LAY-06 | 说明 p4 | 全部器件顶层、无重叠、外形不出板 | `pcb list --include-bbox`、`layout-lint` 和 LCD 禁放区分别观察 |
 
 ### 布线与收尾
@@ -129,9 +106,9 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 |---|---|---|---|
 | RTE-01 | 说明 p5 | 焊盘末端出线、线宽不大于焊盘、窄焊盘缩颈、无直角/锐角 | 读轨迹端点、宽度与角度；DRC 不覆盖全部观感规则 |
 | RTE-02 | 说明 p5、p8 | 电源主干按电流加粗，过孔按载流能力，流向清楚 | PWR 规则 + 实际每段/过孔回读 |
-| RTE-03 | 说明 p4–5、p8 | 晶振靠 MCU、不在板边；短直、避免底层、顶层包地净空 | [关键网络规划](critical-routing.md)：X1/C20/C21 次序已现场修正；铜仍待新版 connector 下验证。TOP/0via 是推荐策略，非题目明文零过孔禁令 |
-| RTE-04 | 说明 p5、p8 | USB_D+/D- 顶层、无过孔、类差分，不额外要求等长 | 不自行增加等长约束；回读两网层与 via 数 |
-| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [CAN 现场迭代](can-placement-iteration-live.json) 保留最短飞线相交的历史反例；[模块候选 Layout](layout-candidates.md) 已接受 R12/D1 当前位置与方向，实际有序铜路留到布线阶段证明 |
+| RTE-03 | 说明 p4–5、p8；用户 2026-09-22 复核 | 晶振靠 MCU 但不贴压；OSC 信号尽可能短直；TOP GND 护环；TOP/BOTTOM `no-pours` 禁铺区；护环外侧 GND 过孔围栏 | [晶振护环模块要求](crystal-guard-requirement.json) 是新的完成口径。[旧铜路](crystal-route-live.json) 的 TOP/8mil/0via、连通和持久化事实仍成立，但因缺护环、双层禁铺区、外围地孔且路径还可缩短，已降为最终设计负例；整组对象必须参数化联合重算和回读 |
+| RTE-04 | 说明 p5、p8 | USB_D+/D- 顶层、无过孔、类差分，不额外要求等长 | [实际 USB 铜](usb-route-live.json) 已逐一证明 `USB1.A6/B6→U4.1` 与 `USB1.A7/B7→U4.2` 为 TOP/8mil/0via，保存重载后 14 个实际 track 均锁定；两版 USB_D- 候选分别因封装内 Slot Region 距离 0mil、10.6mil 而被官方 DRC 拒绝，最终提前绕到其外侧。当前 typed 快照看不见封装内嵌 Slot Region，离线零 finding 不能替代官方 DRC |
+| RTE-05 | 说明 p5、p8 | CANH/CANL 顶层、无过孔；各先经过 R12 对应焊盘再到端子，120Ω 仍跨接；ESD 靠端子 | [CAN 现场迭代](can-placement-iteration-live.json) 保留最短飞线相交的历史反例；[实际 CAN 铜](can-route-live.json) 已证明 `U5.7→R12.1→CN1.2`、`U5.6→R12.2→CN1.1` 及 D1 两支路均为 TOP/8mil/0via，保存重载后锁定保持；D1.3 最终 GND 回流仍待 GND 阶段 |
 | RTE-06 | 说明 p5、p8 | PA9/10、PA11/12、PA13/14 顶层且不换层 | 分网回读 layer 与 via count |
 | RTE-07 | 说明 p5 | U6 EP 添加散热过孔；其他焊盘不允许 via-in-pad | EP 与普通焊盘使用不同判据 |
 | RTE-08 | 说明 p6、p8 | 普通信号同网过孔不超过 2；GND 扇孔与缝合孔 | 按网计数并检查地回流，不以总 via 数判断 |
@@ -155,6 +132,8 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 7. 围绕明确所属引脚生成 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 模块候选，同时预留
    电源主干和顶层回流；同网多个供电脚必须在输入中逐脚绑定。LDO/DCDC 的输入/输出电容、
    局部 GND 回流及必要 EP/地过孔可作为参数化整体先完成并回读，移动模块时一起重算。
+   晶振候选必须把 X1/C20/C21、两条 OSC 铜、TOP GND 护环、TOP/BOTTOM no-pours regions 与
+   护环外侧 GND 过孔围栏作为一个 `crystal-guard` 模块，不得只优化两条信号线。
 8. 全部 Layout 要求落实后用 typed `pcb stage-snapshot` 或等价 export 生成整板集成图，并连续
    自检两轮：第 1 轮检查空间、模块关系和视觉异常；无修正后第 2 轮执行 `save → reload → fresh
    dump → fresh render`。任一轮发现并修复就把连续计数清零，重新从第 1 轮开始。若属性文字妨碍

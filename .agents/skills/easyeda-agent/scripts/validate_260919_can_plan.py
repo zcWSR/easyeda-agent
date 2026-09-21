@@ -6,10 +6,15 @@ small wrapper only says which action belongs to the ordered main path and which
 belongs to the D1 protection branch.  This is deliberately an exam example
 validator, not another routing language or autorouter.
 
-The validator is conservative with legacy connector pad data: when a pad has no
-source shape, the larger reported width/height is used as a square obstacle.
-That can reject a legal route, but cannot turn an unknown rotated rectangle into
-a false clearance PASS.  Missing arc availability remains an explicit
+Pass ``--components`` with the exact output of
+``easyeda pcb list --include-bbox --include-pads`` when the integrated
+``pcb dump`` omits source pad geometry.  The direct component response is
+content-hashed separately and replaces only ``board.components``; outline and
+rules still come from the board dump.  Without it, the validator remains
+conservative with legacy pad data: when a pad has no source shape, the larger
+reported width/height is used as a square obstacle.  That can reject a legal
+route, but cannot turn an unknown rotated rectangle into a false clearance PASS.
+Missing arc availability remains an explicit
 limitation, so an otherwise clean legacy result is ``unknown`` rather than
 ``accepted``.  Board/track/via/pour/fill/region inputs are content-hashed without
 transport timestamps and bound to one document UUID.  H/L absolute lengths and
@@ -63,12 +68,18 @@ def canonical_sha256(value: Any) -> str:
 SNAPSHOT_RESPONSE_NAMES = ("tracks", "vias", "pours", "fills", "regions")
 
 
-def snapshot_hashes(board: dict[str, Any], **responses: dict[str, Any]) -> dict[str, str]:
+def snapshot_hashes(
+    board: dict[str, Any],
+    components: dict[str, Any] | None = None,
+    **responses: dict[str, Any],
+) -> dict[str, str]:
     # `pcb dump` stamps every read with capturedAt and copies the caller's
     # arbitrary --label into project.  The action response also gets a new
     # request id, timestamp and sequence.  None of those describe PCB state.
     board_content = {key: value for key, value in board.items() if key not in {"capturedAt", "project"}}
     digests = {"boardSha256": canonical_sha256(board_content)}
+    if components is not None:
+        digests["componentsSha256"] = canonical_sha256(components.get("result", components))
     for name in SNAPSHOT_RESPONSE_NAMES:
         response = responses[name]
         digests[f"{name}Sha256"] = canonical_sha256(response.get("result", response))
@@ -341,6 +352,7 @@ def validate(
     fills_data: dict[str, Any],
     regions_data: dict[str, Any],
     snapshot_digests: dict[str, str],
+    components_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     limitations: list[str] = []
@@ -352,19 +364,29 @@ def validate(
     expected_source = {"documentUuid", *snapshot_digests}
     if not isinstance(source, dict) or set(source) != expected_source or any(source.get(key) != value for key, value in snapshot_digests.items()):
         findings.append(finding("stale_source_snapshot", "candidate hashes do not match the supplied live readback"))
+    document_inputs = [tracks_data, vias_data, pours_data, fills_data, regions_data]
+    if components_data is not None:
+        document_inputs.append(components_data)
     document_uuids = {
         response_document_uuid(data)
-        for data in (tracks_data, vias_data, pours_data, fills_data, regions_data)
+        for data in document_inputs
     }
     if "" in document_uuids or len(document_uuids) != 1 or source.get("documentUuid") not in document_uuids:
         findings.append(finding(
             "source_document_mismatch",
-            "track/via/pour/fill/region snapshots must identify the same target document as the candidate",
+            "component/track/via/pour/fill/region snapshots must identify the same target document as the candidate",
             expected=source.get("documentUuid"),
             observed=sorted(document_uuids),
         ))
 
     board = copy.deepcopy(board)
+    if components_data is not None:
+        direct = components_data.get("result", components_data)
+        direct_components = direct.get("components") if isinstance(direct, dict) else None
+        if not isinstance(direct_components, list):
+            findings.append(finding("component_snapshot_invalid", "direct component snapshot lacks result.components[]"))
+        else:
+            board["components"] = copy.deepcopy(direct_components)
     components, pads = board_pads(board)
     # Evaluate a proposed R12 translation against the real baseline without
     # moving the live board first.  Rotation changes are intentionally outside
@@ -551,25 +573,38 @@ def validate(
 
     # Same-net actions may meet only at the chain joints declared by main/branch
     # roles.  A tee at the first branch point is intentional; every other
-    # non-adjacent crossing, loop-back, or collinear duplicate is a planning bug.
+    # non-adjacent crossing, loop-back, collinear duplicate, or copper-area
+    # overlap is a planning bug.  The last case matters when a tiny chamfer is
+    # shorter than the track width: centerlines look separate, but pcb net-path
+    # correctly refuses the non-canonical physical copper union.
     for net, chain in chains.items():
         groups = [chain["main"], chain["branch"]]
         segments = groups[0] + groups[1]
         attach = chain["branchPoints"][0]
         for i, first in enumerate(segments):
             for second in segments[i + 1 :]:
-                overlap = collinear_overlap(first.a, first.b, second.a, second.b)
-                if overlap > EPS:
-                    findings.append(finding("duplicate_segment", "same-net actions overlap collinearly", actions=[first.action_id, second.action_id], overlapMil=round(overlap, 4)))
-                    continue
-                if not segments_intersect(first.a, first.b, second.a, second.b):
-                    continue
                 shared = [p for p in (first.a, first.b) if same(p, second.a) or same(p, second.b)]
                 same_group_adjacent = any(
                     first in group and second in group and abs(group.index(first) - group.index(second)) == 1
                     for group in groups
                 )
                 tee = bool(shared) and all(same(p, attach) for p in shared) and (":main" in first.role) != (":main" in second.role)
+                overlap = collinear_overlap(first.a, first.b, second.a, second.b)
+                if overlap > EPS:
+                    findings.append(finding("duplicate_segment", "same-net actions overlap collinearly", actions=[first.action_id, second.action_id], overlapMil=round(overlap, 4)))
+                    continue
+                center_gap = seg_seg_dist(first.a, first.b, second.a, second.b)
+                copper_touch = center_gap < first.width / 2 + second.width / 2 - EPS
+                if copper_touch and not same_group_adjacent and not tee:
+                    findings.append(finding(
+                        "same_net_copper_overlap",
+                        "non-adjacent same-net track areas overlap without one declared endpoint/T junction",
+                        actions=[first.action_id, second.action_id],
+                        centerGapMil=round(center_gap, 4),
+                    ))
+                    continue
+                if not segments_intersect(first.a, first.b, second.a, second.b):
+                    continue
                 if not same_group_adjacent and not tee:
                     findings.append(finding("same_net_self_intersection", "same-net actions intersect outside an adjacent chain joint or declared branch tee", actions=[first.action_id, second.action_id]))
 
@@ -813,13 +848,25 @@ def self_test() -> None:
     report = validate(plan, board, tracks, bad_vias, pours, fills, regions, digests)
     assert "route_contract_mismatch" in {item["code"] for item in report["findings"]}
 
-    print("validate_260919_can_plan self-test: ok (valid + 6 negative fixtures)")
+    bad = copy.deepcopy(plan)
+    by_id = {item["id"]: item for item in bad["actions"]}
+    by_id["H-main-2"]["payload"].update({"startX": 2, "endX": 2})
+    bad["actions"].extend([
+        {"id": "H-tiny-in", "action": "pcb.line.create", "payload": {"net": "CANH", "layer": 1, "lineWidth": 8, "startX": 0, "startY": 100, "endX": 2, "endY": 100}},
+        {"id": "H-tiny-out", "action": "pcb.line.create", "payload": {"net": "CANH", "layer": 1, "lineWidth": 8, "startX": 2, "startY": 150, "endX": 0, "endY": 150}},
+    ])
+    bad["actionRoles"]["CANH"]["main"] = ["H-main-1", "H-tiny-in", "H-main-2", "H-tiny-out", "H-main-3"]
+    report = validate(bad, board, tracks, vias, pours, fills, regions, digests)
+    assert "same_net_copper_overlap" in {item["code"] for item in report["findings"]}
+
+    print("validate_260919_can_plan self-test: ok (valid + 7 negative fixtures)")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, help="candidate JSON")
     parser.add_argument("--board", type=Path, help="exact `easyeda pcb dump --out` JSON")
+    parser.add_argument("--components", type=Path, help="optional exact `easyeda pcb list --include-bbox --include-pads` JSON; preferred when pcb dump omits pad shape")
     parser.add_argument("--tracks", type=Path, help="exact `easyeda pcb track-list` JSON")
     parser.add_argument("--vias", type=Path, help="exact `easyeda pcb via-list` JSON")
     parser.add_argument("--pours", type=Path, help="exact `easyeda pcb pour-list` JSON")
@@ -839,13 +886,14 @@ def main() -> int:
     if not all(required):
         raise SystemExit("--plan, --board, --tracks, --vias, --pours, --fills, and --regions are required (or use --self-test)")
     board = load_json(args.board)
+    components = load_json(args.components) if args.components else None
     tracks = load_json(args.tracks)
     vias = load_json(args.vias)
     pours = load_json(args.pours)
     fills = load_json(args.fills)
     regions = load_json(args.regions)
-    digests = snapshot_hashes(board, tracks=tracks, vias=vias, pours=pours, fills=fills, regions=regions)
-    report = validate(load_json(args.plan), board, tracks, vias, pours, fills, regions, digests)
+    digests = snapshot_hashes(board, components=components, tracks=tracks, vias=vias, pours=pours, fills=fills, regions=regions)
+    report = validate(load_json(args.plan), board, tracks, vias, pours, fills, regions, digests, components)
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.out:
         args.out.write_text(rendered, encoding="utf-8")

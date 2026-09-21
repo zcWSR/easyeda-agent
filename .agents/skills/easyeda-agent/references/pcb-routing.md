@@ -212,6 +212,13 @@ and re-pours; passing raw points to the bare `eda.*` create fails ("无法创建
   grid of `--net` vias: **thermal vias** under a power-IC center pad (tie it to the GND
   plane) or **GND stitching** between top & bottom pours. Run `pcb pour-rebuild` after so
   the planes reflow onto the new vias. `--margin` insets from the rect edges. `--dry-run`.
+- `pcb via-fence` (daemon-side) — place vias only on the perimeter of a derived rectangle.
+  Use it for a crystal/RF guard boundary where the center must remain free of copper and vias;
+  do not substitute `via-stitch`, whose full grid would populate the protected interior.
+  `--pitch` is the maximum edge spacing; corners are included once, short final gaps are
+  redistributed along each edge, and `--margin` expands outward from the protected rectangle.
+  Hole/diameter default to the live rule. Dry-run first, then read back the GND vias and run
+  `pcb pour-rebuild` + official DRC.
 
 ### Keep-out / rule regions (禁止区域)
 

@@ -54,6 +54,55 @@ func checkPcbStackupResponse(data []byte) error {
 	return nil
 }
 
+// rectViaFencePoints returns a perimeter-only via set for a protected rectangle.
+// Every corner appears exactly once.  Each edge is split into ceil(length/pitch)
+// equal intervals, so the requested pitch is a maximum spacing rather than a
+// step that can leave one oversized tail gap.  Positive margin expands outward;
+// callers can therefore pass the crystal/RF keepout envelope directly.
+func rectViaFencePoints(x0, y0, x1, y1, pitch, margin float64) ([][2]float64, error) {
+	if pitch <= 0 {
+		return nil, fmt.Errorf("pitch must be > 0")
+	}
+	if margin < 0 {
+		return nil, fmt.Errorf("margin must be >= 0")
+	}
+	if x1 < x0 {
+		x0, x1 = x1, x0
+	}
+	if y1 < y0 {
+		y0, y1 = y1, y0
+	}
+	x0 -= margin
+	y0 -= margin
+	x1 += margin
+	y1 += margin
+	if x1-x0 <= 1e-6 || y1-y0 <= 1e-6 {
+		return nil, fmt.Errorf("rect must have non-zero width and height")
+	}
+
+	points := make([][2]float64, 0)
+	addEdge := func(ax, ay, bx, by float64) {
+		length := math.Hypot(bx-ax, by-ay)
+		intervals := int(math.Ceil(length / pitch))
+		if intervals < 1 {
+			intervals = 1
+		}
+		// Exclude the end: it is the next edge's start, which keeps corners unique.
+		for i := 0; i < intervals; i++ {
+			t := float64(i) / float64(intervals)
+			points = append(points, [2]float64{
+				ax + (bx-ax)*t,
+				ay + (by-ay)*t,
+			})
+		}
+	}
+	addEdge(x0, y0, x1, y0)
+	addEdge(x1, y0, x1, y1)
+	addEdge(x1, y1, x0, y1)
+	addEdge(x0, y1, x0, y0)
+	return points, nil
+}
+
 // pcbClearScopes is the canonical set of `pcb clear --only` values, mirrored in
 // the connector's PCB_CLEAR_SCOPES.
 var pcbClearScopes = map[string]bool{
@@ -2206,6 +2255,126 @@ onto the new vias.`,
 		c.Flags().Float64Var(&hole, "hole", 0, "via hole diameter (mil; 0 = connector default 12)")
 		c.Flags().Float64Var(&diameter, "diameter", 0, "via outer diameter (mil; 0 = connector default 24)")
 		c.Flags().BoolVar(&dryRun, "dry-run", false, "print the via grid without placing")
+		_ = c.MarkFlagRequired("rect")
+		pcb.AddCommand(c)
+	}
+
+	// ── via-fence ───────────────────────────────────────────────────────────
+	// Place perimeter-only GND/RF stitching around a protected rectangle.  It
+	// deliberately does not share via-stitch's filled-grid semantics: crystal
+	// and antenna keepouts need the interior to remain free of vias/copper.
+	{
+		var net, rectCSV string
+		var pitch, hole, diameter, margin float64
+		var dryRun bool
+		c := &cobra.Command{
+			Use:   "via-fence",
+			Short: "Place a perimeter-only via fence around a rectangle",
+			Long: `Place net-bound vias only on the perimeter of a rectangle.  This is for
+crystal/RF guard boundaries whose protected interior must remain free of vias;
+use via-stitch when a full rectangular grid is intended.
+
+--rect is the protected envelope "x0,y0,x1,y1" in mil.  Positive --margin
+expands the fence outward.  --pitch is the maximum edge spacing: every edge is
+redistributed into equal intervals and each corner is emitted exactly once.
+Run a dry-run first, keep the resulting points outside no-pours regions, then
+read back the vias and run pcb pour-rebuild plus the official DRC.`,
+			Args: cobra.NoArgs,
+			Example: `  easyeda pcb via-fence --net GND --rect "1500,700,2000,1200" --pitch 80 --margin 30 --dry-run
+  easyeda pcb via-fence --net GND --rect "1500,700,2000,1200" --pitch 80 --margin 30`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				// ADR-0004 Decision 4: dry-run must stay pure computation.
+				if dryRun {
+					defer setDispatchDryRun(true)()
+				}
+				if strings.TrimSpace(net) == "" {
+					return fmt.Errorf("--net must not be empty")
+				}
+				var x0, y0, x1, y1 float64
+				if n, err := fmt.Sscanf(rectCSV, "%g,%g,%g,%g", &x0, &y0, &x1, &y1); err != nil || n != 4 {
+					return fmt.Errorf("--rect must be \"x0,y0,x1,y1\" (mil), got %q", rectCSV)
+				}
+				points, err := rectViaFencePoints(x0, y0, x1, y1, pitch, margin)
+				if err != nil {
+					return err
+				}
+				if x1 < x0 {
+					x0, x1 = x1, x0
+				}
+				if y1 < y0 {
+					y0, y1 = y1, y0
+				}
+				effectiveRect := [4]float64{x0 - margin, y0 - margin, x1 + margin, y1 + margin}
+				if dryRun {
+					enc := json.NewEncoder(stdout)
+					enc.SetIndent("", "  ")
+					return enc.Encode(map[string]any{
+						"dryRun":        true,
+						"shape":         "perimeter",
+						"net":           net,
+						"count":         len(points),
+						"maxPitchMil":   pitch,
+						"marginMil":     margin,
+						"effectiveRect": effectiveRect,
+						"points":        points,
+					})
+				}
+
+				vfRules := fetchPcbRules(cfg, window)
+				vHole, vDia := hole, diameter
+				if vHole == 0 {
+					vHole = vfRules.viaDrillMil
+				}
+				if vDia == 0 {
+					vDia = vfRules.viaDiameterMil
+				}
+				placed := make([][2]float64, 0, len(points))
+				failed := make([][2]float64, 0)
+				for _, point := range points {
+					payload := map[string]any{"x": point[0], "y": point[1], "net": net}
+					if vHole > 0 {
+						payload["holeDiameter"] = vHole
+					}
+					if vDia > 0 {
+						payload["diameter"] = vDia
+					}
+					if _, err := requestAction(cfg, "pcb.via.create", window, payload); err != nil {
+						failed = append(failed, point)
+						continue
+					}
+					placed = append(placed, point)
+				}
+				enc := json.NewEncoder(stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(map[string]any{
+					"ok":            len(failed) == 0,
+					"shape":         "perimeter",
+					"net":           net,
+					"requested":     len(points),
+					"placed":        len(placed),
+					"failed":        len(failed),
+					"failedPoints":  failed,
+					"maxPitchMil":   pitch,
+					"marginMil":     margin,
+					"effectiveRect": effectiveRect,
+					"holeMil":       vHole,
+					"diameterMil":   vDia,
+				}); err != nil {
+					return err
+				}
+				if len(failed) > 0 {
+					return fmt.Errorf("via-fence placed %d/%d vias; read back the actual net before retrying", len(placed), len(points))
+				}
+				return nil
+			},
+		}
+		c.Flags().StringVar(&net, "net", "GND", "net to bind the fence vias to")
+		c.Flags().StringVar(&rectCSV, "rect", "", `protected rectangle "x0,y0,x1,y1" in mil (required)`)
+		c.Flags().Float64Var(&pitch, "pitch", 80, "maximum via center spacing along each edge (mil)")
+		c.Flags().Float64Var(&margin, "margin", 0, "expand the fence outward from the protected rectangle (mil)")
+		c.Flags().Float64Var(&hole, "hole", 0, "via hole diameter (mil; 0 = live board rule)")
+		c.Flags().Float64Var(&diameter, "diameter", 0, "via outer diameter (mil; 0 = live board rule)")
+		c.Flags().BoolVar(&dryRun, "dry-run", false, "print the perimeter points without placing vias")
 		_ = c.MarkFlagRequired("rect")
 		pcb.AddCommand(c)
 	}

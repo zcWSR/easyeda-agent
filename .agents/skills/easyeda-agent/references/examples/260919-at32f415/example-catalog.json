@@ -15,7 +15,11 @@
     "source-connectivity.json",
     "initial-placement.json",
     "crystal-placement-live.json",
+    "crystal-route-live.json",
+    "crystal-guard-requirement.json",
     "can-placement-iteration-live.json",
+    "can-route-live.json",
+    "usb-route-live.json",
     "ldo-layout-candidate.json",
     "ldo-route-live.json",
     "live-validation.json",
@@ -1334,10 +1338,11 @@
     {
       "id": "RTE-03",
       "source": [
-        "考试说明.pdf p4-p5,p8"
+        "考试说明.pdf p4-p5,p8",
+        "用户 2026-09-22 复核与参考图：受控 MCU 间距、短直信号、GND 护环、禁铺区和外围地孔"
       ],
-      "problem": "晶振靠 MCU、不在板边；短直、避免底层并保留顶层包地净空",
-      "startState": "X1/C20/C21 已靠近 U6 OSC pins",
+      "problem": "晶振靠 MCU 但不贴压；OSC 信号短直；TOP GND 护环；TOP/BOTTOM no-pours；护环外侧 GND 过孔围栏",
+      "startState": "旧晶振铜已证明 TOP/8mil/0via 和持久化，但缺受控间距、GND 护环、双层禁铺区与外围地孔，已不再接受为最终设计",
       "parameters": [
         {
           "name": "layer",
@@ -1358,6 +1363,31 @@
           "value": "short/direct",
           "unit": "geometry",
           "modifiable": false
+        },
+        {
+          "name": "mcuGap",
+          "value": "derived from live pads/bbox/rules/guard width",
+          "unit": "mil",
+          "modifiable": true,
+          "basis": "靠近但保持可控间距；不从参考图复制常数"
+        },
+        {
+          "name": "groundGuard",
+          "value": "TOP GND perimeter track with minimum signal openings",
+          "unit": "geometry",
+          "modifiable": false
+        },
+        {
+          "name": "copperKeepout",
+          "value": "TOP+BOTTOM no-pours regions over derived sensitive envelope",
+          "unit": "region",
+          "modifiable": false
+        },
+        {
+          "name": "groundViaFence",
+          "value": "perimeter-only GND vias outside no-pours envelope",
+          "unit": "via set",
+          "modifiable": false
         }
       ],
       "steps": {
@@ -1367,22 +1397,34 @@
         "template": "routeReadback"
       },
       "observations": [
-        "OSC_IN/OSC_OUT 轨迹层、长度、via 数与周边 GND 证据完整"
+        "OSC_IN/OSC_OUT 轨迹层、长度、via 数与周边 GND 证据完整",
+        "GND 护环、TOP/BOTTOM no-pours regions、外围 GND 过孔围栏分别有对象级回读",
+        "pour-rebuild 后禁铺包络内没有 pour/fill 铜"
       ],
       "rationale": "晶振环路对寄生和回流敏感",
       "knownErrorsAndFixes": [
         {
           "error": "绕远、贴板边，或把推荐 TOP/0via 误作考试硬阈值",
           "fix": "按 OSC 脚次序重排 X1/C20/C21 并求短路径，优先顶层；以原题定性要求和实际回流评估"
+        },
+        {
+          "error": "只证明两条 OSC 连通就称晶振区通过",
+          "fix": "把器件、信号铜、GND 护环、双层 no-pours regions 和外围 GND 过孔围栏作为一个 crystal-guard 模块联合验收"
+        },
+        {
+          "error": "用 via-stitch 满矩形网格在晶振禁铺区内部打孔",
+          "fix": "使用 perimeter-only 的 pcb via-fence；孔放在护环外侧或禁铺边界之外，并按 live 规则回读/DRC"
         }
       ],
-      "verificationStatus": "offline-verified",
+      "verificationStatus": "source-only",
       "pending": [
-        "基于已现场修正的X1/C20/C21左右次序生成短解；在新版connector下现场应用、保存重开并回读track/via/DRC与顶层回流"
+        "按 crystal-guard-requirement.json 重算完整模块并在现场保存重载",
+        "回读两条 OSC、有源 GND 护环、两层 no-pours regions、外围 GND 过孔和 pour-rebuild 后官方 DRC"
       ],
       "referenceExample": "critical-routing.md",
-      "offlineEvidence": "旧统一6mil障碍简化模型得到TOP/0via方案，但OSC_IN长882.7mil；这是布局反例，不能代表布线通过",
-      "livePlacementEvidence": "crystal-placement-live.json：X1旋转、C20/C21换侧后保存重开；U6未动且仍锁，U6↔X1两条直连由相交变为不相交，69件保持0重叠/出板/小于6mil间距。OSC两网仍为0 track/0 via，因此本条继续保持offline-verified而不是布线live-verified"
+      "requirementData": "crystal-guard-requirement.json",
+      "capabilityEvidence": "通用 pcb via-fence 已实现 perimeter-only 等距边界点、唯一角点、向外 margin、live 过孔规则与 dry-run；Go 单测和 CLI dry-run 已通过，现场写入仍待 crystal-guard 候选确认后执行",
+      "historicalLiveEvidence": "crystal-route-live.json：旧方案的两条有序路径已证明TOP/8mil/0via、基础几何、保存重载和锁定；用户复核后因缺GND护环、双层禁铺区、外围地孔且路径可继续缩短，降为最终设计负例"
     },
     {
       "id": "RTE-04",

@@ -7,11 +7,19 @@
 - `原理图.pdf` 第 1 页：`OSC_IN/OSC_OUT`；R12 跨 CANH/CANL，D1 分别连接 H/L 并回地。
 - 输入为第一轮参数化布局保存并整页刷新后的真实 pads/bbox，以及 6mil 间距、8mil 信号线宽。
 
-状态：`partial-live-verified`。旧晶振/CAN 路线仍只做了离线反例分析；晶振的第一步
-“修正 X1/C20/C21 焊盘次序”已经在 Web EDA 通过 typed 修改、保存、重载和独立只读核查，
-见 [crystal-placement-live.json](crystal-placement-live.json)。CAN 又完成了一轮真实布局迭代：
+状态：`live-verified`（历史晶振铜事实与 CAN 铜范围）。晶振布局之后的 TOP/8mil/0via 铜已经通过 typed 写入、
+保存重载、有序 `pcb net-path`、`pcb check`、官方 DRC 和锁定持久化验证，见
+[crystal-route-live.json](crystal-route-live.json)。用户在 2026-09-22 复核后明确指出该晶振区不是
+最佳完成态：还需要受控 MCU 间距、更短直的信号、TOP GND 护环、双层 no-pours 禁铺区和外围
+GND 过孔围栏。因此旧铜路只保留为事实已验证的负例，新的最终要求见
+[crystal-guard-requirement.json](crystal-guard-requirement.json)。CAN 又完成了一轮真实布局迭代：
 D1/CN1 的 H/L 支路已改成对称关系，但 R12 候选暴露两处 H/L 飞线相交，作为负例保留在
-[can-placement-iteration-live.json](can-placement-iteration-live.json)。晶振铜和 CAN 铜仍未现场写入。
+[can-placement-iteration-live.json](can-placement-iteration-live.json)。随后 CANH/CANL 主路径与 D1
+保护支路也完成联合规划、typed 写入、保存重载、有序路径证明和锁定，见
+[can-route-live.json](can-route-live.json)。
+USB_D+/D- 随后也按同一证据链完成；USB-C 的四个重复数据焊盘分别证明连到 U4，详见
+[usb-route-live.json](usb-route-live.json)。这组现场迭代还暴露了精确 pad/器件/独立 region
+快照的覆盖边界：USB1 封装内嵌 Slot Region 没有出现在当前快照里，必须由官方 DRC 兜底。
 后续原文复核发现旧 CAN 计划未证明 R12 主路径顺序；离线 passed 或布局命令成功都不表示完整题目拓扑已验证。
 结果证明“几何上能布通”仍可能是差布局；本样例的完成动作是把绕行原因反馈给布局参数，而不是
 为了让工程看起来更完整而落下 77 段不理想走线。
@@ -82,10 +90,34 @@ easyeda doc reload <PCB_DOC_UUID> --project ceshi --json
 - OSC_IN/OSC_OUT 仍各为 0 track、0 arc、0 via；官方 DRC 仍含这六个信号端点的
   Connection Error。本批状态只覆盖布局，不能外推为晶振布线通过。
 
-独立 subagent 只读取原题、source-connectivity 和保存重开后的原始回读，确认上述结果。
-下一批才按 U6.2→X1.1→C21.1、U6.3→X1.3→C20.1 规划 8mil TOP 短线。当前连接器 1.5.1
-缺 pad source shape 与 `arcsAvailable`，`pcb net-path` 会 fail-closed；新版 typed
-连接器未生效前不写晶振铜，也不以 AABB 或同网名降级判 PASS。
+随后在 connector 1.5.3-dev.3 下读取 235 个顶层/通孔焊盘的真实 `shape/rotation/specialPad`
+并确认 `arcsAvailable=true`。第一版 OSC_IN 铜虽通过保守净距检查，但现场 `pcb check` 暴露
+45°锐角，且分支位于 X1 前方，无法用不重复铜路径证明电容先到 X1 再到 MCU；该版只删除
+OSC_IN 本批 9 个实际图元，OSC_OUT 保留。第二版令 C21.1 先到 X1.1，再从 X1.1 以 90°节点
+离开至 U6.2。保存重载后两条有序路径分别为 `C21.1 → X1.1 → U6.2` 与
+`C20.1 → X1.3 → U6.3`，均为 TOP/8mil/0via，`acute-angle=0`，15 个关键铜图元锁定后再次
+保存重载仍保持。正式事实见 [crystal-route-live.json](crystal-route-live.json)。
+
+本轮还修正了数据入口认知：集成 `pcb dump` 面向板级规划，可能不保留 pad 的原始形状字段；
+正式几何与 `pcb net-path` 应读取 `pcb components-list --include-pads` 返回的真实 pad 数据，
+不能因 dump 中字段缺失就降级到 bbox。
+
+## 用户复核后的晶振护环完成口径
+
+2026-09-22 的参考图只用于学习拓扑与空间关系，不复制其中坐标、线宽或过孔节距。可迁移要求为：
+
+- X1 与 C20/C21 保持紧凑，靠近 U6 的 OSC 引脚但留出受控间距，不能贴压 MCU 外形和相邻引脚逃线；
+- OSC_IN/OSC_OUT 在两端保持同序，TOP、0via，并按“拓扑正确 → 不交叉 → 短直 → 少转折”选择候选；
+- 用真实 GND track 在顶层围绕敏感区形成护环，只留必要的信号入口，护环必须实际接地；
+- 在 TOP 与 BOTTOM 分别创建 `no-pours` region，覆盖晶振、负载电容和敏感信号包络；
+- 沿护环外侧或禁铺区边界之外放置 GND 过孔围栏，连接顶底 GND。不能用 `pcb via-stitch`
+  的满矩形网格把地孔填进晶振禁铺区，应使用 perimeter-only 的 `pcb via-fence`；
+- 器件、信号铜、护环、regions 和围栏孔组成一个参数化模块。任何成员移动后整组重算，不能
+  只拖器件或局部补铜。
+
+验收必须分别证明两条 OSC 有序铜路、GND 护环连通、两层 region 持久化、围栏孔全部绑定 GND，
+并在 `pour-rebuild` 后确认禁铺区无铺铜残留，再执行 `pcb check`、官方 DRC 和 fresh render。
+旧结果虽满足连通/层/via/基础几何检查，但缺少上述对象，不能继续称作晶振区最终通过。
 
 ## CAN 第一批现场迭代：保留局部改善，拒绝整组候选
 
@@ -105,10 +137,56 @@ easyeda doc reload <PCB_DOC_UUID> --project ceshi --json
 - U5.6 右侧还有 U5.5 NC。按 8mil 线和 6mil 净距膨胀后，该 pad 的禁入矩形为
   `x=2402.6..2447.4, y=1408.9..1502.3mil`；只分别给两网找最短路会漏掉相互穿越。
 
-因此当前 R12 坐标只作为负例，不升级为正向布局答案，也不继续凭单一 crossing 数盲移。
+因此该第一轮最短飞线只作为负例，不凭单一 crossing 数直接落铜；R12 的零位移布局后来由
+完整模块候选接受，并在下述第二批布线中以有序主路径实证。
 H/L 双线联合寻路保留为历史待研究方向：每网带 R12 必经节点，D1 作为靠端子的短支路，
 统一检查 pad/track/NC/板框/既有铜、8mil 线宽、6mil 净距和 45°转折。本轮暂停 CAN
 专用路由器扩张，只处理器件位置与方向；这组历史实验不作为 Layout 候选的拒绝门禁。
+
+## CAN 第二批现场布线：有序主路径与保护支路
+
+最终候选保持 R12/D1/CN1 的用户确认布局不动，同时联合规划 H/L。每条主路径把对应 R12
+焊盘作为显式 waypoint；D1.1/.2 从实测外侧焊盘端出线并在端子侧主干形成声明的 T 点。
+两条竖向主干分别从 D1/CN1 组合体的左、右外侧进入端子，没有尝试利用两者仅
+`10.056mil` 的体间隙。精确焊盘来自 `pcb list --include-bbox --include-pads`，其内容哈希与
+`pcb dump`、tracks/vias/pours/fills/regions 哈希共同绑定候选。
+
+第一版写后暴露一个中心线检查盲区：R12.2 后的过渡只有 `2mil`，两条非相邻 `8mil` 斜线的
+物理铜面积重叠。官方 DRC 和 `pcb check` 均未报错，但严格 `pcb net-path` 返回 topology
+unknown。该批只 rip-up CANH/CANL，拉长过渡并同步调整 H 支路，再次离线通过后重写。
+校验器现已新增 `same_net_copper_overlap`，并接受可选 `--components` 精确焊盘输入；以后不再
+依赖 `pcb dump` 的 legacy pad hull，也不再把中心线分离误当成规范铜拓扑。
+
+保存重载后的四项证明均通过：
+
+- `U5.7 → R12.1 → CN1.2`：TOP/8mil/0via；
+- `U5.6 → R12.2 → CN1.1`：TOP/8mil/0via；
+- `D1.1 → CN1.2` 与 `D1.2 → CN1.1`：TOP/8mil/0via；
+- `pcb check` 为 0 dangling/acute/non-orthogonal/track-over-pad/clearance/duplicate，官方 DRC
+  只有未布线 Connection Error，数量从 210 降到 202。CANH/CANL 的两条 generic 3W WARN
+  属于成对同向短并行段；实际 6mil 规则满足，原题没有另加 3W 分离要求。
+
+33 个 CAN 铜图元锁定后再次保存重载仍保持。D1.3 的 GND 回路留到局部 GND 与双面铺铜阶段，
+因此本节只称 CAN 信号铜通过，不外推为 CAN 模块供电/回流或整板 DRC 完成。
+
+## USB 现场布线：封装内 Slot Region 是独立障碍
+
+USB_D+/D- 使用 TOP、8mil、0via，并把 USB-C 的 A/B 重复数据焊盘分别汇合后接到 U4。
+第一版离线检查读取了 235 个焊盘的真实 shape/rotation/specialPad，并覆盖器件、既有轨迹、
+vias、pours、fills 与顶层 regions；报告为零 finding。写入后官方 DRC 仍在 USB_D- 上报两处
+`Slot Region to Track`：距离 0mil，规则要求至少 11.8mil。第二版把路线向外推后仍为
+10.6mil，继续不合格。最终只 rip-up USB_D-，在 USB1 外侧更早下沉到 `y=220mil` 再返回
+U4.2，官方 DRC 才只剩未布线 Connection Error。
+
+这个结果形成新的机械边界：当前 typed `components-list` 与独立 `region-list` 看不见某些
+footprint 内嵌 Slot Region。离线候选必须在报告里显式保留该限制，并在每次真实写入后运行
+官方 `pcb drc`；不能把精确 pad 检查或零 finding 外推为已经覆盖封装内部铣槽/开窗对象。
+
+保存重载后的四条路径均成立：`USB1.A6→U4.1`、`USB1.B6→U4.1`、
+`USB1.A7→U4.2`、`USB1.B7→U4.2`，均为 TOP/8mil/0via。`pcb check` 的铜相关项目为零，
+官方 DRC 从 CAN 里程碑的 202 个 Connection Error 降到 196，且没有其他违规类型。
+平台在重复焊盘汇合的 T 接点拆分了实际图元，所以 12 个计划动作回读为 14 个 track；
+14 个图元锁定并再次保存重载后全部保持 `locked=true`。
 
 ## 执行形态与回读
 
@@ -149,8 +227,8 @@ easyeda pcb save --doc <PCB_DOC_UUID> --project ceshi
 
 ## 验证边界
 
-- 已验证：旧简化模型的 pads/bbox、6mil 障碍、14 个端点和 TOP/8mil/0via 几何检查；
-  独立规划给出绕行反例。晶振三件的次序修正已现场保存重开并独立核查。旧 CAN 检查未覆盖
-  题定 R12 必经顺序，不能升级为题意通过。
-- 未验证：晶振/CAN 的现场 track 创建、铜的保存持久化、顶层地回流、包地净空和最终短路线。
+- 已验证：旧晶振方案的三件次序与两网实际铜；精确 pad 形状输入、TOP/8mil/0via 有序路径、
+  无断头/锐角/铜越焊盘/净距 finding、官方 DRC 无新增非 Connection Error、保存重载及关键铜锁定。
+  这些是可复现事实，不再代表最终设计已接受。
+- 未验证：新的 `crystal-guard` 完整模块、D1.3 局部 GND 回路，以及整板最终布通后的 DRC。
 - 修法的验收不是“段数变少”本身：还要重新核对端点、拓扑、长度、净距、via 数和保存后对象。
