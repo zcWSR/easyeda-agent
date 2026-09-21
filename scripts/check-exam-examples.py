@@ -402,7 +402,7 @@ def main() -> None:
         "source", "problem", "startState", "parameters", "steps", "commands",
         "observations", "rationale", "knownErrorsAndFixes", "verificationStatus", "pending",
     }
-    allowed_statuses = {"source-only", "offline-verified", "live-verified"}
+    allowed_statuses = {"source-only", "offline-verified", "live-verified", "unsupported"}
     for example_id, entry in catalog_entries.items():
         assert required_example_fields <= entry.keys(), example_id
         status = entry["verificationStatus"]
