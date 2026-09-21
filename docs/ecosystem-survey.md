@@ -378,6 +378,11 @@ OrthoRoute(GPU/FPGA 小众)、Quilter.ai(商业 RL 云,非库)。
 
 ### 9.1 架构差异：这才是重点
 
+> 2026-09-21 补充：下表描述的是当时的在线 API 路线。官方现在提供 folder `.eprj3`
+> 文件生成 Skill，EasyEDA 已有无需运行编辑器的工程生成路径，见 §12；这不等于已有
+> 无界面的官方 DRC、铺铜计算或完整宿主验收。不能再把“所有 EasyEDA 工程生成都必须有窗口”
+> 当作产品层面的绝对结论。
+
 | | EasyEDA Pro（我们） | KiCad 10 |
 |---|---|---|
 | 设计数据 | 闭源云端工程，只能过 `eda.*` JS API | 本地文本文件（S-expression `.kicad_sch` / `.kicad_pcb`） |
@@ -567,6 +572,124 @@ Connector + 快速迭代 Skill/参考资料”的产品分层；网关本身仍�
 明确不吸收：不退回任意 JS 作为默认写路径，不改回官方 `49620-49629` 端口段，不删除我们的
 发布/校验自动化，也不因文档列出某 API 就跳过 runtime probe。1.0.6 没有提供新的布局、布线、
 DRC 或图元 API，不能据此调整功能支持矩阵。
+
+## 12. 官方 eprj3 Skill：离线工程生成路线（2026-09-21，源码与离线实测）
+
+### 12.1 版本、定位与边界
+
+本次固定读取：
+
+- [`easyeda/easyeda-eprj3-skill`](https://github.com/easyeda/easyeda-eprj3-skill/tree/40c94e129df18e94232f8c94260134bfcac6cabf)：
+  `package.json` / README 声明 `1.7.3`，HEAD `40c94e1`，2026-09-18；MIT。
+- 必需配套资料 [`easyeda/easyeda-pro-format-skill`](https://github.com/easyeda/easyeda-pro-format-skill/tree/bee647fbe5e649ab9b4d8ebe3a201a1eee68ff03)：
+  HEAD `bee647f`，2026-09-21；包含 271 份 JSON Schema，以及按文档类型划分的图元说明与示例。
+- 环境：macOS、Node `v22.22.0`。仅运行临时目录中的上游离线测试、格式审计和故障反例，
+  **未启动客户端、未访问当前 Web 工程、未做宿主导入/保存重载/DRC**。
+
+三个官方项目的职责应分清：`easyeda-api-skill` 通过网关操作活的 `eda.*`；
+`easyeda-pro-format-skill` 提供文件记录知识与 Schema；`easyeda-eprj3-skill` 用 Node 脚本
+把记录写成离线客户端可打开的 folder 工程。概念边界见
+[eprj3 文件生成与校验](concepts.md#eprj3-文件生成与校验边界)。
+
+后者的流程是“Agent 明确器件、坐标和网络 → Node 脚本 → `.eprj3` 索引 + SCH/PCB 文本容器
+→ 结构校验 → 离线客户端打开”。它不依赖我们的 daemon/connector，也不依赖运行中的编辑器
+来生成文件；README 要求最后打开时使用 V4.1+ 离线客户端。**本项目仍遵守 Web EDA 现场约束，
+不能把这条路线当成连接器失败后的桌面客户端兜底。**
+
+### 12.2 值得吸收的能力
+
+1. **正式提供文件生成入口。** 可以离线批量构建工程、保留文本差异、在 CI 做生成器回归；
+   应修正 §9 中“EasyEDA 设计数据只能过 API”的旧泛化判断。文件生成不等于 headless DRC。
+2. **实现简洁。** 21 个顶层 Node 脚本覆盖初始化、符号/封装、连线/网名、位号、PCB 线段、
+   过孔、铺铜边界、填充、禁布区和校验。常规生成路径只用 Node 标准库；维护者的
+   `audit-format.js` 另需配套格式库的 `ajv` / `ajv-formats`，不能把整个审计流程称为零依赖。
+3. **真实记录驱动。** 内嵌 SYMBOL/DEVICE/FOOTPRINT 文档、实例引用、PAD_NET、ticket、NET
+   顺序等均有固定构造器和样例测试；内置 21 份符号类条目（含电源/端口/图框）和 9 份封装。
+4. **自包含工程。** 自定义符号/封装先暂存，放置时把库文档嵌入工程，生成结果可携带使用的
+   几何资料。对选定型号仍须从数据手册确认 pin/pad；没有集成我们现有的在线选型和 LCSC 库身份链。
+
+### 12.3 能写图元，不等于自动设计与验收
+
+| 维度 | 官方 eprj3 Skill 当前实现 | 对我们的意义 |
+|---|---|---|
+| 工程生成 | 离线文件写入，最后客户端打开 | 可探索新增输出适配器 |
+| 连接与布局 | Agent 提供坐标、导线、PCB `--nets` | 不替代 canonical 连接、外围所有权和布局内核 |
+| 原理图到 PCB | 两侧分别放置；PCB 网表由 `--nets` 输入 | 未见跨 SCH/PCB 的自动电气一致性检查 |
+| 布线 | `add-track` 写指定端点的线段 | 未提供自动寻路、拥塞或推挤算法 |
+| 铺铜 | 写 `POUR` 区域，由客户端再计算填铜 | 离线输出不是最终铜皮结果 |
+| 验收 | 文件结构、引用及部分格式约束 | 不替代 ERC/DRC、短路、间距、连通性和宿主回读 |
+| 重算与身份 | 随机 UUID/图元 ID、时间戳；命令追加写入 | 文本可比较，但未提供稳定可重算身份与幂等 Apply 契约 |
+
+库条目和画线原语适合生成起点；不是完整供应链器件库或电路综合器。
+上游明确列出差分对布线、层次多页导航、仿真不由这些脚本完成，部分 special/图框条目也
+尚未经真实客户端验证。图框基准模板和这些可选库条目的验证状态不可混为一谈。
+
+### 12.4 本次实测结果：正常用例通过，负例覆盖不足
+
+在上游仓库运行 `npm test`：**121/121 checks passed**。它验证了生成文件、引用关系、
+ticket、若干非法输入拒绝和内置 blink 样例，属于离线生成器回归，不是本项目
+`esp32MiniRequire.md` 的需求到成品现场端到端验收。
+
+随后运行：
+
+```sh
+# 配套格式库目录中安装其锁定依赖（本机联网命令须先 setp）
+npm ci --ignore-scripts --no-audit --no-fund
+# 在 eprj3 Skill 根目录执行
+node scripts/tools/audit-format.js --format-skill <配套格式库目录>
+```
+
+**退出 1**：`SCH COMPONENT -> tm-sch-component` 的 8/8 条记录失败，报告缺少 `groupId`
+和 `locked`。配套库的字段说明同时提到未成组的 3.0 数据可省略 `groupId`，Schema 却将其列为
+required。因此这是当前两个上游快照间的格式/Schema 不一致，不能仅据审计失败断言客户端
+打不开。应固定两边 commit 并解决差异，不能直接沿用历史提交中的“全部 Schema 通过”。
+
+负例以 `examples/blink` 的独立副本为起点，保留末级目录名 `blink`，避免触发另一个路径问题：
+
+| 输入/变更 | 实测结果 | 判读 |
+|---|---|---|
+| `add-track --width -5` | 写入退出 0；`validate` 为 0 errors / 0 warnings | 负线宽未被生成入口或工程校验拒绝 |
+| `add-track --x1 abc` | 写入 `startX:null`；`validate` 仍为 0/0 | `Number()` 的 NaN 被 JSON 序列化成 null，未检查有限数值 |
+| 同一层两条不同网络的 10 mil 铜线相交 | 两次写入及 `validate` 均成功 | 此校验没有 PCB 短路检测；属于能力边界 |
+| 把一条原理图 LINE 的载荷替换为 `{BROKEN_JSON` | `validate` 仍为 0/0 | `parseRecord()` 捕获解析异常后返回空对象，结构坏数据也可漏过 |
+| 仅把 SCH 容器头改为 `{"type":"DOCHEAD","ticket":0}` | `validate` 抛 TypeError，读取不存在的 `main.docType` | 按完整字符串前缀识别文档头，无法接受配套格式说明允许的 ticket 字段；未做真实客户端往返验证 |
+| `init --dir .../folder-name --name different-name` | 初始化及 validate 成功；下一条 `add-track` 报 Project index not found | `create` 接受独立名称，`load` 却只找目录同名索引 |
+
+可复现的数值/几何输入（每条在独立 blink 副本运行后再 `validate --dir <副本>`）：
+
+```sh
+node scripts/add-track.js --dir <副本> --pcb PCB1 --x1 100 --y1 100 --x2 200 --y2 100 --width -5 --net NEG_WIDTH
+node scripts/add-track.js --dir <副本> --pcb PCB1 --x1 abc --y1 100 --x2 200 --y2 100 --net NAN_COORD
+# 相交负例中的两条线属于同一个副本
+node scripts/add-track.js --dir <副本> --pcb PCB1 --x1 1000 --y1 1000 --x2 1200 --y2 1000 --width 10 --layer 1 --net TEST_VCC
+node scripts/add-track.js --dir <副本> --pcb PCB1 --x1 1100 --y1 900 --x2 1100 --y2 1100 --width 10 --layer 1 --net TEST_GND
+```
+
+还有一个审计覆盖细节：`audit-format.js` 会过滤已知 Schema 差异，对模板记录、空体、无
+Schema 记录跳过验证；DOCHEAD 分支设置文档类型后立即 `continue`，定义的 DOCHEAD Schema
+并没有实际执行。因此即使未来打印 `all record types valid`，也不能理解成每条记录都通过了
+完整 Schema 校验。
+
+关键源码：
+[解析器](https://github.com/easyeda/easyeda-eprj3-skill/blob/40c94e129df18e94232f8c94260134bfcac6cabf/scripts/lib/eprj3.js#L50)、
+[文档头识别](https://github.com/easyeda/easyeda-eprj3-skill/blob/40c94e129df18e94232f8c94260134bfcac6cabf/scripts/validate.js#L33)、
+[add-track](https://github.com/easyeda/easyeda-eprj3-skill/blob/40c94e129df18e94232f8c94260134bfcac6cabf/scripts/add-track.js#L38)、
+[工程索引定位](https://github.com/easyeda/easyeda-eprj3-skill/blob/40c94e129df18e94232f8c94260134bfcac6cabf/scripts/lib/eprj3.js#L1306)、
+[Schema 审计](https://github.com/easyeda/easyeda-eprj3-skill/blob/40c94e129df18e94232f8c94260134bfcac6cabf/scripts/tools/audit-format.js#L244)。
+
+### 12.5 建议：吸收格式能力，保留设计与验收主链
+
+1. 优先把配套格式库和真实 eprj3 记录纳入上游资料/离线 fixture 来源。显式处理单位、Y 轴、
+   宿主版本、文档头变体、可选字段与未知记录，不把官方脚本的某一种输出样式当成完整协议。
+2. 若开发文件后端，让既有 canonical + 参数化几何经固定转换生成工程；先实现只读解析与
+   结构往返，再实现导出。用稳定身份绑定 SCH/PCB，保留未知字段，不让 `--nets` 成为第二份
+   独立设计权威。这是 `planned` 研究方向，本次未实现或改变公开 Skill 工作流。
+3. 接入前补上已复现反例、SCH/PCB 电气一致性与幂等重算测试，再讨论文件交换与 typed 宿主
+   回读如何衔接。我们当前的现场约束不允许自行切换离线客户端；未取得宿主导入、保存重载
+   和 DRC 证据前，只能报告离线生成/校验的覆盖事实。
+
+判断：这是重要的官方离线生成基础设施，能降低对实时编辑器的依赖；其当前价值集中在格式、
+模板和序列化，尚不能替代我们的数据驱动设计、几何/连接检查与真实回读。
 
 ## 来源
 
