@@ -1987,7 +1987,7 @@ the selection). Without --ids it exports the whole active page.`,
 	// easyeda-agent 自己按 documentUuid 持久化组关系,group-move / align /
 	// distribute / autolayout 消费。
 	sch.AddCommand(newSchGroupCmd(cfg, &window, stdout, stderr))
-	// ── 三层布局体系(docs/schematic-layout-hierarchy.md):Zone 层命令族 ──
+	// ── 三层布局体系(docs/cli/schematic.md):Zone 层命令族 ──
 	// `sch zone move` / `sch zone tidy` — 功能区刚移(带组带件带 note+框重画)与
 	// 组间叠加布局;Group 层的 `sch group tidy`(组内布局计算)挂在 group 树上。
 	{

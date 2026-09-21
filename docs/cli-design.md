@@ -50,6 +50,6 @@ PCB 保持在 `pcb` 域。CLI → daemon → connector 是唯一运行链路，�
 `easyeda actions` 与各子命令 `--help` 提供当前完整清单，不在文档重复登记数量。
 
 数据转换和受保护队列的边界见
-[原理图数据与 SCH Apply](../skills/easyeda-agent/references/schematic-data.md)。
+[原理图数据与 SCH Apply](../.agents/skills/easyeda-agent/references/schematic-data.md)。
 新版本的 Skill、命令示例与实际参数必须一起核对；发布准备见
-[1.4 发布准备](release-1.4.md)。
+[1.4 发布准备](releases/release-1.4.md)。

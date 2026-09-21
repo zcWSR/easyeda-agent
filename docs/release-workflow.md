@@ -86,4 +86,4 @@ easyeda update --check    # 只读 CLI / Skill / connector 版本表
   保持 Agent Skills 格式。不要为了平台字段破坏公共包的 frontmatter。
 - **立创连接器市场 jlc-ext**：仍需人工通过网页提交，没有发布 CLI/API。
   市场可自动更新已安装连接器，但可能落后于 GitHub Release；不能把仓库发布成功
-  当成市场已更新。更多候选验收范围见 [release-1.4.md](release-1.4.md)。
+  当成市场已更新。更多候选验收范围见 [release-1.4.md](releases/release-1.4.md)。

@@ -14,7 +14,7 @@ skill ──▶ Go CLI/daemon ──WebSocket──▶ connector .eext ──▶
 - `AGENTS.md` 是仓库协作规则的规范源，`CLAUDE.md` 是它的相对软链接。
   已有布局验证交付经验按需读 [.agents/memory/workflow.md](.agents/memory/workflow.md)。
 - `.agents/` 保存仓库协作 Skill 与共享 Agent 资料；`.claude` 仅软链接到它，不维护副本。
-- `skills/easyeda-agent/` 仍是唯一公开设计 Skill，`.agents/skills/easyeda-agent` 只引用它。
+- 所有 Skill 的规范源统一放在 `.agents/skills/`；`easyeda-agent/` 是其中唯一公开设计包。
   仓库查询和维护入口为 `.agents/skills/easyeda-repo-*/`，不进入公开 Skill 发布包。
 - 先从 [docs/README.md](docs/README.md) 按任务定位唯一维护位置；兼容设计和跨项目安装见
   [docs/agent-collaboration.md](docs/agent-collaboration.md)。改协作入口后运行 `make agent-check`。
@@ -78,9 +78,9 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 ## 首要准则 — 原理图数据驱动架构
 
 所有原理图设计、布局、检查、修复都先读并遵守随 Skill 发布的
-[`数据驱动架构基准`](skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)；
+[`数据驱动架构基准`](.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)；
 职责图见 [`docs/architecture.md`](docs/architecture.md)，操作见
-[`auto-layout-sop.md`](skills/easyeda-agent/references/auto-layout-sop.md)。
+[`auto-layout-sop.md`](.agents/skills/easyeda-agent/references/auto-layout-sop.md)。
 原始快照保留 → 源数据副本明确连接/核心外围归属/约束 → 区内和纸张两层计算 → 数据检查
 → 固定转换/Apply → 原始回读对账；失败修源数据、采集或算法再重算，不以现场逐件试摆兜底。
 核心及专属外围必须整体跟随；同网/同框、碰撞为零或高分不能代替所有权与真实直连检查。
@@ -92,7 +92,7 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 
 > **本项目是「边开发、边更新 Agent Skill」的联合开发模式。**
 >
-> - **开发和测试的主要对象是 Skill**（唯一对外入口 `skills/easyeda-agent/`）。
+> - **开发和测试的主要对象是 Skill**（唯一对外入口 `.agents/skills/easyeda-agent/`）。
 > - Go CLI/daemon（`cmd/easyeda` + `internal/`）和连接器插件（`extension/`）是**为 Skill 服务的基础设施**，而非最终目的。
 > - 每次改动首先问：「Skill 里的工作流、知识、或 guardrail 需要同步更新吗？」——如果需要，先改 Skill，再改底层实现。
 > - 修改底层 action / daemon / 插件后，必须同步更新 Skill 里对应的工具描述、示例、或注意事项。
@@ -107,7 +107,7 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 **「一、客户原始需求」那一节**（4 层板 + 点灯 + 5V 供电端子 + 降压到 3V3 + CH340 USB
 烧录 + BOOT/RESET 按键 + 四角 M3 固定，**故意不含 BOM/UUID/网表**）当输入，让 agent 自己
 选型 → 放置 → 编组 → 布线 → `sch layout-lint` → DRC → 转 PCB（4 层叠层 / GND 内电层 /
-丝印极性 / 天线 keepout）→ save 完整跑一遍**——照 `skills/easyeda-agent/references/design-flow.md`
+丝印极性 / 天线 keepout）→ save 完整跑一遍**——照 `.agents/skills/easyeda-agent/references/design-flow.md`
 流程脊柱（S0–S6 + P0–P10），不是只测单点，**也绝不喂加工过的答案**（喂好 BOM/网表就不叫真实场景了）。
 这是 agent 从需求到成品的回归基准：layout-lint / autosave / design-flow / 连接器 任何改动后都重跑此用例。
 验收：需求条条落实（0 overlap、0 fatal、网络连通、丝印/极性正、4 层电源树、已落盘）。
@@ -149,10 +149,10 @@ and report remaining validation gaps accurately.
 |---|---|
 | `cmd/easyeda` + `internal/{app,daemon,protocol}` | Go CLI + daemon. `internal/protocol/actions.go` = the typed action catalog. Daemon: `/health`, `/eda` (connector WS), `/action`. |
 | `extension/` | TypeScript connector → esbuild → `.eext`. `src/transport.ts` (fixed-port reconnect with backoff), `src/actions.ts` (eda.* handlers + `connect_pin`). |
-| `skills/easyeda-agent/` | Merged public skill — short `SKILL.md` router plus `references/` for design flow, schematic, PCB, conventions, canonical data, and `scripts/` for lint/BOM/parts/calibration tools. |
+| `.agents/skills/easyeda-agent/` | Merged public skill — short `SKILL.md` router plus `references/` for design flow, schematic, PCB, conventions, canonical data, and `scripts/` for lint/BOM/parts/calibration tools. |
 | `docs/FEATURES.md` | Feature-status inventory (actions grouped by capability) + roadmap. |
 | `docs/pcb-design-rules.md` | PCB 设计规范手册 — 线宽/间距/过孔/布局/走线/铺铜/Mark点/拼板/叠层/DRC 清单，基于 JLC 工艺能力 + IPC-2221。 |
-| `skills/easyeda-agent/SKILL.md` | The user-facing skill. |
+| `.agents/skills/easyeda-agent/SKILL.md` | The user-facing skill. |
 
 ## Dev workflow
 
@@ -192,8 +192,8 @@ make eext         # bump PATCH + build importable .eext, STABLE uuid (update in 
 make eext-fresh   # fallback: bump PATCH + FRESH uuid (imports as a new entry; delete the old one) — for when the installed one won't uninstall
 make connector    # build .eext at the current version/uuid (no bump — same-version dev only)
 
-skills/easyeda-agent/scripts/lint.sh <project>          # live lint (DIFF if a baseline exists)
-skills/easyeda-agent/scripts/lint.sh <project> --save   # full lint + record baseline
+.agents/skills/easyeda-agent/scripts/lint.sh <project>          # live lint (DIFF if a baseline exists)
+.agents/skills/easyeda-agent/scripts/lint.sh <project> --save   # full lint + record baseline
 ```
 
 ## Release workflow
@@ -205,19 +205,19 @@ skills/easyeda-agent/scripts/lint.sh <project> --save   # full lint + record bas
 
 ## Skill scripts usage
 
-All tools live in `skills/easyeda-agent/scripts/`.
+All tools live in `.agents/skills/easyeda-agent/scripts/`.
 
 ```bash
 # 原理图 lint
-skills/easyeda-agent/scripts/lint.sh <project>           # 实时 lint；有 baseline 时只显示 DIFF
-skills/easyeda-agent/scripts/lint.sh <project> --save    # 全量 lint + 记录 baseline
+.agents/skills/easyeda-agent/scripts/lint.sh <project>           # 实时 lint；有 baseline 时只显示 DIFF
+.agents/skills/easyeda-agent/scripts/lint.sh <project> --save    # 全量 lint + 记录 baseline
 
 # BOM 补全 LCSC C 号（导出后运行）
-skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv>             # 输出到 stdout
-skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv> --out <out> # 写入文件
+.agents/skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv>             # 输出到 stdout
+.agents/skills/easyeda-agent/scripts/bom-enrich.py <bom.tsv> --out <out> # 写入文件
 
 # 器件选型
-skills/easyeda-agent/scripts/parts-select.py --help
+.agents/skills/easyeda-agent/scripts/parts-select.py --help
 
 # standard-parts.json 的 deviceUuid 按当前站点重解析(需连编辑器)。国际版
 # (easyeda.com) 与国内版 libraryUuid 相同但器件 uuid 不同,canonical 文件里的 143 件
@@ -225,31 +225,31 @@ skills/easyeda-agent/scripts/parts-select.py --help
 # (平台对未知 uuid 不回执 → 表现成超时)。脚本按 ≤20 个 C 号一批走 `lib by-lcsc`,
 # 写副本(--out 必填,绝不就地覆盖);uuid 变了的把原值留在 deviceUuidOrigin,没解析到的
 # 原样保留并标 "_relocalize":"unresolved"。结果是站点局部的,**不要提交回 canonical 文件**。
-# 判据与限制见 skills/easyeda-agent/references/part-selection.md。
-skills/easyeda-agent/scripts/parts-relocalize.py --out /tmp/parts.intl.json --project <project>
-skills/easyeda-agent/scripts/parts-relocalize.py --dry-run --json   # 只查询不落盘
+# 判据与限制见 .agents/skills/easyeda-agent/references/part-selection.md。
+.agents/skills/easyeda-agent/scripts/parts-relocalize.py --out /tmp/parts.intl.json --project <project>
+.agents/skills/easyeda-agent/scripts/parts-relocalize.py --dry-run --json   # 只查询不落盘
 # 离线回归(纯函数,不跑 CLI):python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 # calibrate.js 仅作历史算法参考，不再粘贴到 EDA 的 debug.exec_js。
 # 需要重新校准时先提供 typed 校准 action/Cobra，再由参数化命令运行与回读。
-skills/easyeda-agent/scripts/calibrate.js
+.agents/skills/easyeda-agent/scripts/calibrate.js
 
 # lint 规则信任测试
-make lint-test    # = python3 skills/easyeda-agent/scripts/tests/run.py
+make lint-test    # = python3 .agents/skills/easyeda-agent/scripts/tests/run.py
 
 # 块引脚引用审计 —— 块按功能名引用引脚,此前无人对过真实符号,导致块标着
 # verified 却静默错接(ch340c 的 USB 口根本没供电)。离线判定,非零退出可 gate。
-skills/easyeda-agent/scripts/blocks-pin-audit.py            # 审全库(离线,用引脚表快照)
-skills/easyeda-agent/scripts/blocks-pin-audit.py --probe --project <scratch> --doc <page> --allow-clear
+.agents/skills/easyeda-agent/scripts/blocks-pin-audit.py            # 审全库(离线,用引脚表快照)
+.agents/skills/easyeda-agent/scripts/blocks-pin-audit.py --probe --project <scratch> --doc <page> --allow-clear
 # 仅清空并使用明确指定的专用测量页；无需补测时不写画布。
 
 # 暴露面健康度体检 —— 读 ~/.easyeda-agent/audit/*.jsonl,离线,不需要连编辑器。
 # 出「调用分布+失败率 / 错路回退 / 逐日多样性」三张表。判读法:长尾失败率显著
 # 高于头部 = 有「用得少所以坏了没人知道」的角落;失败率 100% 的行 = 从未工作过
 # 的命令(首测抓到 titleblock.modify 32 次调用 0 次成功)。收敛验收基线见
-# docs/design-sch-surface-convergence.md。
-skills/easyeda-agent/scripts/audit-baseline.py              # 全部历史
-skills/easyeda-agent/scripts/audit-baseline.py 2026-08      # 只看某月/某天
+# docs/reviews/2026-08-sch-surface-audit.md。
+.agents/skills/easyeda-agent/scripts/audit-baseline.py              # 全部历史
+.agents/skills/easyeda-agent/scripts/audit-baseline.py 2026-08      # 只看某月/某天
 
 # 成本画像 —— **每跑完一场端到端都要记一笔**(用户要求,用以改善)。
 # 三个耗时指标分开:墙钟 / daemon 侧(机器真在算)/ 两者之差(agent 思考+编译)——
@@ -262,7 +262,7 @@ easyeda audit cost --day 2026-08-15 --since 14:12 --until 15:50 --label "…" --
 easyeda audit cost --ledger                                 # 跨批次对比台账
 ```
 
-`skills/easyeda-agent/references/standard-parts.json` — 标准器件库（libraryUuid + deviceUuid + LCSC C 号）。放置前先查这里；新选型后写回。
+`.agents/skills/easyeda-agent/references/standard-parts.json` — 标准器件库（libraryUuid + deviceUuid + LCSC C 号）。放置前先查这里；新选型后写回。
 
 For a connected window, EasyEDA must be open with the project AND have **"允许外部
 交互 / Allow external interaction"** enabled, or the connector's WebSocket never
@@ -298,9 +298,9 @@ reaches the daemon.
   OLD connector code and fights the freshly-imported one over the daemon socket;
   **fully quit and relaunch EasyEDA** to load new connector code.
 - **EasyEDA schematic coords are y-UP** (+y renders upward). The orientation table
-  in `skills/easyeda-agent/references/orientation.json` is the **stored-rotation** truth (the
+  in `.agents/skills/easyeda-agent/references/orientation.json` is the **stored-rotation** truth (the
   value `getState_Rotation` reads back for a correctly-oriented flag), validated
-  read-only against real placed flags by `skills/easyeda-agent/scripts/calibrate.js`. **`createNetFlag` /
+  read-only against real placed flags by `.agents/skills/easyeda-agent/scripts/calibrate.js`. **`createNetFlag` /
   `createNetPort` STORE rotation negated** on the 2026-06 build — confirmed via
   `connect_pin(direction=left)`: it passed `90`, the flag stored `270` and rendered
   pointing **right** (up/down at 0/180 are symmetric, which is why it hid for so

@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 from urllib.parse import unquote, urlsplit
 
-SKILL = Path("skills/easyeda-agent")
+SKILL = Path(".agents/skills/easyeda-agent")
 
 
 def tracked_skill_files(repo: Path) -> list[Path]:

@@ -4,9 +4,9 @@
 从原理图同步到制造导出,全程 typed CLI 操作,每步可观测、可校验。
 
 > 动作目录真值:`easyeda actions`;流程编排(P0–P10 何时用哪条)见
-> [`design-flow.md`](../../skills/easyeda-agent/references/design-flow.md);
+> [`design-flow.md`](../../.agents/skills/easyeda-agent/references/design-flow.md);
 > 设计规范手册(线宽/间距/过孔/铺铜,DRC 报错的 `[规范 §N]` 指向)见
-> [`pcb-design-rules.md`](../../skills/easyeda-agent/references/pcb-design-rules.md)。
+> [`pcb-design-rules.md`](../../.agents/skills/easyeda-agent/references/pcb-design-rules.md)。
 
 ## 一、已支持(按功能域)
 

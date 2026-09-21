@@ -4,13 +4,13 @@
 typed CLI 操作嘉立创EDA专业版的原理图——每个动作可观测、可校验；写入不具备事务回滚。
 
 设计、布局、检查和修复统一遵守
-[数据驱动架构基准](../../skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
+[数据驱动架构基准](../../.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
 下面的存量命令是能力目录，不是要求逐个执行的主流程；fix 建议须回写源数据并重新求解，
 不能照抄现场挪件后就称算法闭环通过。
 
 > 动作目录的机器可读真值是 `make actions` / `easyeda actions`;本文是**人读的功能地图**,
 > 按「AI 操作原理图需要什么」组织。设计流程(何时用哪个命令)见
-> [`skills/easyeda-agent/references/design-flow.md`](../../skills/easyeda-agent/references/design-flow.md) S0–S6。
+> [`.agents/skills/easyeda-agent/references/design-flow.md`](../../.agents/skills/easyeda-agent/references/design-flow.md) S0–S6。
 
 ## 一、已支持(按功能域)
 
@@ -123,7 +123,10 @@ typed CLI 操作嘉立创EDA专业版的原理图——每个动作可观测、�
 `sch delete` 命令已移除(不留兼容)。
 
 **现行架构是区内/纸张两层数据计算**，见 [架构](../architecture.md)。
-[三层 tidy/move 文档](../schematic-layout-hierarchy.md)仅保留历史及存量维护背景。
+存量 `group/zone/sheet tidy` 和 `zone move` 仍是维护工具，不构成新设计的布局主链。
+维护时明确完整成员及附着导线/标志，旋转后重新读取真实引脚，移动目标预留净空；
+回读不稳定时停止依赖旧坐标。局部零重叠不能证明外围归属、真实直连或整页正确，
+失败也不意味着宿主提供事务回滚。移动安全经验见 [ADR-0004](../adr/0004-schematic-move-primitive.md)。
 
 ## 二、待支持 / 路线(按 AI 可操作性缺口排序)
 
@@ -147,7 +150,7 @@ typed CLI 操作嘉立创EDA专业版的原理图——每个动作可观测、�
 ### 3. 框与必检几何
 
 当前 compose/frame 已消费器件、导线、标记、标题占位，不是只算器件 bbox。
-必检范围与现场测量限制以 [Skill 检查覆盖](../../skills/easyeda-agent/references/schematic.md#检查覆盖边界原理图验收)
+必检范围与现场测量限制以 [Skill 检查覆盖](../../.agents/skills/easyeda-agent/references/schematic.md#检查覆盖边界原理图验收)
 为准；不能以预测包络代替真实回读。
 
 ### 4. zone-draw 的 stale bbox

@@ -661,7 +661,7 @@ func AllActions() []ActionSpec {
 		// ─── PCB (Phase 2 — read-only skeleton) ──────────────────────────
 		// Connectivity probe + inspection surface for the upcoming PCB
 		// layout/routing feature. All read-only; mirrors the schematic read
-		// actions against the eda.pcb_* namespaces. See docs/phase-2-pcb.md.
+		// actions against the eda.pcb_* namespaces. See docs/cli/pcb.md.
 		{
 			Name:        "pcb.documents.list",
 			Domain:      DomainPcb,
@@ -930,7 +930,7 @@ func AllActions() []ActionSpec {
 		// ─── PCB (Phase 2 — schematic→PCB sync + component layout) ────────
 		// Components arrive on the board via pcb.import_changes (from the
 		// schematic), then get laid out with pcb.component.modify. See
-		// docs/phase-2-pcb.md.
+		// docs/cli/pcb.md.
 		{
 			Name:        "pcb.board.info",
 			Domain:      DomainPcb,

@@ -5,7 +5,7 @@ package app
 //
 // Two different assets now need this: bom-enrich.py (issue #115) and
 // standard-parts.json (the role-id → deviceUuid bridge `sch block-apply` needs
-// to place a block's parts). Both live under skills/easyeda-agent/, both must be
+// to place a block's parts). Both live under .agents/skills/easyeda-agent/, both must be
 // findable from WHEREVER the agent runs the CLI (a project dir, /tmp, $HOME), and
 // both have the same fallback ladder — so the ladder lives here once instead of
 // being copied per asset.
@@ -48,8 +48,8 @@ type skillAsset struct {
 //  3. the INSTALLED skill dirs (~/.claude/…, ~/.codex/…, ~/.agents/…),
 //     resolved via selfupdate.Targets so this never drifts from `easyeda skill
 //     status` / `skill sync`;
-//  4. skills/ walked up from the running binary (dev: ./bin/easyeda in the repo);
-//  5. skills/ walked up from the working directory (agent run inside the repo);
+//  4. .agents/skills/ walked up from the running binary (dev: ./bin/easyeda);
+//  5. .agents/skills/ walked up from the working directory;
 //  6. the bare name on $PATH (executables only).
 //
 // The error lists every path probed, so a failure says exactly where to put the
@@ -99,11 +99,11 @@ func (a skillAsset) resolve(explicit string) (string, error) {
 		}
 	}
 
-	// 4/5. skills/ walked up from the binary, then from cwd.
+	// 4/5. Repository skills walked up from the binary, then from cwd.
 	walkUp := func(dir string) (string, bool) {
 		for i := 0; i < 8; i++ {
 			for _, rel := range a.rels {
-				if c := filepath.Join(dir, "skills", filepath.FromSlash(rel)); hit(c) {
+				if c := filepath.Join(dir, ".agents", "skills", filepath.FromSlash(rel)); hit(c) {
 					return c, true
 				}
 			}

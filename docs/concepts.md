@@ -4,17 +4,18 @@
 > 对话里的概念统一到项目层,让后续会话、贡献者、Skill 用**同一套心智模型**。
 > 新概念先落这里,再在代码/Skill/memory 里引用。相关:[cli-design.md](./cli-design.md) ·
 > [e2e-automation-acceptance.md](./e2e-automation-acceptance.md) ·
-> `skills/easyeda-agent/references/design-flow.md`(流程脊柱)。
+> `.agents/skills/easyeda-agent/references/design-flow.md`(流程脊柱)。
 
 ---
 
 ## Agent 协作入口与文档归属
 
-**公开设计 Skill** 指 `skills/easyeda-agent/`，是可独立安装的 EDA 工作流与知识包。
+**公开设计 Skill** 指 `.agents/skills/easyeda-agent/`，是可独立安装的 EDA 工作流与知识包。
 **仓库协作 Skill** 指 `.agents/skills/easyeda-repo-*/`，通过安装链接定位源码 checkout，
 用于跨项目查询和维护；它依赖仓库内容，不属于公开设计包，也不增加 EDA 执行通道。
 **兼容入口** 只引用同一规范源：`CLAUDE.md → AGENTS.md`、`.claude → .agents`；
-仓库中的设计 Skill 链接仍指向 `skills/easyeda-agent/`。
+公开设计 Skill 与仓库协作 Skill 都是 `.agents/skills/` 下的真实目录；根目录不再保留第二个
+Skill 目录。源码位置不改变发布包内的 `easyeda-agent/` 根目录或用户级安装位置。
 
 **文档归属** 指每类信息有一个维护位置：协作规则、操作知识、架构理由、验证证据分别维护，
 入口和索引只路由到该位置。历史报告说明特定版本发生过什么，不覆盖当前规范，也不证明新版
@@ -22,7 +23,7 @@
 
 ## 原理图架构基准入口
 
-[数据驱动架构基准](../skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)
+[数据驱动架构基准](../.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)
 是设计、检查和修复的统一规范正文；本文定义术语，不另立流程。
 原始观测保留，源目标表达连接/归属/约束，算法生成，数据检查，失败回源重算，Apply 后回读对账。
 新设计使用区内与纸张两层计算，不以旧九宫格、三层 tidy/move 或截图手工修补代替。

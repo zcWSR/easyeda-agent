@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Link repository collaboration Skills without replacing installed design Skills."""
+"""Link checkout Skills, preserving release installs and unrelated checkouts."""
 
 import argparse
 import os
@@ -9,14 +9,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
-def skill_sources(repo: Path) -> list[Path]:
+def skill_sources(repo: Path, scope: str = "repo") -> list[Path]:
     sources = [
         path.resolve()
-        for path in sorted((repo / ".agents/skills").glob("easyeda-repo-*"))
+        for path in sorted((repo / ".agents/skills").glob("*"))
         if not path.is_symlink() and path.is_dir() and (path / "SKILL.md").is_file()
+        and (scope == "all" or (scope == "design" and path.name == "easyeda-agent")
+             or (scope == "repo" and path.name.startswith("easyeda-repo-")))
     ]
     if not sources:
-        raise ValueError("no repository collaboration Skills found")
+        raise ValueError(f"no Skills found for scope {scope}")
     return sources
 
 
@@ -26,6 +28,14 @@ def target_dirs(target: str) -> list[Path]:
         Path(os.environ.get(f"{client.upper()}_HOME") or str(Path.home() / f".{client}")).expanduser() / "skills"
         for client in clients
     ]
+
+
+def legacy_link(source: Path, destination: Path) -> bool:
+    """Only migrate the old public-Skill link belonging to this exact checkout."""
+    if source.name != "easyeda-agent" or not destination.is_symlink():
+        return False
+    old_source = source.parents[2] / "skills" / "easyeda-agent"
+    return destination.resolve() == old_source.resolve()
 
 
 def link_plan(sources: list[Path], directories: list[Path]) -> list[tuple[Path, Path, bool]]:
@@ -48,6 +58,9 @@ def link_plan(sources: list[Path], directories: list[Path]) -> list[tuple[Path, 
             if destination in seen:
                 continue
             seen.add(destination)
+            if legacy_link(source, destination):
+                plan.append((source, destination, False))
+                continue
             if destination.is_symlink():
                 try:
                     existing = destination.resolve(strict=True)
@@ -70,17 +83,26 @@ def install(plan: list[tuple[Path, Path, bool]], dry_run: bool) -> None:
             if exists:
                 print(f"already installed: {destination}")
             elif dry_run:
-                print(f"would link: {destination} -> {source}")
+                action = "migrate" if legacy_link(source, destination) else "link"
+                print(f"would {action}: {destination} -> {source}")
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
+                previous = None
+                if legacy_link(source, destination):
+                    previous = os.readlink(destination)
+                    destination.unlink()
+                    created.append((source, destination, previous))
                 destination.symlink_to(source, target_is_directory=True)
-                created.append((source, destination))
+                if previous is None:
+                    created.append((source, destination, None))
                 print(f"linked: {destination} -> {source}")
     except OSError:
         # Undo only links this invocation created and still owns.
-        for source, destination in reversed(created):
+        for source, destination, previous in reversed(created):
             if destination.is_symlink() and os.readlink(destination) == str(source):
                 destination.unlink()
+            if previous is not None and not destination.exists() and not destination.is_symlink():
+                destination.symlink_to(previous, target_is_directory=True)
         raise
 
 
@@ -90,15 +112,17 @@ def main() -> int:
     destination.add_argument("--target", choices=("agents", "codex", "claude", "all"), default="agents")
     destination.add_argument("--skills-dir", type=Path, help="custom user-level Skill discovery directory")
     parser.add_argument("--dry-run", action="store_true", help="validate and print destinations without writing")
+    parser.add_argument("--scope", choices=("repo", "design", "all"), default="repo",
+                        help="repo collaboration Skills (default), public design Skill, or all checkout Skills")
     args = parser.parse_args()
     try:
-        sources = skill_sources(REPO)
+        sources = skill_sources(REPO, args.scope)
         directories = [args.skills_dir] if args.skills_dir is not None else target_dirs(args.target)
         plan = link_plan(sources, directories)
         install(plan, args.dry_run)
     except (OSError, RuntimeError, ValueError) as error:
         parser.exit(1, f"error: {error}\n")
-    print(f"{'Validated' if args.dry_run else 'Installed'} {len(sources)} repository Skills. "
+    print(f"{'Validated' if args.dry_run else 'Installed'} {len(sources)} checkout Skills ({args.scope}). "
           "Reload your Agent after installation.")
     return 0
 

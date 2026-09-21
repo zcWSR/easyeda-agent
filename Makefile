@@ -44,13 +44,13 @@ mcp-test: build ## install MCP deps and run unit + stdio protocol tests
 # (orientation.json derives to its frozenTable; matches the connector) +
 # fixture goldens (known-good board stays clean, known-bad cases still fire).
 lint-test: ## linter rule-trust harness (orientation + fixtures)
-	python3 skills/easyeda-agent/scripts/tests/run.py
+	python3 .agents/skills/easyeda-agent/scripts/tests/run.py
 
 blocks-audit: ## check every block pin ref against real symbol pins (offline; --probe to refresh)
-	python3 skills/easyeda-agent/scripts/blocks-pin-audit.py
+	python3 .agents/skills/easyeda-agent/scripts/blocks-pin-audit.py
 
 modules-audit: ## validate the public reusable Lib module catalog (offline)
-	python3 skills/easyeda-agent/scripts/modules-audit.py
+	python3 .agents/skills/easyeda-agent/scripts/modules-audit.py
 
 # 金标准好板回归(#167 第五层)：参考板九维不该掉分,负对照九维必须还会响。
 # 全离线、不连编辑器。改了 pcb_score_*.go 的判据/阈值/权重后先跑这个。
@@ -256,7 +256,7 @@ release: ## build reviewed sources, tag and publish GitHub Release (explicit pub
 # 版本也不可覆盖)——tags 只能随下一次发版生效。纯 ASCII(服务端对中文 tag 的
 # 校验未知,别拿正式发版赌;中文关键词「嘉立创」走 SKILL.md description 供向量搜索)。
 CLAWHUB_TAGS := latest,easyeda,jlceda,jlc,eda,circuit,schematic,pcb,hardware
-publish-skill: ## publish skills/easyeda-agent to ClawHub  (VERSION=vX.Y.Z required)
+publish-skill: ## publish .agents/skills/easyeda-agent to ClawHub  (VERSION=vX.Y.Z required)
 ifndef VERSION
 	$(error VERSION is required — usage: make publish-skill VERSION=v0.8.2)
 endif
@@ -276,7 +276,7 @@ endif
 #     export SKILLHUB_TOKEN=skh_xxx        # 别写进任何文件,别 echo
 #     make publish-skill-hub VERSION=v1.0.3
 #
-# 为什么要 staging 副本而不是直接发 skills/easyeda-agent:
+# 为什么要 staging 副本而不是直接发 .agents/skills/easyeda-agent:
 #   两套规范**互斥**,同一个 SKILL.md 不可能同时满足 ——
 #     • skillhub 硬性要求 frontmatter 顶层有 slug + displayName(缺一个 die)
 #     • 官方 Agent Skills 规范(npx skills-ref validate)**明确拒绝**这两个字段
@@ -423,7 +423,7 @@ export SKILLHUB_INJECT_PY
 # 所以别看 dry-run 绿了就以为能发 —— 这个坑只有真发才踩得到。
 # 删 LICENSE 不影响规范合规:frontmatter 的 `license: MIT` 是许可证**名**而非文件引用
 # (Agent Skills spec 两种都允许),repo 原件也照常带着 LICENSE,只是不进上传包。
-publish-skill-hub: ## publish skills/easyeda-agent to skillhub.cn  (VERSION=vX.Y.Z required)
+publish-skill-hub: ## publish .agents/skills/easyeda-agent to skillhub.cn  (VERSION=vX.Y.Z required)
 ifndef VERSION
 	$(error VERSION is required — usage: make publish-skill-hub VERSION=v1.0.3)
 endif

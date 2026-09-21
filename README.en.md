@@ -19,7 +19,7 @@
 > **Version 1.4.5.** Schematic work starts from component,
 > pin, and connectivity data: design each Lib circuit and its geometry locally,
 > compose one sheet with `sch compose`, then execute and verify with `sch apply`.
-> See [1.4 release and validation](docs/release-1.4.md) for release status and validation limits.
+> See [1.4 release and validation](docs/releases/release-1.4.md) for release status and validation limits.
 
 `easyeda-agent` turns the official EasyEDA extension API into a typed, observable, Skill-friendly system. The EasyEDA plugin stays thin: it connects to the local agent and executes approved actions. The Go CLI/daemon owns protocol, state, artifacts, validation, and user-facing workflows.
 
@@ -86,7 +86,7 @@ parts point back into the standard-parts library (BOM-ready).
 
 > The library is embedded in the CLI: `easyeda blocks ls/show/search` works offline,
 > without a daemon or editor window. Contribution guide:
-> [`standard-blocks-contributing.md`](skills/easyeda-agent/references/standard-blocks-contributing.md)
+> [`standard-blocks-contributing.md`](.agents/skills/easyeda-agent/references/standard-blocks-contributing.md)
 
 ## Install
 
@@ -267,7 +267,7 @@ sheet's actual Apply, played back at an accelerated pace. Both still images come
 See [Apply capture instructions](docs/schematic-showcase.md) for the script and reproduction steps.
 Both sheets passed local layout and connectivity checks with zero errors and
 warnings. Official DRC still reports 3 warnings, so the strict gate did not pass;
-some text placement needs refinement. See [the 1.4 validation record](docs/release-1.4.md) for the tested scope.
+some text placement needs refinement. See [the 1.4 validation record](docs/releases/release-1.4.md) for the tested scope.
 
 ### Historical PCB case: ESP32-S3-WROOM-1 minimal system board
 
@@ -302,7 +302,7 @@ internal/daemon/             Local daemon: /health, /eda (connector WS), /action
 internal/protocol/           Typed action protocol shared with connector (actions.go)
 internal/version/            Build/version metadata
 extension/                   EasyEDA connector (.eext) source + build (TypeScript → esbuild)
-skills/easyeda-agent/        Merged public Skill: workflow, references, scripts, canonical data
+.agents/skills/easyeda-agent/        Merged public Skill: workflow, references, scripts, canonical data
 docs/                        Architecture, protocol, features/roadmap, conventions, decisions
 ```
 
@@ -334,7 +334,7 @@ Both sides of the action protocol are in place and working. The Go daemon owns t
 
 ## Capabilities
 
-Capabilities are exposed through CLI subcommands (`easyeda <domain> <verb>`). Validation completed for version 1.4.5, including its remaining limits, is listed in [1.4 release and validation](docs/release-1.4.md).
+Capabilities are exposed through CLI subcommands (`easyeda <domain> <verb>`). Validation completed for version 1.4.5, including its remaining limits, is listed in [1.4 release and validation](docs/releases/release-1.4.md).
 
 **Schematic**
 - Place real library/LCSC parts by uuid, then wire them (`sch` place/wire); power/ground **net-flags** via `connect_pin` (auto-compensates the rotation-store quirk).
@@ -363,23 +363,23 @@ Capabilities are exposed through CLI subcommands (`easyeda <domain> <verb>`). Va
 - **`pcb export-dsn`** (Specctra DSN for external Freerouting, with keep-out injection) / **`pcb import-autoroute`** / **`pcb snapshot`**.
 
 **Infrastructure**
-- Typed action protocol (self-describing `--help`, `easyeda actions` catalog) with a `debug.exec_js` escape hatch for prototyping.
+- Typed action protocol (self-describing `--help`, `easyeda actions` catalog) with parameterized inputs and explicit readback.
 - **`easyeda notify`** — a non-blocking **in-window toast** (info/success/warn/error/question) so the flow can announce each stage live ("routing done, next: pour").
 - Connector **auto-reconnect watchdog** (survives daemon restarts / window backgrounding) + daemon **debounced autosave**.
 
 ## Not Yet Supported / Platform Walls
 
-Honest limits. A 2026-07-01 survey of the official marketplace ([`docs/marketplace-coverage.md`](docs/marketplace-coverage.md)) sharpened these — the real walls are only the *interactive UX* APIs; most "results" (tracks, vias, teardrops, net length) turn out to be reachable, and are on the absorb-list rather than blocked:
+Current capability status is maintained in [`docs/FEATURES.md`](docs/FEATURES.md) and the [CLI reference](docs/cli/README.md). The [2026-07 marketplace survey](docs/reviews/2026-07-marketplace-coverage.md) is a historical snapshot; it does not establish current support or an implementation commitment. Some remaining limitations:
 
 - **Maze-tier autorouting** (dense / any-distance / push-shove) — the daemon does *short, clear* heuristic routing only. Full routing is external **Freerouting** (the DSN round-trip building blocks exist); a turnkey integration is **deferred** (needs a Java runtime; waiting on the official EasyEDA autorouter maturing past `@alpha`).
 - **Interactive routing UX** — the interactive *menu* (push-shove drag-routing, live length-tuning, remove-loops) has **no `eda.*` API**. But the *outputs* — diff-pair geometry, fanout-with-vias, serpentine length-match — are writable via `pcb_PrimitiveLine/Via.create`, so they're **feasible as our own heuristics** (absorb-list, not walled); only the drag UX is UI-only.
 - **Controlled impedance Z0** — genuinely walled: stackup Er / dielectric height / copper weight aren't readable via `eda.*`, so trace-width-for-Z0 can't be computed. **But net length IS readable** (`pcb_Net.getNetLength`), so length-match / skew / timing-margin reports are doable (absorb-list) — that part was mis-flagged as a wall.
-- **Teardrops (泪滴)** — no *typed* create API; a raw document-source-injection path (as `eext-balance-copper` uses for net-less fills) is plausible but unverified. For now, apply by hand in the UI.
+- **Teardrops (泪滴)** — no *typed* create API; a raw document-source-injection path (as `eext-balance-copper` uses for net-less fills) is plausible but unverified. Treat this as unsupported until a typed action and automated verification exist.
 - **No programmatic undo** — `eda.*` has no undo/redo; rollback is our own (data checkpoint + inverse ops).
 - **Incremental `import_changes`** — a no-op for API-added parts (platform limit); place the whole circuit before the first import, or use `pcb add-component`.
 - **Silkscreen density** — `silk-align` avoids label collisions where there's open space; a layout packed tighter than the labels can't be fully de-conflicted (it reports `unresolvedCollisions`) — loosen the placement.
 
-See [`docs/marketplace-coverage.md`](docs/marketplace-coverage.md) for the full marketplace coverage matrix + prioritized absorb-list, [`docs/FEATURES.md`](docs/FEATURES.md) for the action inventory, and [`docs/ecosystem-survey.md`](docs/ecosystem-survey.md) for the `eda.*` API coverage map.
+See [`docs/reviews/2026-07-marketplace-coverage.md`](docs/reviews/2026-07-marketplace-coverage.md) for the historical marketplace coverage matrix, [`docs/FEATURES.md`](docs/FEATURES.md) for the action inventory, and [`docs/ecosystem-survey.md`](docs/ecosystem-survey.md) for the `eda.*` API coverage map.
 
 ## Design Position
 
@@ -391,8 +391,8 @@ See:
 - [Architecture](docs/architecture.md)
 - [Protocol](docs/protocol.md)
 - [Skill design](docs/skill-design.md)
-- [Historical Phase 1 schematic scope](docs/phase-1-schematic.md)
-- [Historical Phase 2 PCB feasibility](docs/phase-2-pcb.md)
+- [Schematic CLI capabilities](docs/cli/schematic.md)
+- [PCB CLI capabilities](docs/cli/pcb.md)
 
 ## Acknowledgments
 

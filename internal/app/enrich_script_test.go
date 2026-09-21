@@ -43,7 +43,7 @@ func TestResolveEnrichScriptPriority(t *testing.T) {
 
 	// cwd rung: a repo-shaped tree, with cwd a few levels down.
 	repo := t.TempDir()
-	cwdScript := mkScript(t, filepath.Join(repo, "skills", "easyeda-agent", "scripts", "bom-enrich.py"))
+	cwdScript := mkScript(t, filepath.Join(repo, ".agents", "skills", "easyeda-agent", "scripts", "bom-enrich.py"))
 	deep := filepath.Join(repo, "a", "b")
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestResolveEnrichScriptNotFoundListsProbedPaths(t *testing.T) {
 	}
 	// The cwd rung must appear too (the dir the CLI was actually run from).
 	cwd, _ := os.Getwd()
-	if !strings.Contains(msg, filepath.Join(cwd, "skills")) {
-		t.Errorf("error must list the cwd probe %q; got:\n%s", filepath.Join(cwd, "skills"), msg)
+	if !strings.Contains(msg, filepath.Join(cwd, ".agents", "skills")) {
+		t.Errorf("error must list the cwd probe %q; got:\n%s", filepath.Join(cwd, ".agents", "skills"), msg)
 	}
 }

@@ -1,7 +1,7 @@
 package app
 
 // cmd_sch_group_tidy_test.go — `sch group tidy` 纯核的表驱动测试(契约
-// docs/schematic-layout-hierarchy.md §1):分类表 / planPowerUpdown 几何 /
+// docs/cli/schematic.md §1):分类表 / planPowerUpdown 几何 /
 // rot 二义消解 / 文字朝外校准表全查 / 几何发现 / extractor。
 
 import (

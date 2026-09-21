@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "skills/easyeda-agent/references/examples/260919-at32f415"
+EXAMPLE = ROOT / ".agents/skills/easyeda-agent/references/examples/260919-at32f415"
 
 
 def load(name: str) -> dict:

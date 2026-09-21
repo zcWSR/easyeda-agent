@@ -1,6 +1,6 @@
 package app
 
-// cmd_sch_zone_tidy.go — `sch zone-tidy`(设计契约 docs/schematic-layout-hierarchy.md §3)。
+// cmd_sch_zone_tidy.go — `sch zone-tidy`(设计契约 docs/cli/schematic.md §3)。
 //
 // 组间叠加布局:把一个功能区(`sch zones` claim)内的每个持久化组 —— 以及未入组的
 // 认领散件(临时单件组,同 zone-move 语义)—— 当作刚体,在该区的区带(band)内重新

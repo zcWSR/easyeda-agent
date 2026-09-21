@@ -14,7 +14,7 @@ const expressions = [...patch.matchAll(/^\s+- !!js ("[^\n]+")\s*$/gm)]
 assert.equal(expressions.length, 2, 'expected MCP args and Skill directory expressions');
 const targets = [
   { expression: expressions[0], relative: 'node_modules/easyeda-agent-dsh/mcp/src/server.mjs' },
-  { expression: expressions[1], relative: 'node_modules/easyeda-agent-dsh/skills/easyeda-agent' },
+  { expression: expressions[1], relative: 'node_modules/easyeda-agent-dsh/.agents/skills/easyeda-agent' },
 ];
 
 // DSH evaluates !!js in with(ctx), without injecting a CommonJS require.

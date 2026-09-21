@@ -6,7 +6,7 @@
 #      工具以 mcp__easyeda__easyeda_* 命名。dsh-mcp-client 是 dsh 安装目录的
 #      in-box 插件，无需安装（走 $DSH_HOME/profiles/node_modules fallback）。
 #   2. easyeda-skill-fs —— 独立的 dsh-skill-filesystem 实例（providerName: easyeda），
-#      只扫本包内 skills/easyeda-agent，把 agent skill 注册进 global layer。
+#      只扫本包内 .agents/skills/easyeda-agent，把 agent skill 注册进 global layer。
 #      web 下 host 的 skill-filesystem 被官方 bundle 禁用（preset 自有发现），
 #      所以这里用 includeDefaultRoots: false 的隔离实例，不与预设冲突。
 #
@@ -35,4 +35,4 @@
         providerName: easyeda
         includeDefaultRoots: false
         customSkillDirs:
-          - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('node_modules/easyeda-agent-dsh/skills/easyeda-agent', baseUrl))"
+          - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('node_modules/easyeda-agent-dsh/.agents/skills/easyeda-agent', baseUrl))"

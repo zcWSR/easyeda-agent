@@ -165,7 +165,7 @@ exact 数字」；那种写法在这里是毒药：度量本来就是要被校�
 
 ## 一条给后人的更正
 
-#167 原文说把好板「收进 `skills/easyeda-agent/scripts/tests/`」——**那是错的**。
+#167 原文说把好板「收进 `.agents/skills/easyeda-agent/scripts/tests/`」——**那是错的**。
 那个 harness（`run.py`）是原理图 linter 专用，`check_fixtures` 会无条件把
 `fixtures/*.json` 喂给 `lint.py`，塞一份 PCB dump 进去会直接崩。金标准板走 Go 侧
 `testdata`，也就是这里。

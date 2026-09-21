@@ -1,7 +1,7 @@
 package app
 
 // cmd_sch_group_tidy.go — `sch group tidy`:组内布局计算(设计契约
-// docs/schematic-layout-hierarchy.md §1;三层体系 Sheet→Zone→Group→Primitive
+// docs/cli/schematic.md §1;三层体系 Sheet→Zone→Group→Primitive
 // 的 Group 层 tidy 能力)。
 //
 // v1 patterns:
@@ -1493,7 +1493,7 @@ func newSchGroupTidyCommand(cfg *appConfig, window *string, stdout, stderr io.Wr
 	c := &cobra.Command{
 		Use:   "tidy",
 		Short: "组内布局计算:双旗无源件竖放上电下地文字朝外,netport 水平化(默认 dry-run)",
-		Long: `组内布局计算(设计契约 docs/schematic-layout-hierarchy.md §1,Group 层 tidy)。
+		Long: `组内布局计算(设计契约 docs/cli/schematic.md §1,Group 层 tidy)。
 
 patterns(--pattern):
   auto(默认)  逐件判型:每 pin 的目标旗从现有连接读(net+旗类型)——

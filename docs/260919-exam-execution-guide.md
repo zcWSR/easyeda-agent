@@ -168,8 +168,8 @@ SWD 的实际顺序是 H1.1=GND、H1.2=PA14/CLK、H1.3=PA13/DIO、H1.4=+3V3。�
 旧目录中的“新配置入口仅离线验证”已过时；`live-validation.json` 已补入本轮 LDO、模块候选、
 浏览器重开复核和 U3 恢复事实。
 一次重载成功也不能证明所有宿主加载故障已根治。来源见
-[PCB 配置样例](../skills/easyeda-agent/references/pcb-config.md)、
-[现场摘要](../skills/easyeda-agent/references/examples/260919-at32f415/live-validation.json)、
+[PCB 配置样例](../.agents/skills/easyeda-agent/references/pcb-config.md)、
+[现场摘要](../.agents/skills/easyeda-agent/references/examples/260919-at32f415/live-validation.json)、
 [布局独立核查](reviews/2026-09-20-260919-placement-independent.md)。
 
 ## 接下来按小样例推进

@@ -18,7 +18,7 @@ develop + regression-test the connector against a LIVE editor, hands-free:
    (chrome-devtools MCP) the agent opens the web editor, opens a project by
    `#id=<projectUuid>`, and waits for the connector to attach — no manual clicks.
    The agent-facing SOP (exact steps, retries, pitfalls) is
-   [`skills/easyeda-agent/references/environment-setup.md`](../skills/easyeda-agent/references/environment-setup.md);
+   [`.agents/skills/easyeda-agent/references/environment-setup.md`](../.agents/skills/easyeda-agent/references/environment-setup.md);
    §1–4 below are the manual equivalent.
 2. **Iterate the connector fast** — edit `extension/src`, `make eext`, then
    **hot-reload** into the running editor via IndexedDB (§5) — no uninstall /
@@ -34,7 +34,7 @@ develop + regression-test the connector against a LIVE editor, hands-free:
    a GitHub issue labeled `ready-for-agent`, let ClawFlow implement + open a PR,
    then **you merge and live-verify** (the operator can't do runtime acceptance —
    see the advisory-loop section at the bottom). The rolling gap/roadmap ledger is
-   [`optimization-loop.md`](optimization-loop.md).
+   [2026-07 历史探针记录](reviews/2026-07-esp32mini-findings.md).
 
 ## TL;DR loop
 
