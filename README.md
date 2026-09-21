@@ -176,6 +176,10 @@ easyeda health
 easyeda update --check --exit-code  # 可选：安装版本对账
 ```
 
+项目主线要求 **EasyEDA Pro V4**，推荐升级到已验证的 **V4.1.60 或更新 V4**。
+`easyeda health` 会在 `hostCompatibility` 中单独报告宿主产品版本；V3 环境应先升级再做现场写入。
+V4 适配进度和边界见 [V4 开发台账](docs/v4-development.md)。
+
 版本差异会作为诊断输出，不作为设计动作的许可。Connector 若缺少当前动作或协议不兼容，
 按诊断升级对应组件；Skill 内容更新后让客户端重新加载它。
 

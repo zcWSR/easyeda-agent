@@ -530,10 +530,48 @@ agent 写脚本时排障成本比 JS API 的异常高得多。另外 KiCad 10 �
 **这是人工动作**,否则 agent 会去找一条不存在的命令。可自动化的那条出路是**拆页**
 (`sch page-new` + 把模块搬过去)。
 
+## 11. Run API Gateway 1.0.6：Skill 产品化更新，不是运行时升级（2026-09-17）
+
+嘉立创扩展广场已经展示 `Run API Gateway 1.0.6`，截图中的八项更新与官方仓库 `main`
+提交 `e55348027d1008a3d448b8b228fbca7b82dc8381`、`CHANGELOG.md` 一致；`extension.json`
+也已声明 `1.0.6`。但截至本次核对，GitHub Releases/tags 仍只有 `v1.0.5`，没有
+`v1.0.6` tag 或 Release。因此应表述为“市场已发布、GitHub 默认分支已准备 1.0.6，tag/Release
+尚未同步”，不能拿不存在的 GitHub tag 做源码可追溯证明。
+
+`v1.0.5..main` 的实际差异确认：`src/`、`package.json`、`package-lock.json` 均无变化，协议、
+端口、握手、重连和代码执行行为不变。变更集中在四份双语文档、manifest 元数据/本地化和
+删除旧 GitHub build workflow：README 只留快速路径，详细初始化和排障移入 FAQ；新增让
+Agent 一句话安装 `easyeda-api` Skill、手动 zip 备用安装、十种 AI 工具入口、显式
+`/easyeda-api skill` 示例，以及 PowerShell/cmd/macOS-Linux、代理和端口冲突排查。
+
+真正持续演进的是独立的官方 [`easyeda-api-skill`](https://github.com/easyeda/easyeda-api-skill)：
+本次读取版本为 `1.1.36`，包含 120+ class、62 enum、70 interface 的 API 参考，另有
+`format/project|schematic|pcb` 文档源码格式说明和 Node bridge。官方由此明确采用“稳定薄
+Connector + 快速迭代 Skill/参考资料”的产品分层；网关本身仍是允许 Agent 下发任意 JS 的
+通用执行通道，不具备我们的 typed action、写前守卫、Apply journal 和严格回读门禁。
+
+可吸收项按优先级：
+
+1. **短 README + 深 FAQ。** 用户首页只保留最短成功路径，把代理、端口、安装目录、重启/重扫、
+   手动启动等细节集中到故障排查；不要让完整架构说明淹没首次安装。
+2. **“让 Agent 代装”作为一级入口。** 为 Codex、Claude Code、OpenCode/Cursor 等给出可直接复制的
+   一句话提示，同时保留 `install.sh`、Release `skills.tar.gz` 直链和明确的手动解压目标；安装后
+   要求重新读取 Skill/新开会话。
+3. **显式 Skill 唤起示例。** 用“使用 easyeda-agent 检查当前原理图/完成某个明确任务”替代模糊的
+   “EDA 启动”；不照搬只在特定客户端成立的 `/easyeda-api skill` 语法。
+4. **把代理与端口身份校验写进用户向排障。** 官方 FAQ 已把网络代理和端口冲突提升为独立条目；
+   我们应继续强调扫描 `60832-60841` 后还要核对服务 identity、版本与窗口，不只检查端口打开。
+5. **把官方 Skill 作为第二上游数据源。** 除 `pro-api-types` 外，可定期 diff 它的 API reference 和
+   `format/` 文档以发现新增/订正；它们仍是声明性证据，最终能力必须经当前 EasyEDA build 实测。
+
+明确不吸收：不退回任意 JS 作为默认写路径，不改回官方 `49620-49629` 端口段，不删除我们的
+发布/校验自动化，也不因文档列出某 API 就跳过 runtime probe。1.0.6 没有提供新的布局、布线、
+DRC 或图元 API，不能据此调整功能支持矩阵。
+
 ## 来源
 
 - [EasyEDA 官方 GitHub 组织](https://github.com/easyeda) — 全部 eext-* 扩展开源
-- [eext-run-api-gateway](https://github.com/easyeda/eext-run-api-gateway) · [pro-api-sdk](https://github.com/easyeda/pro-api-sdk) · [eext-kirouting-integration](https://github.com/easyeda/eext-kirouting-integration) · [eext-balance-copper](https://github.com/easyeda/eext-balance-copper) · [eext-ai-device-standardization](https://github.com/easyeda/eext-ai-device-standardization) · [eext-netlist-explorer](https://github.com/easyeda/eext-netlist-explorer) · [eext-export-design-report](https://github.com/easyeda/eext-export-design-report)
+- [eext-run-api-gateway](https://github.com/easyeda/eext-run-api-gateway) · [easyeda-api-skill](https://github.com/easyeda/easyeda-api-skill) · [pro-api-sdk](https://github.com/easyeda/pro-api-sdk) · [eext-kirouting-integration](https://github.com/easyeda/eext-kirouting-integration) · [eext-balance-copper](https://github.com/easyeda/eext-balance-copper) · [eext-ai-device-standardization](https://github.com/easyeda/eext-ai-device-standardization) · [eext-netlist-explorer](https://github.com/easyeda/eext-netlist-explorer) · [eext-export-design-report](https://github.com/easyeda/eext-export-design-report)
 - [EasyEDA Pro API 文档](https://prodocs.easyeda.com/en/api/guide/index.html) · 权威类型定义 `@jlceda/pro-api-types@0.2.63`
 - [嘉立创EDA扩展广场](https://extensions.oshwhub.com/)
 - **KiCad**（§9）：[kicad-source-mirror](https://github.com/KiCad/kicad-source-mirror)（只读镜像，不收 PR）· 上游 [gitlab.com/kicad/code/kicad](https://gitlab.com/kicad/code/kicad) · 本机实跑 KiCad 10.0.1（`pcbnew` Python + `kicad-cli`），对照用例 `motobox/hardware/box-v2/rev-a` §1

@@ -915,7 +915,8 @@
         "只读回读确认 U3 已绑定 C2890616、OLED-SMD_ST7735S 与 3D model 55cc08024bd249a298d835f2dd067767；这些不是 Agent 绘制的",
         "Agent 新增的唯一几何是未绑定个人库副本中的一个 no-components region；现有 source footprint 的原位保存尝试返回 partial",
         "library list 证明 source library 0819f05c4eef4c71ace90d822a990e87 是不可写 systemLibraryUuid；sch/PCB U3 已通过 typed uniqueId 修复恢复为同一 gge60",
-        "现场负例：按 U3 bbox 创建普通 top-level no-components region 后，DRC 新增 1 个 Device to Prohibited Region，冲突对象是 region 与 U3 自身；已 typed 删除并保存重载，region=0、DRC恢复216"
+        "现场负例：按 U3 bbox 创建普通 top-level no-components region 后，DRC 新增 1 个 Device to Prohibited Region，冲突对象是 region 与 U3 自身；已 typed 删除并保存重载，region=0、DRC恢复216",
+        "系统封装复制到当前工程库的带分类/不带分类两次 typed 调用均由宿主以 EDA_CALL_FAILED 拒绝，没有返回目标 UUID；组合能力标 unsupported 并在本 Demo 跳过"
       ],
       "rationale": "封装级禁元件区与铜禁布区不同；增加区域必须保持现有 device、footprint、3D model 关联不变",
       "knownErrorsAndFixes": [
@@ -932,13 +933,13 @@
           "fix": "先做 owner 自违规 DRC 负例；若 region 与 owner 器件互相报禁放冲突，立即 typed 删除并保存重载，不得忽略该 DRC。需要 owner-aware 实例能力。"
         }
       ],
-      "verificationStatus": "offline-verified",
+      "verificationStatus": "unsupported",
       "pending": [
-        "补齐并验证保持现有 U3 绑定的实例级/工程级 typed no-components region；不写系统库，不复制或重绑现有模型",
-        "保存后回读 region，并确认 device、footprint、3D model 关联及 PCB U3 实例均未变化"
+        "未来若宿主/API 能力变化，先补齐并验证保持现有 U3 绑定的当前工程级 no-components region；当前 Demo 已明确跳过",
+        "恢复支持后保存回读 region，并确认 device、footprint、3D model 关联及 PCB U3 实例均未变化"
       ],
       "referenceExample": "layout-candidates.md",
-      "liveEvidence": "u3-existing-model-binding-live.json 证明模型绑定；u3-identity-reconcile-live.json 证明 sch/PCB U3 均为 gge60；u3-instance-region-negative-live.json 证明普通 top-level region 会让 U3 自身违规，并记录 typed 删除、保存重载、region=0、DRC恢复216。个人库副本只证明 region 接口；当前实例禁放区仍未完成。"
+      "liveEvidence": "u3-existing-model-binding-live.json 证明模型绑定；u3-identity-reconcile-live.json 证明 sch/PCB U3 均为 gge60；u3-instance-region-negative-live.json 证明普通 top-level region 会让 U3 自身违规并完整回滚；live-validation.json 的 projectCopyNegative 证明工程库复制重复失败并记录 unsupported/skip 决定。个人库副本只证明 region 接口；当前实例禁放区仍未完成。"
     },
     {
       "id": "LAY-01",

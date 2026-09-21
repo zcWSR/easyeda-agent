@@ -2,6 +2,9 @@
 
 本文件记录当前可用能力；typed action 的权威来源是 `make actions`，实现映射见 `internal/protocol/actions.go` 与 `extension/src/actions.ts`。战略优先级见 [`ROADMAP.md`](ROADMAP.md)，生态调研见 [`ecosystem-survey.md`](ecosystem-survey.md)。
 
+> 主线宿主已切换到 EasyEDA Pro V4；推荐 V4.1.60+。当前 V4 状态、P0 门禁和现场验证边界见
+> [`v4-development.md`](v4-development.md)。V3 历史实测记录仅作回归参考，不再代表当前主线。
+
 ## 当前基线
 
 - PCB 配置 CLI：`pcb config get/clearance/track/via/bind/net-color`，覆盖考试中的安全间距、线宽规则（含复制新建 PWR）、过孔尺寸、现有网络类绑定和网络 RGB 颜色；支持单位换算、dry-run、保留其余配置及严格写后回读。2026-09-20 已在 Web 3.2.203 的考试 PCB `PCB1_1` 完成实际写入、保存、重载、幂等重放和完整恢复，规则、网络及 69 个组件最终与基线一致。固定 ESP32 回归已验证配置与四层/铜面持久化，但整板 DRC 因启发式走线穿越天线禁区/机械槽、连接错误及内层 PLANE 类型重载回退而未通过，不能记作完整 E2E；网格/吸附等全局偏好仍 unsupported。
@@ -40,7 +43,7 @@
 | 完整 DRC 规则 | `pcb.drc.rules.set` / `pcb drc-rules-set --from` | 读取完整规则副本后写入；支持 dry-run、部分失败回滚和最终回读。 |
 | 原生网络类 | `pcb.netclass.list/create` / `pcb net-class list/create` | 创建并回读真实 EasyEDA 网络类、网成员和规则关联；与启发式 `pcb net-classes` 区分。 |
 | 字体 | `pcb.silk.create/modify` / `pcb silk-add/set --font-family` | 写入后回读实际字体；modify 静默失败会被识别。 |
-| 封装区域 | `footprint.region.create` / `lib footprint region` | 在可写封装副本创建区域并核对 layer、rule、线宽、锁定和 polygon；宿主忽略可选 name 时保留已验证区域并报警，材料差异或保存失败才回滚。 |
+| 封装区域 | `footprint.region.create` / `lib footprint region` | 在已可写封装中创建区域并核对 layer、rule、线宽、锁定和 polygon；宿主忽略可选 name 时保留已验证区域并报警，材料差异或保存失败才回滚。系统库封装无损复制到**当前工程库**后再写 region 的组合路径在 EasyEDA 4.1.60 两次现场调用均失败，当前标 `unsupported`；个人库试验不能外推为当前工程 U3 已完成。 |
 | 模块候选布局 | `pcb layout-plan --from --board --module --candidates --out` | footprint anchor 为写坐标；bbox/pads/板框中心线用于变换、避让与事实测量；报告最小间隙及对应对象对，输出目录整体替换，候选绑定原始输入 SHA256。 |
 
 执行许可已从版本、workflow stage、布局 tier 和 stale-read 状态中移除。旧接口继续返回

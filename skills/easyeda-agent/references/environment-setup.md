@@ -3,6 +3,15 @@
 仅在首次使用、升级或连接异常时读取。本地 IR 检查和离线规划不需要打开 EasyEDA；
 实际读写、DRC 和原生导图需要已连接的编辑器。
 
+## EasyEDA Pro V4 主线要求
+
+项目主线宿主为 EasyEDA Pro V4，最低识别基线 4.0.0，推荐使用已验证的 4.1.60 或更新 V4。
+运行 `easyeda health` 后检查 `hostCompatibility`：V3 的 `block` 表示停止现场写入并升级；较老
+V4 的 `warn` 表示可读但应优先升级，未经 save→reload→readback 不能宣称写入兼容。宿主产品
+版本不参与 CLI/daemon/Connector 版本对齐；`extension.json` 的 `engines.eda ~3.2.0` 是扩展
+API 引擎版本，官方 V4 SDK 仍使用该 API 线，不得机械改成 4.x。开发状态见
+[`docs/v4-development.md`](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/v4-development.md)。
+
 ## 安装与升级
 
 ### 本地开发版（用户明确选择时）
@@ -119,7 +128,7 @@ Web 编辑器并核对新窗口/运行版本。用户指定 Web 时绝不改开�
 “允许外部交互”。可使用现有浏览器或桌面工具完成已授权的打开操作；只有登录、权限
 或界面操作确实无法代办时才请用户介入，不因连接失败擅自换到另一个宿主。
 
-V3.2 桌面版的权限入口：**高级 → 扩展管理器 → 已安装 → 选中连接器**。状态按钮的
+V4 的权限入口仍从**高级 → 扩展管理器 → 已安装 → 选中连接器**进入。旧 V3.2 的状态按钮也使用
 `Enabled` / `Disabled` 表示**当前状态**（点击切换），不是动作；只有处于 `Enabled` 时才显示
 `Config` 页签，“允许外部交互 / Allow interactive with external”和“Show at header menu”
 都在该页签。未开启外部交互时平台的 `sys_WebSocket.register()` 直接抛错，连接器侧只表现为

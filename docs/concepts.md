@@ -552,3 +552,19 @@ Z 型优先可读顺序，不承诺最少页数；纸张和框内留白不能为
 共享端点或 T 接合法，命名引线重复覆盖已有导线则应改接出点。
 内容包络变小不保证含标题的框面积同比变小，更不等于 A4 已放得下；最终仍由实测纸张的
 compose 排版验证。固定预览需显示端口占位和真实接点，不能把绘图简化误当成布局压缩。
+
+## V4 宿主与新数据模型
+
+EasyEDA Pro 产品版本、扩展 API 引擎版本和 easyeda-agent 发布版本是三个独立概念。
+项目主线宿主从 2026-09-21 起为 EasyEDA Pro V4；`extension.json` 的 `engines.eda: ~3.2.0`
+仍是官方扩展 API 引擎约束，不应随产品版本机械改成 4.x。`easyeda health` 分别报告宿主兼容性
+和 CLI/daemon/Connector 一致性，两者都不代替对象级回读。
+
+V4 的多符号、多器件、多封装是“一个逻辑库记录关联多个可选实现”的变体模型，不等同于
+传统多单元符号的 `subPartName`。canonical schema 没有显式 variant ID、选择规则与映射时，
+必须在写入前拒绝，不能取数组第一项。引脚 `otherProperty`、逐层 pad stack、槽孔形状和 3D body
+属于对象保真字段；读不到时标为不完整，不能以基础坐标/网络相同代替。
+
+V4 自定义位号是项目级格式策略，不再等同于固定的“字母前缀+数字”。canonical Document 可用
+`designatorPolicy:{mode:"custom",pattern:"^...$"}` 声明一个锚定 RE2 格式；工具只验证和原样保留，
+不猜编辑器内部的递增规则。省略策略仍使用 classic 规则，历史功能名必须先迁入 role 再分配编号。

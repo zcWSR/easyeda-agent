@@ -37,6 +37,8 @@ metadata:
    [environment-setup.md](references/environment-setup.md) 并运行显式版本对账。页面已打开不等于
    connector 已连接；`health.windows` 出现目标工程/文档后才访问 EDA。同一窗口的 typed 调用
    串行执行，subagent 只并行做离线分析或在主 Agent 停止访问窗口时做只读核查。
+   项目主线要求 EasyEDA Pro V4；`hostCompatibility` 为 V3/block 时停止现场写入并请用户升级，
+   V4 低于推荐 4.1.60 时提示升级。产品版本与 `engines.eda` API 版本不可混为一谈。
 4. 保留原始快照，在副本或参数 JSON 中替换样例参数。先确定连接与功能所有权，再计算几何；
    使用现有 typed action、Cobra 子命令和 `easyeda apply`，不另造执行语言。
 5. 可 dry-run 的动作先看计划；写入后读取实际对象与差异。遇部分成功、超时或 stale ID，
@@ -75,13 +77,17 @@ metadata:
 - netflag 必须通过真实非零导线连接引脚。保留明确 NC；未知或缺失连接不能自动改成 NC。
   多引脚同功能器件逐脚核对，例如 AMS1117 的 VOUT/TAB、USB-C 重复 D+/D- 脚。
 - 位号参与遮挡和入框；型号、参数、描述等非位号属性保留，但不扩大页面碰撞包络。
+- V4 多符号/多器件/多封装在 canonical variant selector 完成前必须 fail-closed，不能默认取
+  第一个变体。V4 自定义位号须在源数据声明锚定 pattern，只验证/保留，不猜递增规则。
 - DRC、`check`、连通率、几何测量和评分各自只说明其覆盖事实。缺测、读回失败、未保存或
   未重开核验时标记 `incomplete`，截图仅用于发现遗漏。
 - PCB 先满足题目或机械约束，再安排接口、关键路径、核心与外围。固定尺寸题先板框和固定件；
   无固定尺寸的自建板可先排功能模块，再据占地与布线空间收紧板框。
 - 已有器件的 device、footprint、3D model 绑定正确时，添加 region/keepout 必须保持关联不变；
   不得为增加区域默认复制或重绑整套模型。系统库不可写，须在创建几何前拒绝；保持绑定的
-  实例/工程 region 未经现场验证时标 `incomplete`。
+  实例/工程 region 未经现场验证时标 `incomplete`。若“系统封装无损复制到当前工程库”已在
+  目标宿主重复实测失败，则将这条组合能力标 `unsupported` 并跳过该写入；可用实测封装外形
+  继续参数化布局避让，但必须保留未满足考点，不得把几何代理写成已有封装禁放区。
 - PCB 模块布局先 `pcb dump --out board.json`，再运行 `pcb layout-plan --from layout.json
   --board board.json --module <id> --candidates 3 --out <dir>`。输入明确成员、固定轴、允许角度及
   `member pad → owner pad`；同网去耦不得按最近焊盘重新分配。候选报告位置、板边、距离和

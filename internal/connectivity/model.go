@@ -10,14 +10,23 @@ import (
 )
 
 type Document struct {
-	SchemaVersion string       `json:"schemaVersion"`
-	ProjectID     string       `json:"projectId,omitempty"`
-	DocumentID    string       `json:"documentId,omitempty"`
-	Components    []Component  `json:"components"`
-	Nets          []Net        `json:"nets"`
-	Connections   []Connection `json:"connections"`
-	Modules       []Module     `json:"modules,omitempty"`
-	Issues        []Issue      `json:"issues,omitempty"`
+	SchemaVersion string `json:"schemaVersion"`
+	ProjectID     string `json:"projectId,omitempty"`
+	DocumentID    string `json:"documentId,omitempty"`
+	// DesignatorPolicy keeps V4 custom reference formats explicit. Omitted (or
+	// mode=classic) preserves the historical letters+digits rule. Custom mode
+	// validates and preserves references but never invents the platform's
+	// configured increment sequence.
+	DesignatorPolicy *DesignatorPolicy `json:"designatorPolicy,omitempty"`
+	Components       []Component       `json:"components"`
+	Nets             []Net             `json:"nets"`
+	Connections      []Connection      `json:"connections"`
+	Modules          []Module          `json:"modules,omitempty"`
+	Issues           []Issue           `json:"issues,omitempty"`
+}
+type DesignatorPolicy struct {
+	Mode    string `json:"mode"`              // classic | custom
+	Pattern string `json:"pattern,omitempty"` // anchored RE2 expression in custom mode
 }
 type Issue struct {
 	Code        string `json:"code"`
@@ -198,6 +207,9 @@ type Port struct {
 func (d *Document) Validate() error {
 	if d.SchemaVersion != "1.4" {
 		return fmt.Errorf("schemaVersion is required")
+	}
+	if _, err := d.designatorRegexp(); err != nil {
+		return err
 	}
 	comps := map[string]bool{}
 	refs := map[string]bool{}

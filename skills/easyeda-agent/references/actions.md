@@ -65,8 +65,8 @@ Playbook 使用 `version:1`、`meta` 和有序 `steps`。每步只选一种执�
 | CLI / action | 必要边界 |
 |---|---|
 | `doc ls/switch/open`，`document.current/open` | 使用工程和页面目标；同名页用 UUID。CLI 同时核对活动 UUID 与对象枚举 settle；只出现目标标签、但对象仍不可读时失败并要求停止写入、修复 typed reload/open 后复测 |
-| `sch list`，`schematic.components.list` | `includeDeviceIdentity` 为重放解析真正库 UUID；`includePins/BBox/Wires` 取得几何基线。非激活页可能是浅数据 |
-| `sch place`，`schematic.component.place` | 使用库 UUID；自动回填可确定的 C 号与空属性是 best-effort，须检查警告。没有 place 自定义属性输入契约 |
+| `sch list`，`schematic.components.list` | `includeDeviceIdentity` 为重放解析真正库 UUID；`includePins/BBox/Wires` 取得几何基线。V4 `pins[].otherProperty` 保留引脚文本属性；字段缺失不能当空对象。非激活页可能是浅数据 |
+| `sch place`，`schematic.component.place` | 使用库 UUID；自动回填可确定的 C 号与空属性是 best-effort，须检查警告。没有 place 自定义属性输入契约；V4 复数 symbol/device/footprint association 在 canonical selector 完成前写前拒绝，不能取第一项 |
 | `sch modify`，`schematic.component.modify` | `otherProperty`/`customAttributes` 二选一，合并保留原属性。`verified:false` 需要再回读，不能当已验证 |
 | `sch prim-delete/clear` | 删除后按 ID 或完整图元清单验证；默认保护 sheet。未知枚举或幸存图元不能报告清空 |
 | `sch connect/autoconnect`，`schematic.power.connect_pin` | 必须生成非零短线，flag 不能与 pin 重叠；connect 非幂等，autoconnect 可跳过已连接目标网 |

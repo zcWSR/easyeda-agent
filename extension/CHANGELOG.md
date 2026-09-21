@@ -2,6 +2,8 @@
 
 ## [1.5.3-dev.3] — 2026-09-20 (local development)
 
+- Move the supported EasyEDA product mainline to V4 (recommended V4.1.60+), expose a separate host compatibility report in `easyeda health`, and update the Connector type baseline to `@jlceda/pro-api-types` 0.4.25 without confusing the V4 product version with the official 3.2 extension API engine.
+- Preserve V4 schematic pin `otherProperty` in component snapshots, reject plural symbol/device/footprint variant shapes before mutation, and support explicit custom-designator validation/preservation without guessing the editor's increment policy.
 - Make `pcb stackup set` read back copper count and every requested inner-layer type. Rejected layer writes now return unverified/partial evidence and a non-zero CLI status instead of a false success; repeated matching requests are no-op verified.
 - Accept only relative IEEE roundoff in PCB rule write/readback and idempotence; keep exact source-drift checks and reject missing fields, unit changes and real value differences. Found on Web 3.2.203 during live clearance write.
 - Add typed `pcb.net.color.set` and `pcb config net-color` with hex RGB input, preserved alpha, dry-run and strict readback failure reporting.

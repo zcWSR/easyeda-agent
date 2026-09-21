@@ -163,6 +163,7 @@ export function serializeComponent(component: SchComponent): Record<string, unkn
  * @returns a plain JSON record
  */
 function serializePin(pin: SchPin): Record<string, unknown> {
+	const readOtherProperty = (pin as unknown as { getState_OtherProperty?: () => Record<string, string | number | boolean> | undefined }).getState_OtherProperty;
 	return {
 		primitiveId: pin.getState_PrimitiveId(),
 		pinNumber: pin.getState_PinNumber(),
@@ -171,6 +172,11 @@ function serializePin(pin: SchPin): Record<string, unknown> {
 		y: pin.getState_Y(),
 		rotation: pin.getState_Rotation(),
 		noConnected: pin.getState_NoConnected(),
+		// V4 exposes display/text metadata on the pin itself. Preserve it in
+		// snapshots so diff/copy/rebuild code cannot silently erase information
+		// that did not exist in the old public type package. The capability guard
+		// keeps historical recorded fixtures readable.
+		otherProperty: typeof readOtherProperty === 'function' ? readOtherProperty.call(pin) : undefined,
 	};
 }
 
@@ -1385,6 +1391,9 @@ export const schematicComponentPlace: Handler = async (payload) => {
 	const addIntoBom = optionalBoolean(payload, 'addIntoBom');
 	const addIntoPcb = optionalBoolean(payload, 'addIntoPcb');
 	const designator = optionalString(payload, 'designator');
+
+	// Read-only V4 model guard must run before sch_PrimitiveComponent.create.
+	await preflightV4DeviceVariant(libraryUuid, uuid);
 
 	let component;
 	try {
@@ -5286,6 +5295,14 @@ function requireLibraryRef(payload: Record<string, unknown>, key: string): { uui
 }
 
 const libraryDeviceCreate: Handler = async (payload) => {
+	for (const key of ['symbols', 'footprints', 'devices', 'symbolVariants', 'footprintVariants', 'deviceVariants']) {
+		if (payload[key] !== undefined) {
+			throw new ActionError(
+				ErrorCodes.PRECONDITION_REFUSED,
+				`V4 multi-variant field "${key}" is not representable by the current canonical Device schema. Refusing before mutation instead of selecting the first variant.`,
+			);
+		}
+	}
 	const requestedName = requireString(payload, 'name');
 	const symbol = requireLibraryRef(payload, 'symbol');
 	const footprint = payload.footprint === undefined ? undefined : requireLibraryRef(payload, 'footprint');
@@ -5317,6 +5334,47 @@ const libraryDeviceCreate: Handler = async (payload) => {
 		throw edaError(err, 'Failed to create device library asset.');
 	}
 };
+
+/**
+ * V4 can return plural symbol/device/footprint associations that the public
+ * type package still models as one association. Detect plural runtime shapes
+ * conservatively and stop before placement; choosing index 0 would be silent
+ * data loss. Traditional multi-unit symbols use subPartNames plus an explicit
+ * subPartName and remain supported — they are not the new plural association.
+ */
+function unsupportedV4DeviceVariant(device: unknown): string | undefined {
+	if (!device || typeof device !== 'object') return undefined;
+	const root = device as Record<string, unknown>;
+	const association = root.association && typeof root.association === 'object'
+		? root.association as Record<string, unknown>
+		: {};
+	for (const [owner, record] of [['device', root], ['association', association]] as const) {
+		for (const key of ['symbols', 'footprints', 'devices', 'symbolVariants', 'footprintVariants', 'deviceVariants']) {
+			const value = record[key];
+			if (Array.isArray(value) && value.length > 1) return `${owner}.${key} has ${value.length} variants`;
+		}
+		for (const key of ['symbol', 'footprint', 'device']) {
+			const value = record[key];
+			if (Array.isArray(value) && value.length > 1) return `${owner}.${key} has ${value.length} variants`;
+		}
+	}
+	return undefined;
+}
+
+async function preflightV4DeviceVariant(libraryUuid: string, uuid: string): Promise<void> {
+	const api = (eda as unknown as { lib_Device?: { get?: (uuid: string, libraryUuid: string) => Promise<unknown> } }).lib_Device;
+	if (typeof api?.get !== 'function') return;
+	let device: unknown;
+	try { device = await api.get(uuid, libraryUuid); }
+	catch { return; } // identity/readback code retains its existing error handling
+	const issue = unsupportedV4DeviceVariant(device);
+	if (issue) {
+		throw new ActionError(
+			ErrorCodes.PRECONDITION_REFUSED,
+			`V4 multi-variant device is unsupported (${issue}). Placement was not attempted; add a canonical variant selector and typed API first.`,
+		);
+	}
+}
 
 const libraryDeviceGet: Handler = async (payload) => {
 	const uuid = requireString(payload, 'uuid');

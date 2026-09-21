@@ -581,7 +581,7 @@
     }
   },
   "lcdFootprintComponentKeepout": {
-    "status": "partial-live-verified",
+    "status": "unsupported-skipped-for-demo",
     "existingU3Binding": {
       "data": "u3-existing-model-binding-live.json",
       "device": "C2890616 / N096-1608TBBIG11-H13",
@@ -604,8 +604,8 @@
       "hostIgnoredOptionalName": true
     },
     "instanceBinding": {
-      "completed": true,
-      "reason": "个人库副本不绑定；原理图 U3 已通过 typed uniqueId 修改恢复为 PCB U3 使用的 gge60，device/footprint/3D model 保持",
+      "completed": false,
+      "reason": "原理图 U3 已恢复为 PCB U3 使用的 gge60，但这只证明 identity；个人库副本未绑定，当前实例仍没有题定封装禁放区",
       "recoveryData": "schematic-u3-recovery-live.json",
       "identityData": "u3-identity-reconcile-live.json",
       "pcbImportChangesIdentityBlockCleared": true,
@@ -617,7 +617,49 @@
       "writable": false,
       "evidence": "typed library list 返回该 UUID 为 systemLibraryUuid；此前原位 pcb_Document.save=false"
     },
-    "correctNextStep": "禁止继续写系统封装、默认重绑个人副本或用普通板级 region 冒充实例禁放。补齐并现场验证带 owner 豁免的实例级/工程级 typed region；若官方 API 无法表达，则保持 incomplete。",
+    "projectCopyNegative": {
+      "status": "unsupported-live-verified-negative",
+      "capturedAt": "2026-09-21T01:43:38+08:00",
+      "host": "EasyEDA Pro 4.1.60",
+      "source": {
+        "footprintUuid": "c05d828b99d949d68457ec5951eaa4eb",
+        "libraryUuid": "0819f05c4eef4c71ace90d822a990e87",
+        "name": "OLED-SMD_ST7735S",
+        "classification": [
+          "OLED-SMD"
+        ],
+        "readbackSucceeded": true
+      },
+      "target": {
+        "scope": "project",
+        "libraryUuidReportedByHost": "project"
+      },
+      "officialSignatureMatched": "lib_Footprint.copy(footprintUuid, libraryUuid, targetLibraryUuid, targetClassification?, newFootprintName?)",
+      "attempts": [
+        {
+          "requestId": "req_2",
+          "classification": null,
+          "errorCode": "EDA_CALL_FAILED",
+          "errorMessage": "Failed to copy footprint library asset.",
+          "errorDetail": "[object Object]",
+          "durationMs": 849
+        },
+        {
+          "requestId": "req_3",
+          "classification": [
+            "OLED-SMD"
+          ],
+          "errorCode": "EDA_CALL_FAILED",
+          "errorMessage": "Failed to copy footprint library asset.",
+          "errorDetail": "[object Object]"
+        }
+      ],
+      "confirmedTargetUuid": null,
+      "currentU3Mutated": false,
+      "evidenceBoundary": "两次调用均到达已连接 Web EDA 并在返回目标 UUID 前失败；宿主只暴露 [object Object]，当前又没有按名称枚举工程封装的 typed 入口，因此不能继续盲重试，也不能宣称存在已确认副本。",
+      "demoDecision": "标记 unsupported 并跳过；只用 U3 实测外形作 Layout 避让代理，不把代理记为封装 region。"
+    },
+    "correctNextStep": "本 Demo 跳过该写入，以 U3 实测外形作为 Layout 避让代理并保留未满足考点。禁止继续写系统封装、默认重绑个人副本或用普通板级 region 冒充实例禁放；未来只有在项目级复制/owner-aware region 经现场验证后才恢复。",
     "evidenceBoundary": "已证明 U3 模型绑定和 sch↔PCB identity 正确、个人库副本可保存 region，也现场证明普通 top-level region 会让 owner U3 自身违规并已完整回滚；尚未证明当前 U3 实例具有题目要求的禁放区。",
     "topLevelInstanceRegionNegative": {
       "data": "u3-instance-region-negative-live.json",

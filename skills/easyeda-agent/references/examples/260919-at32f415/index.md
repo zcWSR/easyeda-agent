@@ -17,7 +17,8 @@
 [现场快照](layout-after-peripherals-live.json)，用户重开浏览器后的只读复核见
 [重开证据](layout-after-browser-reopen-verification-live.json)。U3 重绑定超时后的参数化恢复见
 [原理图恢复证据](schematic-u3-recovery-live.json)，恢复后的 sch↔PCB uniqueId 对账见
-[U3 identity 对账](u3-identity-reconcile-live.json)。
+[U3 identity 对账](u3-identity-reconcile-live.json)；工程库封装复制的两次现场失败与跳过决定见
+[现场摘要](live-validation.json) 的 `lcdFootprintComponentKeepout.projectCopyNegative`。
 
 ## 来源与已确认事实
 
@@ -40,8 +41,10 @@ no-components region 只在未绑定的个人库副本中保存；U3 的 source 
 保存重载后 69 件、13 脚网络和绑定均不变，因此该 identity 禁令已解除；本次没有实际运行
 `import-changes`。完整布线、丝印、泪滴和最终 PCB DRC 仍未验证。具体边界以
 `live-validation.json` 为准，不能把代表性步骤外推成完成态整板。
-当前 8 组模块候选和 19 件外围的布局写入已验证，但 U3 系统封装不可写，当前实例的禁放
-region 仍未完成。当前已用 typed `pcb stage-snapshot` 生成一张整板**预检查图**，画面非空、
+当前 8 组模块候选和 19 件外围的布局写入已验证。U3 系统封装不可写，且系统封装无损复制到
+当前工程库在带/不带分类的两次现场调用中均由宿主拒绝，因此该组合能力已标 `unsupported`，
+本 Demo 跳过封装 region 写入；当前实例的题定禁放区仍未完成。布局算法继续使用 U3 实测外形
+作为避让代理，但不能把代理记为考点通过。当前已用 typed `pcb stage-snapshot` 生成一张整板**预检查图**，画面非空、
 内容占比 96.22%，CLI 从落盘 PNG 补算 SHA256；但它保持属性可见，且不计入正式两轮自检。
 当前连续通过数仍为 0，不能称 Layout 完成，也尚未取得用户对当前回读版本的“OK”。缺口补齐后
 必须重新生成正式整板图：第 1 轮检查空间/模块关系/视觉异常，第 2 轮严格 save → reload → fresh dump → fresh
@@ -107,7 +110,7 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 | PCB-05 | 说明 p2 | 90×50mm、线宽 0.254mm、R3 真圆角、左下显示原点、锁定 | [固定机械样例](fixed-mechanics.md)；保存及整页刷新回读已 `live-verified` |
 | PCB-06 | 说明 p2 | 四孔、U6、CARD1 的固定题面坐标、角度和锁定 | 现场确认本批输入为 footprint anchor；六件刷新后坐标、角度和锁定保持 |
 | PCB-07 | 说明 p3 | CN1 只固定 y=42mm、180°，x 是自由参数 | 现场候选 x=69mm；题定 y/角度保持，rendered bbox 顶边约超 1.17mil 的冲突单独保留 |
-| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | 当前 U3 已实证绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model，sch↔PCB identity 已恢复为同一 `gge60`。其 source library 是不可写系统库，个人库副本 region 只是未绑定接口试验；不得写系统封装或为此默认重绑模型。[板级实例负例](u3-instance-region-negative-live.json) 又证明普通 top-level `no-components` region 会把 owner U3 自身报为违规，并已 typed 删除、保存重载和 DRC 对账。需补齐有 owner 豁免的实例/工程 typed 能力，不能完成就保持 `incomplete` |
+| PCB-08 | 说明 p3 | LCD 封装轮廓内禁止其他元件 | `unsupported / skipped`。当前 U3 已实证绑定 C2890616、OLED-SMD_ST7735S 和既有 3D model，sch↔PCB identity 已恢复为同一 `gge60`。系统源库不可写；[现场摘要](live-validation.json) 记录带/不带分类的 `lib_Footprint.copy` 都被宿主拒绝且没有返回目标 UUID；[板级实例负例](u3-instance-region-negative-live.json) 又证明普通 top-level `no-components` region 会让 owner U3 自身违规并已完整回滚。本 Demo 跳过 region 写入，仅用实测 U3 外形作布局避让代理；该考点保持未满足，不得 GUI 兜底或记为通过。 |
 
 ### 布局关系
 
@@ -145,8 +148,10 @@ LDO/DCDC 模块内部的输入/输出电容、局部 GND 回流及必要 EP/地�
 3. 按 PDF 的功能区和连线表达构建原理图，回读属性、连接、NC、`check` 与官方 DRC。
 4. 转入正确绑定的 PCB，确认 69 件和焊盘网；设置两层及真实规则/网络类，让间距与线宽参与后续布局。
 5. 建 90×50mm 板框和左下显示原点，放置并锁定孔、U6、CARD1；CN1 保留 x 自由。
-6. 建 LCD 元件禁放区，安排屏幕与板边器件；用 `pcb layout-plan` 按模块生成完整候选，
-   依据板框中心线、开口/关系、pad 距离和空隙选择，不能在现场逐件试摆。
+6. LCD 封装禁放区的当前工程组合能力已标 `unsupported`，本 Demo 跳过实际 region 写入并保留
+   未满足项；用 U3 实测 footprint bbox 作为候选计算的避让代理，安排屏幕与板边器件。再用
+   `pcb layout-plan` 按模块生成完整候选，依据板框中心线、开口/关系、pad 距离和空隙选择，
+   不能在现场逐件试摆，也不能把 bbox 代理记为封装 region 已完成。
 7. 围绕明确所属引脚生成 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 模块候选，同时预留
    电源主干和顶层回流；同网多个供电脚必须在输入中逐脚绑定。LDO/DCDC 的输入/输出电容、
    局部 GND 回流及必要 EP/地过孔可作为参数化整体先完成并回读，移动模块时一起重算。

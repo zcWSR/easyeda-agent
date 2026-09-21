@@ -826,6 +826,42 @@ test('library Device create refuses a malformed symbol ref before mutation', asy
 	finally { delete (globalThis as any).eda; }
 });
 
+test('V4 plural device variants fail closed before create or placement mutation', async () => {
+	let deviceCreates = 0;
+	let placements = 0;
+	(globalThis as any).eda = {
+		lib_Device: {
+			create: async () => { deviceCreates++; return 'DEV-NEW'; },
+			get: async () => ({
+				uuid: 'DEV-V4',
+				association: { footprints: [{ uuid: 'FP-A' }, { uuid: 'FP-B' }] },
+			}),
+		},
+		sch_PrimitiveComponent: {
+			create: async () => { placements++; return mockComponent(); },
+		},
+	};
+	try {
+		await assert.rejects(
+			() => runAction('library.device.create', {
+				name: 'MULTI', libraryUuid: 'LIB-D',
+				symbol: { uuid: 'SYM-1', libraryUuid: 'LIB-S' },
+				footprints: [{ uuid: 'FP-A', libraryUuid: 'LIB-F' }, { uuid: 'FP-B', libraryUuid: 'LIB-F' }],
+			}),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /multi-variant/.test(err.message),
+		);
+		await assert.rejects(
+			() => runAction('schematic.component.place', {
+				libraryUuid: 'LIB-D', uuid: 'DEV-V4', x: 100, y: 200,
+			}),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /multi-variant/.test(err.message),
+		);
+		assert.equal(deviceCreates, 0);
+		assert.equal(placements, 0);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
 test('library Device delete requires exact expected name and verifies absence', async () => {
 	let live: any = { uuid: 'DEV-1', name: 'EA_AGENT__TEST' };
 	let deleteCalls = 0;
@@ -1138,6 +1174,32 @@ test('components.list: includePins distinguishes empty success, unavailable data
 	finally {
 		delete (globalThis as any).eda;
 	}
+});
+
+test('components.list: V4 pin otherProperty is preserved in the snapshot', async () => {
+	const pin = {
+		getState_PrimitiveId: () => 'pin-1',
+		getState_PinNumber: () => '1',
+		getState_PinName: () => 'VCC',
+		getState_X: () => 100,
+		getState_Y: () => 200,
+		getState_Rotation: () => 0,
+		getState_NoConnected: () => false,
+		getState_OtherProperty: () => ({ NameVisible: true, NameFontSize: 9, Alias: 'POWER' }),
+	};
+	(globalThis as any).eda = {
+		sch_PrimitiveComponent: {
+			getAll: async () => [mockComponent({ PrimitiveId: 'u1', ComponentType: 'part', Designator: 'U1' })],
+			getAllPinsByPrimitiveId: async () => [pin],
+		},
+	};
+	try {
+		const res: any = await schematicComponentsList({ includePins: true, includePinNets: false });
+		assert.deepEqual(res.result.components[0].pins[0].otherProperty, {
+			NameVisible: true, NameFontSize: 9, Alias: 'POWER',
+		});
+	}
+	finally { delete (globalThis as any).eda; }
 });
 
 test('components.list: geometry-only pin reads do not compile a netlist; wire read failures remain unknown', async (t) => {

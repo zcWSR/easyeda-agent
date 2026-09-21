@@ -163,6 +163,10 @@ Give the following prompt to the agent together with the actual design request:
 ```text
 Use easyeda-agent to complete this EasyEDA Pro task.
 
+Use EasyEDA Pro V4. Version 4.1.60 or a newer V4 build is recommended; if
+easyeda health reports hostCompatibility=block for V3, stop live writes and
+upgrade the editor first.
+
 Before editing, confirm that these three parts use the same release version:
 1. easyeda CLI/daemon
 2. easyeda-agent Skill
