@@ -167,6 +167,10 @@ eext-fresh: ## bump patch + FRESH uuid (imports as new entry; delete the old one
 #     outage won't fail the release; retry with `make publish-skill VERSION=…`)
 _LDFLAGS = -s -w -X 'github.com/zhoushoujianwork/easyeda-agent/internal/version.Version=$(VERSION)'
 
+.PHONY: agent-check
+agent-check: ## validate repository Agent links, discovery and safe Skill installation
+	python3 -m unittest discover -s scripts/tests -p 'test_agent_skills.py'
+
 skill-check: ## validate tracked skill contents and installed-package local links (offline)
 	python3 scripts/pack-skill.py --check
 	python3 scripts/check-exam-examples.py

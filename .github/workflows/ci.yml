@@ -33,11 +33,12 @@ jobs:
         run: |
           make test
           make mcp-test
-      - name: Validate Skill and release helpers
+      - name: Validate Skill, Agent collaboration and release helpers
         run: |
           make lint-test
           make modules-audit
           make release-script-test
+          make agent-check
           make skill-check
           npx --yes skills-ref@latest validate skills/easyeda-agent
       - name: Test and build connector
