@@ -47,6 +47,15 @@ test('stdio MCP initializes, lists tools, and invokes offline discovery', async 
     assert.equal(rejectedMutation.isError, true);
     assert.match(rejectedMutation.content[0].text, /requires both project and doc/);
 
+    for (const routing of [{}, { window: 'home-window', doc: 'tab_page1' }, { window: 'home-window', project: 'Future project' }]) {
+      const rejectedCreate = await client.callTool({
+        name: 'easyeda_project',
+        arguments: { action: 'project.create', payload: { friendlyName: 'Must not be created' }, ...routing },
+      });
+      assert.equal(rejectedCreate.isError, true);
+      assert.match(rejectedCreate.content[0].text, /requires an explicit window|does not accept project or doc/);
+    }
+
     const blocks = await client.callTool({
       name: 'easyeda_blocks',
       arguments: { operation: 'search', query: 'led' },

@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import {
   buildBlocksArgs,
-  buildCallArgs,
+  buildActionCallArgs,
   buildWorkflowArgs,
   DOMAIN_NAMES,
   filterActions,
@@ -30,7 +30,7 @@ const server = new Server(
     capabilities: { tools: {} },
     instructions: [
       'Control EasyEDA Pro through easyeda-agent.',
-      'For mutations, always provide project and doc.',
+      'For project.create, provide an explicit window and payload.friendlyName, without project/doc routing. For other mutations, provide project and doc.',
       'Inspect before editing and run schematic/PCB checks plus native DRC after editing.',
       'Do not bypass workflow gates or use force-unsafe in real projects.',
     ].join(' '),
@@ -40,15 +40,15 @@ const server = new Server(
 const commonRouteProperties = {
   project: {
     type: 'string',
-    description: 'EasyEDA project name or UUID. Required for normal project work.',
+    description: 'Existing EasyEDA project name or UUID. Required for mutations except project.create; omit for project.create.',
   },
   doc: {
     type: 'string',
-    description: 'Target schematic page or PCB name/UUID. Required for mutations.',
+    description: 'Existing schematic page or PCB name/UUID. Required for mutations except project.create; omit for project.create.',
   },
   window: {
     type: 'string',
-    description: 'Explicit connector windowId; use only to resolve genuine multi-window ambiguity.',
+    description: 'Connector windowId from easyeda_health. Required for project.create; otherwise use to resolve multi-window ambiguity.',
   },
   payload: {
     type: 'object',
@@ -175,10 +175,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (!action || action.domain !== domain) {
         throw new Error(`action ${input.action || '(missing)'} does not belong to domain ${domain}`);
       }
-      if (action.mutates && (!input.project || !input.doc)) {
-        throw new Error(`mutating action ${action.name} requires both project and doc`);
-      }
-      return toMcpResult(await runEasyeda(buildCallArgs(action.name, input)));
+      return toMcpResult(await runEasyeda(buildActionCallArgs(action, input)));
     }
     throw new Error(`unknown tool: ${name}`);
   }

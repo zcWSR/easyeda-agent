@@ -21,7 +21,7 @@ codex mcp add easyeda-agent \
 
 The MCP process does not access EasyEDA directly. Mutations still pass through
 the Go daemon, connector, workflow gates, audit log, and official `eda.*` API.
-Mutating typed actions require both `project` and `doc`; use `easyeda_actions`
+Mutating typed actions except `project.create` require both `project` and `doc`; use `easyeda_actions`
 before calling a domain tool to inspect its typed payload. Workflow operations
 use structured MCP fields instead of accepting arbitrary CLI options.
 
@@ -39,3 +39,33 @@ DSH 原生支持 skill 与 MCP client 两种形态，本仓库两者都已具备
 `src/server.mjs`）即可，工具以 `mcp__easyeda__easyeda_*` 命名。注意 in-box
 插件无需 pnpm 安装（fallback 从 dsh 安装目录解析），profile 里误装旧版会遮蔽
 fallback。
+
+## Creating a project from the home screen
+
+Call `easyeda_health` and choose the intended connected window. Then call
+`easyeda_project` with the following shape (replace the window ID):
+
+```json
+{
+  "action": "project.create",
+  "window": "<windowId from easyeda_health>",
+  "payload": { "friendlyName": "New project", "open": true }
+}
+```
+
+Do not supply `project` or `doc`: the new project is not an existing routing
+target, and a home tab such as `tab_page1` is not a schematic/PCB document.
+The adapter rejects contradictory routing instead of forwarding it to the
+CLI document guard. The explicit window requirement also prevents implicit
+selection between multiple editor windows.
+
+Creation only makes the project container. Inspect the returned `created`,
+`opened`, and `partial` fields and read back project state before continuing;
+an open failure must not trigger blind duplicate creation. Document creation
+is a separate operation. This exception does not relax routing requirements
+for other mutations, including `schematic.page.create` and `board.create`.
+
+The connected extension must implement `project.create`. If the call returns
+`UNKNOWN_ACTION`, update the connector to a version providing that handler;
+a compatible version reported by `easyeda_health` alone does not prove action
+availability. Do not retry creation with a fabricated `doc` to work around it.

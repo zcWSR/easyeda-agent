@@ -54,6 +54,15 @@ metadata:
    两轮均无待修的明显问题且无修正，才称 Layout 完成、展示复核包并等待用户确认。确认前不进入整板布线；LDO/DCDC
    模块内部短电流环路可随布局先完成。具体边界见 [pcb-layout.md](references/pcb-layout.md)。
 
+## MCP 新建工程的定位
+
+从首页调用 MCP `project.create` 时，先通过 `easyeda_health` 选择真实窗口，把新名称放在
+`payload.friendlyName`，可用 `payload.open` 请求打开。此动作只创建工程容器，必须提供
+`window`，不要传 `project` 或 `doc`；拟建名称不是已有工程，首页标签不是原理图页面。
+创建后检查 `created` / `opened` / `partial` 并读回工程身份，再处理文档创建。部分成功时
+先查状态，不盲目重复创建。返回 `UNKNOWN_ACTION` 时检查连接器是否实现此动作；健康检查的
+版本兼容不能证明 handler 存在。其他 MCP 写操作仍要求真实 `project` 和 `doc`；不得推广此例外。
+
 ## 按任务加载
 
 | 任务 | 读取 |

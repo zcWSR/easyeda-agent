@@ -67,6 +67,23 @@ export function filterActions(actions, { domain, search, mutates } = {}) {
   });
 }
 
+// Project creation targets a connector window, not a document that does not exist yet.
+// Keep this exception exact: all other mutations retain project/document pinning.
+export function buildActionCallArgs(action, input = {}) {
+  if (action.name === 'project.create') {
+    if (typeof input.window !== 'string' || !input.window.trim()) {
+      throw new Error('project.create requires an explicit window from easyeda_health');
+    }
+    if (input.project || input.doc) {
+      throw new Error('project.create does not accept project or doc routing; use payload.friendlyName for the new project');
+    }
+  }
+  else if (action.mutates && (!input.project || !input.doc)) {
+    throw new Error(`mutating action ${action.name} requires both project and doc`);
+  }
+  return buildCallArgs(action.name, input);
+}
+
 export function buildCallArgs(action, input = {}) {
   const args = [];
   if (input.project) args.push('--project', input.project);

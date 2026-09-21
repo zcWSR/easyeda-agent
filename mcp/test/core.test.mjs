@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildBlocksArgs,
   buildCallArgs,
+  buildActionCallArgs,
   buildWorkflowArgs,
   filterActions,
   parseOutput,
@@ -48,4 +49,35 @@ test('parseOutput and MCP result preserve structured JSON', () => {
 
   const warned = toMcpResult({ ok: true, result: { passed: true }, stderr: 'staleRisk' });
   assert.deepEqual(warned.structuredContent, { result: { passed: true }, warnings: 'staleRisk' });
+});
+
+test('project creation routes to a window without an existing project or document', () => {
+  const payload = { friendlyName: 'New project', open: true, teamUuid: 'team-1' };
+  assert.deepEqual(
+    buildActionCallArgs({ name: 'project.create', mutates: true }, { window: 'win-home', payload }),
+    ['call', 'project.create', '--payload', JSON.stringify(payload), '--window', 'win-home'],
+  );
+});
+
+test('project creation rejects ambiguous or contradictory routing', () => {
+  const action = { name: 'project.create', mutates: true };
+  for (const window of [undefined, '', '   ']) {
+    assert.throws(() => buildActionCallArgs(action, { window }), /requires an explicit window/);
+  }
+  for (const routing of [{ project: 'Not created yet' }, { doc: 'tab_page1' }]) {
+    assert.throws(() => buildActionCallArgs(action, { window: 'win-home', ...routing }), /does not accept project or doc/);
+  }
+});
+
+test('other mutations still require both existing targets; reads preserve routing', () => {
+  for (const name of ['schematic.page.create', 'board.create', 'schematic.component.place', 'pcb.track.create']) {
+    const action = { name, mutates: true };
+    for (const route of [{}, { project: 'P' }, { doc: 'D' }, { window: 'W' }]) {
+      assert.throws(() => buildActionCallArgs(action, route), /requires both project and doc/);
+    }
+    assert.deepEqual(buildActionCallArgs(action, { project: 'P', doc: 'D' }),
+      ['--project', 'P', '--doc', 'D', 'call', name]);
+  }
+  assert.deepEqual(buildActionCallArgs({ name: 'project.current', mutates: false }, { window: 'W' }),
+    ['call', 'project.current', '--window', 'W']);
 });

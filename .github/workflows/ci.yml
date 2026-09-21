@@ -26,11 +26,13 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: extension/package-lock.json
+          cache-dependency-path: |
+            extension/package-lock.json
+            mcp/package-lock.json
       - name: Test and build CLI
         run: |
           make test
-          make build
+          make mcp-test
       - name: Validate Skill and release helpers
         run: |
           make lint-test
