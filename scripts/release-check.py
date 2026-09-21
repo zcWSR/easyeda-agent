@@ -41,7 +41,7 @@ def check_sources(repo: Path, tag: str, local_dev: bool = False) -> str:
             raise ValueError(f"{name}: version {data.get('version')!r}, expected {version}")
         if name.endswith("package-lock.json") and data.get("packages", {}).get("", {}).get("version") != version:
             raise ValueError(f"{name}: packages[''].version must also be {version}")
-    if skill_version((repo / "skills/easyeda-agent/SKILL.md").read_text(encoding="utf-8")) != version:
+    if skill_version((repo / ".agents/skills/easyeda-agent/SKILL.md").read_text(encoding="utf-8")) != version:
         raise ValueError(f"SKILL.md version must be {version}; run scripts/sync-skill-version.py {version}")
     changelog = (repo / "extension/CHANGELOG.md").read_text(encoding="utf-8")
     if not re.search(rf"^##\s*\[{re.escape(version)}\]", changelog, re.MULTILINE):

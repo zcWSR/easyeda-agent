@@ -5,7 +5,7 @@ DSH（`@deepseek-ai/dsh`，Cordis 插件化框架）原生支持 skill 与 MCP c
 
 | DSH 形态 | 本项目资产 | 落地方式 | 开发量 |
 |---|---|---|---|
-| **Skill**（SKILL.md 自动发现） | `skills/easyeda-agent/SKILL.md` | 软链进 DSH skill 根 | 0 |
+| **Skill**（SKILL.md 自动发现） | `.agents/skills/easyeda-agent/SKILL.md` | 软链进 DSH skill 根 | 0 |
 | **MCP client**（`dsh-mcp-client` 桥接） | `mcp/`（stdio MCP server，11 工具） | `cordis.patch.yml` 加一行插件实例 | 几行 YAML |
 | **Bundle 插件包**（`dsh.bundle.patch` 声明） | 仓库根 `package.json` + `cordis.patch.yml` | `dsh plugin add github:zhoushoujianwork/easyeda-agent#<tag>` 一行装 | 已完成 |
 | **原生 Cordis 插件**（`ctx.tools` / client-plugin UI） | 暂无 | 新建 npm 包，注册结构化工具 / daemon 状态面板 | 中等，跟 rc 版本 |
@@ -27,7 +27,7 @@ profile 的活跃 bundle 层，注入两个行：
    定位包内 `mcp/src/server.mjs`；`EASYEDA_BIN` 默认取 PATH，可用环境变量覆盖。
 2. `easyeda-skill-fs` —— 独立的 `dsh-skill-filesystem` 实例
    （`providerName: easyeda`、`includeDefaultRoots: false`），只扫包内
-   `skills/easyeda-agent`，注册进 skill 注册表 global layer（web 下 host 的
+   `.agents/skills/easyeda-agent`，注册进 skill 注册表 global layer（web 下 host 的
    skill-filesystem 被官方 bundle 禁用、preset 自有发现，故用隔离实例，不冲突）。
 
 两处文件路径都由 Node 内置 `fileURLToPath` 转换，不直接读取 URL 的 `pathname`。
@@ -40,7 +40,7 @@ profile 的活跃 bundle 层，注入两个行：
 **已验证（2026-08-14）**：`dsh plugin add file:...` 到 headless profile → 自动
 提升为 bundle 层 → headless 会话实测模型可见全部 11 个 `mcp__easyeda__*` 工具
 + `easyeda-agent` skill。`.npmignore` 已排除 bin/dist 等构建产物，`github:`
-  安装只会打包 package.json / cordis.patch.yml / mcp/ / skills/ 等。
+  安装只会打包 package.json / cordis.patch.yml / mcp/ / .agents/skills/easyeda-agent/ 等。
 
 **版本同步**：根 `package.json` 的 `version` 应与 release tag 对齐（`make release`
 目前不自动改它，发版前手动同步一次即可）。
@@ -70,7 +70,7 @@ kill 当前 dsh 进程、在原目录重新 `dsh web`，MCP 工具即出现。
 
 ```bash
 mkdir -p ~/.dsh/skills
-ln -sfn <repo>/skills/easyeda-agent ~/.dsh/skills/easyeda-agent
+ln -sfn <repo>/.agents/skills/easyeda-agent ~/.dsh/skills/easyeda-agent
 ```
 
 DSH 的 skill-filesystem 提供者扫描根：`<projectRoot>/.dsh/skills`、

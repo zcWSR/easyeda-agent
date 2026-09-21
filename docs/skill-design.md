@@ -1,6 +1,6 @@
 # Skill 设计
 
-`skills/easyeda-agent/` 是唯一公开设计入口，CLI、daemon 和 Connector 为它服务。入口保持短小，
+`.agents/skills/easyeda-agent/` 是唯一公开设计入口，CLI、daemon 和 Connector 为它服务。入口保持短小，
 负责选择样例、说明参数入口、调用 typed 工具和安排独立验证；具体知识放在按需读取的参考与样例中。
 
 源码仓库另有 `.agents/skills/easyeda-repo-lookup` 与 `easyeda-repo-maintain`，分别提供跨项目

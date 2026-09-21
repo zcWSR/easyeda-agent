@@ -1,6 +1,6 @@
 package app
 
-// cmd_sch_zone_move.go — `sch zone move`(设计契约 docs/schematic-layout-hierarchy.md §2):
+// cmd_sch_zone_move.go — `sch zone move`(设计契约 docs/cli/schematic.md §2):
 // 功能区整体刚移。移动链的中间层:zone move → 带动区内全部 group → 带动器件+导线+标志。
 //
 // 展开集(契约 §2,全区一份展开):
@@ -794,7 +794,7 @@ func newSchZoneMoveCommand(cfg *appConfig, window *string, stdout, stderr io.Wri
 	c := &cobra.Command{
 		Use:   "move",
 		Short: "功能区整体刚移:区内组+散件+桩线+旗+note 一起平移 (dx,dy),分区框自动重画",
-		Long: `功能区(zone)整体刚性平移 — 三层布局体系(docs/schematic-layout-hierarchy.md)
+		Long: `功能区(zone)整体刚性平移 — 三层布局体系(docs/cli/schematic.md)
 的中间层移动:zone move → 带动区内全部 group → 带动器件+导线+标志。
 
 展开集(全区一份展开):

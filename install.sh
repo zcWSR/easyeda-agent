@@ -205,6 +205,8 @@ ACTUAL_VERSION=$("$TMP/binary" --version) || fatal "Downloaded binary cannot run
   || fatal "Downloaded binary version differs: $ACTUAL_VERSION; expected $VERSION"
 
 # ── install skills (Codex + Claude Code + shared Agent root) ──────────────────
+# Repository source: .agents/skills/easyeda-agent. The release packager keeps
+# the archive root as easyeda-agent/, independent of the checkout layout.
 # Resolve which clients to install for.
 # codex → ~/.codex/skills/easyeda-agent, claude → ~/.claude/skills/easyeda-agent,
 # agents → ~/.agents/skills/easyeda-agent (Codex Desktop shared skill root)

@@ -610,7 +610,7 @@ setTimeout 的守卫(FIFO 的放弃闸 22s、每次平台调用的 `withTimeout`
 ### Known issues — 随版本如实公布
 
 一次广度优先的端到端(esp32Mini 固定用例)记了 19 条挂账,完整台账见仓库
-`docs/e2e-round-2026-08-25-findings.md`。**升级前值得先知道的三条**:
+`docs/reviews/e2e-round-2026-08-25-findings.md`。**升级前值得先知道的三条**:
 
 - **`sch group-move --ids` 报「电气自检失败」却不回滚**:位移照样落地,留下悬空脚 +
   悬空树。看到那个 `✗` **不要当作没发生**,先 `sch bridge-check` 复核画布。
@@ -1070,7 +1070,7 @@ sheet 符号引用,重启后图框丢失 —— 修复处方见 skill actions.md
   阵亡)。现按段拆成 N 次单段 create(平台自行再合并),0 长度填充段跳过,
   分段失败报出已建段数。
 
-### Added(CLI 侧,三层布局体系 —— docs/schematic-layout-hierarchy.md)
+### Added(CLI 侧,三层布局体系 —— docs/cli/schematic.md)
 - **`sch group tidy`** 组内布局计算:双电源旗电容自动竖放+上电下地+文字朝外
   (真机校准 rotation 表:power up=0/gnd down=0);实测 pin 旋转二义消解、
   stale 双读防线、未建模第三连接拒绝(3-pin 馈通不被扯断)、disconnect 连带
@@ -1971,7 +1971,7 @@ hopFeasible 硬门(R2 两条真交叉短路的根治),mount-holes 反查既有�
   (共 23 块:20 ready / 3 draft)。
 - **`pcb.components.list --include-pads` 返回焊盘真实铜皮 `width`/`height`**、
   **`pcb.silk.list` 返回 `fontSize`**(0.12.1 起):clearance/DFM/避障从名义常量升级实测值。
-- **PCB 设计规范手册**(`skills/easyeda-agent/references/pcb-design-rules.md`):13 章,
+- **PCB 设计规范手册**(`.agents/skills/easyeda-agent/references/pcb-design-rules.md`):13 章,
   JLC 工艺 + IPC-2221;`pcb check` 报错的 `[规范 §N]` 即指向此手册章节。
 - **`sch bridge-check` 规则类型化**:`wire-bridge`(ERROR)/`orphan-stub`(WARN),
   JSON 可按类型 gate,对齐 `pcb check` 强制力。
@@ -2170,7 +2170,7 @@ P8 铺铜/出 Gerber 之前)。
 - `references/design-flow.md` 新增 **P7.9 走线美化档**(dry-run 先行 + 上游告警清单:
   焊盘-走线连接需人工复核、RF/高速网排除全局美化、出 Gerber 前预览);
   `references/pcb.md` 加 `pcb beautify` 命令条目;`docs/ecosystem-survey.md` /
-  `docs/marketplace-coverage.md` absorb-list 标记已吸收(#1c)。
+  `docs/reviews/2026-07-marketplace-coverage.md` absorb-list 标记已吸收(#1c)。
 - **署名**:新增仓库根 `NOTICE`,记录 Apache-2.0 第三方来源、原作者 m-RNA、逐文件
   映射与相对上游的改动;几何文件头保留出处注释。
 
@@ -2479,7 +2479,7 @@ UX fix. (Consolidates the dev-loop releases 0.6.1–0.6.7 below.)
 ### Docs
 - README split into a Chinese homepage (`README.md`) + English (`README.en.md`); new demo
   recording storyboard `docs/demo-storyboard-esp32-mini.md`; FEATURES action count 85→88;
-  official-marketplace coverage survey (`docs/marketplace-coverage.md`).
+  official-marketplace coverage survey (`docs/reviews/2026-07-marketplace-coverage.md`).
 
 ## [0.6.7] - 2026-07-02
 ### Fixed

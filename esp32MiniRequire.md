@@ -53,13 +53,13 @@
 
 > **本节只写这个 Demo 特有的东西。** 通用规则（环境自举、铁律、阶段定义、停点、
 > 档位默认、块地图、各命令签名）**正本都在 skill 里**，这里只给指针——照抄一份必然漂移。
-> 入口：[`skills/easyeda-agent/SKILL.md`](skills/easyeda-agent/SKILL.md)
+> 入口：[`.agents/skills/easyeda-agent/SKILL.md`](.agents/skills/easyeda-agent/SKILL.md)
 
 ## 0. 环境（一次性）
 
 三样东西缺一不可：**CLI/daemon**、**EasyEDA 里的连接器插件**、**外部交互权限**。
-安装与版本对账见 [Skill 入口](skills/easyeda-agent/SKILL.md) 和
-[environment-setup.md](skills/easyeda-agent/references/environment-setup.md)，不依赖旧章节编号。
+安装与版本对账见 [Skill 入口](.agents/skills/easyeda-agent/SKILL.md) 和
+[environment-setup.md](.agents/skills/easyeda-agent/references/environment-setup.md)，不依赖旧章节编号。
 
 只强调最容易翻车的一条：**sideload 的 `.eext` 同 uuid 更新必须先卸载旧的**，
 且导入后要**完全退出重启 EasyEDA**——否则已开窗口还在跑旧代码并抢 daemon 的 socket。
@@ -81,14 +81,14 @@ easyeda health        # 检查连接与实际运行版本；有窗口不等于�
 ## 2. 起跑
 
 把**「一、客户原始需求」那一段**交给 agent，并要求它按
-`skills/easyeda-agent/references/design-flow.md` 的流程脊柱走。一句话就够：
+`.agents/skills/easyeda-agent/references/design-flow.md` 的流程脊柱走。一句话就够：
 
 > 按 esp32MiniRequire.md 的客户原始需求，在工程 ceshi 上跑完整的 S0–S6 + P0–P10，
 > 分段验收，每段过门后存盘。
 
 ## 3. 分段验收（**不要追求一次跑通**）
 
-原理图阶段统一遵守 [数据驱动架构基准](skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)：
+原理图阶段统一遵守 [数据驱动架构基准](.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)：
 保留原始快照，目标副本表达连接/核心外围归属/约束，区内及纸张计算后固定转换与 Apply。
 问题由数据检查发现，回改源数据/采集/算法再重算；位号参与、非位号属性文字排除页面布局检查。
 本节仍是给人的 runbook，不进入第一节客户原始需求，也不提供预制器件/网表答案。
@@ -127,8 +127,8 @@ easyeda health        # 检查连接与实际运行版本；有窗口不等于�
 | P7 · 布线档 | 稠密板要不要停手让你在 EasyEDA 菜单里点原生自动布线 |
 
 已确认选择与授权继续有效，不重复索取；缺失且实质影响设计时再问。
-现行流程见 [design-flow.md](skills/easyeda-agent/references/design-flow.md)，
-决策依据见 [design-decisions.md](skills/easyeda-agent/references/design-decisions.md)。
+现行流程见 [design-flow.md](.agents/skills/easyeda-agent/references/design-flow.md)，
+决策依据见 [design-decisions.md](.agents/skills/easyeda-agent/references/design-decisions.md)。
 表里这几行只是「这块板会撞到哪几个」的索引。
 
 ## 5. 验收（需求条条落实）
@@ -175,7 +175,7 @@ S0 阶段就该定一张唯一网名表，之后每次落块显式 `--bind` 到�
 = **铁律 10**；门禁机械强制、拒绝消息自带下一步 = **铁律 14**；
 「逐页 `sch gate` 一次跑四关，别单跑 `sch check`」= **②流程停点表的第 ② 个停点**。
 
-完整的问题台账见 [`docs/e2e-round-2026-08-25-findings.md`](docs/e2e-round-2026-08-25-findings.md)。
+完整的问题台账见 [`docs/reviews/e2e-round-2026-08-25-findings.md`](docs/reviews/e2e-round-2026-08-25-findings.md)。
 
 ## 7. 收尾
 
@@ -229,7 +229,7 @@ easyeda audit cost --ledger           # 跨批次对比
 `sch group-move --ids 报电气自检失败却不回滚，留下悬空脚`。
 能机械复现、不需要真机 DRC 验收的，可以再打 `ready-for-agent` 交自动化处理
 （需要连着 EasyEDA 才能验收的**不要**打这个标签——见
-[`docs/e2e-round-2026-08-25-findings.md`](docs/e2e-round-2026-08-25-findings.md) 的写法示例）。
+[`docs/reviews/e2e-round-2026-08-25-findings.md`](docs/reviews/e2e-round-2026-08-25-findings.md) 的写法示例）。
 
 ```bash
 gh issue create --repo zhoushoujianwork/easyeda-agent \

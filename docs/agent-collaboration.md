@@ -32,11 +32,11 @@ CLAUDE.md -> AGENTS.md             兼容入口
 .agents/
   memory/                         已有共享经验，保持原记录
   skills/
-    easyeda-agent -> ../../skills/easyeda-agent
+    README.md                     Skill 维护与分发约定
+    easyeda-agent/                唯一公开设计包（真实目录）
     easyeda-repo-lookup/           查询实现、样例、证据
     easyeda-repo-maintain/         修改工具、知识、验证与 Git 贡献
 .claude -> .agents                同一套仓库资源
-skills/easyeda-agent/              唯一公开设计包
 docs/README.md                    文档导航与归属
 ```
 
@@ -52,6 +52,9 @@ docs/README.md                    文档导航与归属
 ```bash
 python3 scripts/install-agent-skills.py --dry-run
 python3 scripts/install-agent-skills.py
+# 使用当前 checkout 的公开设计 Skill，或安装全部源码 Skill：
+python3 scripts/install-agent-skills.py --scope design
+python3 scripts/install-agent-skills.py --scope all --target all
 # 客户端未扫描 ~/.agents/skills 时，才安装兼容入口：
 python3 scripts/install-agent-skills.py --target codex
 python3 scripts/install-agent-skills.py --target claude
@@ -61,9 +64,11 @@ python3 scripts/install-agent-skills.py --skills-dir /path/to/skills
 ```
 
 默认目标是 `~/.agents/skills`，遵守 `AGENTS_HOME`；Codex 和 Claude 目标分别遵守
-`CODEX_HOME` / `CLAUDE_HOME`。脚本仅发现 `.agents/skills/easyeda-repo-*/SKILL.md` 的真实
-目录，跳过公开设计 Skill 链接。所有目标先预检；同源链接可重复安装，真实目录、断链或
-指向其他 checkout 的链接都会报错且保留原状。`--dry-run` 不创建目录或链接。
+`CODEX_HOME` / `CLAUDE_HOME`。默认 `--scope repo` 安装仓库协作 Skill；`--scope design`
+选择公开设计 Skill，`--scope all` 选择全部真实 Skill 目录。所有目标先预检，同源链接可重复
+安装。唯一自动修复的旧链接是指向同一 checkout 原 `skills/easyeda-agent` 目录的链接，
+即使旧源已随迁移消失也可识别；真实发布版目录、其他断链和其他 checkout 的链接均保留并报错。
+`--dry-run` 不创建目录、不改链接。迁移中失败会恢复本次替换的旧链接。
 
 源 checkout 需要持续存在。移动仓库后旧用户级链接会失效：确认旧目标属于自己后，手动移除
 对应链接并从新位置重装；安装器不猜测或覆盖其他 checkout。Windows 需要启用软链接支持
@@ -82,6 +87,7 @@ python3 scripts/install-agent-skills.py --skills-dir /path/to/skills
 
 `make agent-check` 验证真实文件与兼容链接、根目录定位、安装预检、幂等性和路径迁移，
 并核对新文档入口链接。CI 同样运行它。它证明仓库协作机制可用，不证明 EDA 现场设计通过。
-公开 Skill 仍使用 `make skill-check`；本次入口变更不修改 CLI、daemon、connector 或现场工程。
+公开 Skill 仍使用 `make skill-check`；源码移动后同步更新资源查找、打包与安装测试，不改变
+EDA 设计动作。发布包只含 `easyeda-agent/`，不把整个 `.agents` 目录打包。
 新增协作 Skill 放入 `.agents/skills/easyeda-repo-<职责>/`，写清触发范围与相应归属，安装器
 自动发现；不要在 `.claude` 再放副本，也不要把仓库依赖打入公开 Skill 包。

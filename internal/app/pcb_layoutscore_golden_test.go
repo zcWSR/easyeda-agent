@@ -34,7 +34,7 @@ package app
 // 反应。**真正的校准必须用真板**（`easyeda pcb dump` 抓下来放进 testdata/boards/），
 // 判据见同目录 README.md。
 //
-// 另：#167 原文说把好板「收进 skills/easyeda-agent/scripts/tests/」是错的 —— 那个
+// 另：#167 原文说把好板「收进 .agents/skills/easyeda-agent/scripts/tests/」是错的 —— 那个
 // harness（run.py）是原理图 linter 专用，check_fixtures 会无条件把 fixtures/*.json
 // 喂给 lint.py，塞一份 PCB dump 进去会直接崩。金标准板走 Go 侧 testdata。
 

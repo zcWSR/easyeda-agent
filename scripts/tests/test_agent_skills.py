@@ -112,6 +112,54 @@ class AgentSkillTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not easyeda-agent", result.stderr)
 
+    def test_all_scope_includes_real_public_skill_and_migrates_own_old_link(self):
+        self.target.mkdir()
+        destination = self.target / "easyeda-agent"
+        old = self.checkout / "skills/easyeda-agent"
+        destination.symlink_to(old, target_is_directory=True)
+        result = self.cli("--scope", "all", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(os.readlink(destination), str(old))
+        self.assertIn("would migrate", result.stdout)
+        result = self.cli("--scope", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(destination.resolve(), self.checkout / ".agents/skills/easyeda-agent")
+        self.assertTrue((destination / "references/orientation.json").is_file())
+        self.assertEqual(self.cli("--scope", "all").returncode, 0)
+
+    def test_design_scope_preserves_release_directory_and_foreign_broken_link(self):
+        self.target.mkdir()
+        destination = self.target / "easyeda-agent"
+        destination.mkdir()
+        (destination / "SKILL.md").write_text("user's release installation")
+        self.assertNotEqual(self.cli("--scope", "design").returncode, 0)
+        self.assertEqual((destination / "SKILL.md").read_text(), "user's release installation")
+        shutil.rmtree(destination)
+        old = self.root / "other-checkout/skills/easyeda-agent"
+        destination.symlink_to(old, target_is_directory=True)
+        self.assertNotEqual(self.cli("--scope", "all").returncode, 0)
+        self.assertEqual(os.readlink(destination), str(old))
+
+    def test_failed_migration_restores_old_link(self):
+        sources = installer.skill_sources(self.checkout, "all")
+        self.target.mkdir()
+        destination = self.target / "easyeda-agent"
+        old = self.checkout / "skills/easyeda-agent"
+        destination.symlink_to(old, target_is_directory=True)
+        plan = installer.link_plan(sources, [self.target])
+        original = Path.symlink_to
+
+        def fail_later(path, target, **kwargs):
+            if path.name == "easyeda-repo-maintain":
+                raise OSError("simulated link failure")
+            return original(path, target, **kwargs)
+
+        with patch.object(Path, "symlink_to", fail_later):
+            with self.assertRaises(OSError):
+                installer.install(plan, False)
+        self.assertEqual(os.readlink(destination), str(old))
+        self.assertEqual(list(self.target.iterdir()), [destination])
+
     def test_multiple_targets_are_preflighted_and_aliases_are_deduplicated(self):
         sources = installer.skill_sources(self.checkout)
         other = self.root / "second client"
@@ -155,13 +203,15 @@ class RepositoryContractTests(unittest.TestCase):
         expected = {
             "CLAUDE.md": "AGENTS.md",
             ".claude": ".agents",
-            ".agents/skills/easyeda-agent": "../../skills/easyeda-agent",
         }
         for name, target in expected.items():
             path = REPO / name
             self.assertTrue(path.is_symlink(), name)
             self.assertEqual(os.readlink(path), target)
             self.assertTrue(path.resolve().exists(), name)
+        self.assertFalse((REPO / "skills").exists())
+        self.assertFalse((REPO / ".agents/skills/easyeda-agent").is_symlink())
+        self.assertTrue((REPO / ".agents/skills/easyeda-agent/SKILL.md").is_file())
 
     def test_collaboration_document_links_resolve(self):
         paths = [REPO / "docs" / name for name in

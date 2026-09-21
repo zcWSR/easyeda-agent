@@ -11,10 +11,10 @@ description: "只读查询 easyeda-agent 仓库的工具能力、实现、参数
 
 | 查询目的 | 从仓库根目录读取 |
 |---|---|
-| 能力是否实现、当前限制 | `docs/FEATURES.md`、`docs/marketplace-coverage.md` |
+| 能力是否实现、当前限制 | `docs/FEATURES.md`、`docs/cli/README.md` |
 | 概念、数据职责和接口设计 | `docs/concepts.md`、`docs/architecture.md`、`docs/cli-design.md` |
-| 可迁移参数和实测做法 | `skills/easyeda-agent/references/examples/index.md`，再选具体样例 |
-| 操作入口、接线和布局知识 | `skills/easyeda-agent/SKILL.md` 的任务路由 |
+| 可迁移参数和实测做法 | `.agents/skills/easyeda-agent/references/examples/index.md`，再选具体样例 |
+| 操作入口、接线和布局知识 | `.agents/skills/easyeda-agent/SKILL.md` 的任务路由 |
 | CLI、daemon、typed action 实现 | `cmd/easyeda/`、`internal/app/`、`internal/daemon/`、`internal/protocol/` |
 | 官方 API 适配和宿主差异 | `extension/src/`、`docs/ecosystem-survey.md` |
 | 已发生的验证与问题 | `docs/reviews/`、相关测试和样例证据；检查日期和版本 |

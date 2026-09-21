@@ -7,7 +7,6 @@ Cobra 子命令暴露(`--help` 自描述),机器可读真值是 `easyeda actions
 |---|---|---|---|
 | **原理图**(`easyeda sch` + `blocks`) | ✅ 已支持(40+ 子命令) | [schematic.md](./schematic.md) | 器件/连线/布局/持久编组/分区三件套/校验门/电路块库/导出,含布局质量五维打分(归因带可执行 fix) |
 | **PCB**(`easyeda pcb` + `workflow`) | ✅ 已支持(50+ 子命令) | [pcb.md](./pcb.md) | 同步/布局/布线/铺铜/丝印/叠层规则/制造导出,九维布局诊断 + 兼容流程记录 |
-| **3D 外壳设计** | 🚧 规划中(未实现) | [enclosure-3d.md](./enclosure-3d.md) | 板框/安装孔/接口开孔驱动的外壳生成,复用块库的插拔件 openings 声明 |
 
 ## 通用约定(全域一致)
 
@@ -17,5 +16,5 @@ Cobra 子命令暴露(`--help` 自描述),机器可读真值是 `easyeda actions
 - **保存**:编辑只在内存,daemon 有防抖 autosave 兜底；稳定检查点仍需显式 `save`，最终 reload 后回读。
 
 > 设计流程(何时用哪个命令、样例执行顺序)见
-> [`skills/easyeda-agent/references/design-flow.md`](../../skills/easyeda-agent/references/design-flow.md);
+> [`.agents/skills/easyeda-agent/references/design-flow.md`](../../.agents/skills/easyeda-agent/references/design-flow.md);
 > 全域 action 清单与实现状态见 [`docs/FEATURES.md`](../FEATURES.md)。

@@ -72,4 +72,4 @@ python3 scripts/capture-sch-apply.py --gif tmp/showcase-capture/capture-manifest
 位号、库身份、稳定 ID、网络/NC 与几何均保持一致，主页面已显式保存。
 严格门禁因既有 3 个 DRC WARN 停止，最终画面不代表电气验收通过。
 本次运行 CLI 为 v1.4.3，连接器为 1.4.2，不能据此声称三方同版验证完成；
-其余覆盖范围见 [1.4 发布与验证](release-1.4.md)。
+其余覆盖范围见 [1.4 发布与验证](releases/release-1.4.md)。

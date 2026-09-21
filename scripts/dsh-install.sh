@@ -3,7 +3,7 @@
 # easyeda-agent → DeepSeek Harness (DSH) 一键接入脚本（幂等，可重复执行）
 #
 # 做两件事：
-#   1. Skill：软链 $REPO/skills/easyeda-agent → $DSH_HOME/skills/easyeda-agent
+#   1. Skill：软链 $REPO/.agents/skills/easyeda-agent → $DSH_HOME/skills/easyeda-agent
 #      （DSH skill-filesystem watcher 即时发现，无需重启）
 #   2. MCP：在 $DSH_HOME/profiles/<profile>/cordis.patch.yml 注入
 #      @deepseek-ai/dsh-mcp-client 实例（in-box 插件，不需要 pnpm 安装）
@@ -64,9 +64,9 @@ mkdir -p "${SKILL_ROOT}"
 LINK="${SKILL_ROOT}/easyeda-agent"
 if [[ -L "${LINK}" ]]; then
   TARGET="$(readlink "${LINK}")"
-  if [[ "${TARGET}" != "${REPO_ROOT}/skills/easyeda-agent" ]]; then
+  if [[ "${TARGET}" != "${REPO_ROOT}/.agents/skills/easyeda-agent" ]]; then
     echo "!! skill 软链已存在但指向其它位置: ${TARGET}，更新为当前仓库" >&2
-    ln -sfn "${REPO_ROOT}/skills/easyeda-agent" "${LINK}"
+    ln -sfn "${REPO_ROOT}/.agents/skills/easyeda-agent" "${LINK}"
   else
     echo "==> skill 软链已就位（跳过）"
   fi
@@ -74,7 +74,7 @@ elif [[ -e "${LINK}" ]]; then
   echo "!! ${LINK} 已存在但不是软链，请手动处理" >&2
   exit 1
 else
-  ln -s "${REPO_ROOT}/skills/easyeda-agent" "${LINK}"
+  ln -s "${REPO_ROOT}/.agents/skills/easyeda-agent" "${LINK}"
   echo "==> skill 已软链: ${LINK}"
 fi
 

@@ -17,7 +17,7 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[2]
-SCRIPT = REPO / "skills/easyeda-agent/scripts/parts-relocalize.py"
+SCRIPT = REPO / ".agents/skills/easyeda-agent/scripts/parts-relocalize.py"
 spec = importlib.util.spec_from_file_location("parts_relocalize", SCRIPT)
 relocalizer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(relocalizer)

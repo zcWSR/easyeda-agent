@@ -1,6 +1,6 @@
 # 模块框与标题的数据转换
 
-遵守 [数据驱动架构基准](../skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
+遵守 [数据驱动架构基准](../.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
 框/标题是源数据计算的产物，不在验收末尾靠手工补画；必检文字含位号、网络文字和自由文字，
 型号/参数等非位号器件属性排除碰撞与框包络。旧框也须参与现场检查，但检查范围不等于删除授权。
 

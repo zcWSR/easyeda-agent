@@ -10,7 +10,7 @@ description: "维护 easyeda-agent 仓库的 Skill、CLI、daemon、connector �
 工作树和相关 diff，保留用户已有改动。仓库失效时修正安装入口，不猜个人目录。
 
 1. 用 `docs/README.md` 的归属表确定事实的唯一维护位置。引入概念先更新 `docs/concepts.md`；
-   改设计工作流先读 `skills/README.md` 和 `docs/skill-design.md`。通用知识回填公开 Skill 的
+   改设计工作流先读 `.agents/skills/README.md` 和 `docs/skill-design.md`。通用知识回填公开 Skill 的
    相应 reference，开发说明与历史证据留在 `docs/`，不复制同一规则到多个入口。
 2. 先明确 Skill 的输入、命令和回读，再开发基础设施。新增功能按 `docs/cli-design.md` 设计
    Cobra 子命令与 typed action；官方 API 先查 `docs/ecosystem-survey.md` 及离线类型/fixture。

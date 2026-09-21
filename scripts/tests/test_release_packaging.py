@@ -33,7 +33,7 @@ class TrackedSkillPackageTests(unittest.TestCase):
         self.run_git("config", "user.email", "fixture@example.invalid")
         (self.skill / "SKILL.md").write_text('---\nmetadata:\n  version: "1.4.2"\n---\n[Guide](references/guide.md)\n')
         (self.skill / "references/guide.md").write_text("Release fixture\n")
-        self.run_git("add", "skills")
+        self.run_git("add", ".agents/skills")
         self.run_git("commit", "-qm", "fixture")
 
     def run_git(self, *args):
@@ -42,7 +42,7 @@ class TrackedSkillPackageTests(unittest.TestCase):
     def test_only_tracked_and_staged_files_are_packaged(self):
         (self.skill / "scratch.md").write_text("Do not ship\n")
         (self.skill / "references/new.md").write_text("Reviewed addition\n")
-        self.run_git("add", "skills/easyeda-agent/references/new.md")
+        self.run_git("add", ".agents/skills/easyeda-agent/references/new.md")
         output = self.repo / "dist/skills.tar.gz"
         self.assertEqual(pack.pack_skill(self.repo, output), 3)
         with tarfile.open(output) as archive:
@@ -87,7 +87,7 @@ class TrackedSkillPackageTests(unittest.TestCase):
 
 class ReleaseVersionAndAssetTests(unittest.TestCase):
     def test_local_prerelease_is_not_a_publishable_release(self):
-        for file in ["extension/extension.json", "extension/package.json", "extension/package-lock.json", "skills/easyeda-agent/SKILL.md", "extension/CHANGELOG.md"]:
+        for file in ["extension/extension.json", "extension/package.json", "extension/package-lock.json", ".agents/skills/easyeda-agent/SKILL.md", "extension/CHANGELOG.md"]:
             path = self.repo / file
             path.write_text(path.read_text().replace("1.4.2", "1.4.3-dev.1"))
         self.assertEqual(release.check_sources(self.repo, "v1.4.3-dev.1", local_dev=True), "1.4.3-dev.1")
@@ -101,12 +101,12 @@ class ReleaseVersionAndAssetTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
         (self.repo / "extension").mkdir()
-        (self.repo / "skills/easyeda-agent").mkdir(parents=True)
+        (self.repo / ".agents/skills/easyeda-agent").mkdir(parents=True)
         self.uuid = "a" * 32
         self.write_json("extension/extension.json", {"version": "1.4.2", "uuid": self.uuid})
         self.write_json("extension/package.json", {"version": "1.4.2"})
         self.write_json("extension/package-lock.json", {"version": "1.4.2", "packages": {"": {"version": "1.4.2"}}})
-        (self.repo / "skills/easyeda-agent/SKILL.md").write_text('---\nmetadata:\n  version: "1.4.2"\n---\n')
+        (self.repo / ".agents/skills/easyeda-agent/SKILL.md").write_text('---\nmetadata:\n  version: "1.4.2"\n---\n')
         (self.repo / "extension/CHANGELOG.md").write_text("# Changes\n\n## [1.4.2]\n\nNew release\n")
 
     def write_json(self, path, data):

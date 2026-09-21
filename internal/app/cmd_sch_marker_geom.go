@@ -279,7 +279,7 @@ func titleblockOverlapFindings(comps []layoutComp, titleBlock *layoutBBox, sourc
 }
 
 // flagBodyRotation:netflag 正确朝向的 stored rotation 真值表(power/ground 全
-// 四向)及 netport。SSOT 是 skills/easyeda-agent/references/orientation.json(2026-08-12
+// 四向)及 netport。SSOT 是 .agents/skills/easyeda-agent/references/orientation.json(2026-08-12
 // 五点实测重校准);TestFlagBodyRotationMatchesOrientationJSON 断言两份不漂移。
 var flagBodyRotation = map[string]map[string]float64{
 	"power":  {"up": 0, "left": 90, "down": 180, "right": 270},

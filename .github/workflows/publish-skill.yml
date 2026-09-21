@@ -59,7 +59,7 @@ jobs:
       - name: Validate skill against the Agent Skills spec
         run: |
           set -euo pipefail
-          npx -y skills-ref@latest validate ./skills/easyeda-agent
+          npx -y skills-ref@latest validate ./.agents/skills/easyeda-agent
 
       # 官方装法。**不要**改成 `npm i -g skillhub` —— npm 上的同名包是另一个
       # 项目(skills.palebluedot.live),bin 名一样,装上会静默发错地方。

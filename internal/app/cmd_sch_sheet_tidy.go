@@ -1,7 +1,7 @@
 package app
 
 // cmd_sch_sheet_tidy.go — `sch sheet tidy`:三层布局体系的 Sheet 层(设计契约
-// docs/schematic-layout-hierarchy.md;用户蓝图:「最终去适配纸张信息的,应该是
+// docs/cli/schematic.md;用户蓝图:「最终去适配纸张信息的,应该是
 // 功能区布局调整」)。
 //
 // 把每个功能区(zones claim)当刚体——区 bbox 用与分区框同一口径(器件 ∪ 近旁
@@ -167,7 +167,7 @@ func newSchSheetTidyCommand(cfg *appConfig, window *string, stdout, stderr io.Wr
 	c := &cobra.Command{
 		Use:   "tidy",
 		Short: "Sheet 层布局:全部功能区当刚体依据纸张排布(锚区+行排;默认 dry-run,--apply 逐区 zone move)",
-		Long: `三层布局体系的最外层(docs/schematic-layout-hierarchy.md):把每个功能区
+		Long: `三层布局体系的最外层(docs/cli/schematic.md):把每个功能区
 (zones claim)——区 bbox 含器件、旗、登记说明(与分区框同口径)——当刚体,
 在纸张可用区内排布(最大区为锚,行排,区间距 hGap/vGap;底部让出图签带)。
 

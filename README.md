@@ -54,7 +54,7 @@
 
 这个流程使用 `easyeda lib device validate --spec …` 在打开或修改 EasyEDA 前检查数据手册
 证据、几何和引脚映射，再由 `lib device build` 创建完整资产。规格契约见
-[数据手册驱动的自动建库](skills/easyeda-agent/references/library-authoring.md)。
+[数据手册驱动的自动建库](.agents/skills/easyeda-agent/references/library-authoring.md)。
 
 ### 做一块 ESP32 最小系统板
 
@@ -236,16 +236,16 @@ EasyEDA Pro project
 - 受控阻抗所需的介质厚度、Er 和铜厚无法从当前 `eda.*` API 完整读取，不能自动声称阻抗合格。
 - PDF 自动建库仍以具体型号和原厂证据为准；扫描模糊、封装后缀不明或缺少焊盘依据时会暂停询问。
 
-完整边界和路线图见 [市场能力覆盖](docs/marketplace-coverage.md) 与
-[功能清单](docs/FEATURES.md)。
+当前能力与边界见 [功能清单](docs/FEATURES.md) 和 [CLI 索引](docs/cli/README.md)。
+过往调研和实测结果集中在 [历史证据索引](docs/reviews/README.md)。
 
 ## 开发与贡献
 
 - 文档导航与信息归属：[docs/README.md](docs/README.md)
 - 跨项目查询、维护 Skill 和多客户端兼容：[Agent 协作设计](docs/agent-collaboration.md)
 - 开发环境：[docs/dev-environment.md](docs/dev-environment.md)
-- 电路块贡献：[standard-blocks-contributing.md](skills/easyeda-agent/references/standard-blocks-contributing.md)
-- Skill 入口：[skills/easyeda-agent/SKILL.md](skills/easyeda-agent/SKILL.md)
+- 电路块贡献：[standard-blocks-contributing.md](.agents/skills/easyeda-agent/references/standard-blocks-contributing.md)
+- Skill 入口：[.agents/skills/easyeda-agent/SKILL.md](.agents/skills/easyeda-agent/SKILL.md)
 - 仓库结构与开发约定：[AGENTS.md](AGENTS.md)
 
 感谢嘉立创 EDA 专业版开放扩展接口，也感谢

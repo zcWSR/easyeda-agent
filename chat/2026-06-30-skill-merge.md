@@ -24,7 +24,7 @@
 旧拆分目录已经合并进：
 
 ```text
-skills/easyeda-agent/
+.agents/skills/easyeda-agent/
   SKILL.md
   agents/openai.yaml
   references/
@@ -60,11 +60,11 @@ skillhub install easyeda-agent --registry https://skillhub.cn
 
 ```bash
 skillhub login --registry https://skillhub.cn
-skillhub publish skills/easyeda-agent --registry https://skillhub.cn --visibility public
+skillhub publish .agents/skills/easyeda-agent --registry https://skillhub.cn --visibility public
 ```
 
 ## 后续约束
 
-- release 只打包 `skills/easyeda-agent`。
+- release 只打包 `.agents/skills/easyeda-agent`。
 - 新文档、新脚本、新规则都落在 `easyeda-agent` 下。
 - 不再恢复旧拆分技能目录，除非将来有明确的插件化安装机制支持依赖技能。

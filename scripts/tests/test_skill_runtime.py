@@ -27,7 +27,7 @@ class InstalledSkillTests(unittest.TestCase):
         self.scripts.mkdir(parents=True)
         self.refs.mkdir()
         for name in ["blocks-pin-audit.py", "lint.sh"]:
-            shutil.copyfile(REPO / "skills/easyeda-agent/scripts" / name, self.scripts / name)
+            shutil.copyfile(REPO / ".agents/skills/easyeda-agent/scripts" / name, self.scripts / name)
         spec = importlib.util.spec_from_file_location("audit_fixture", self.scripts / "blocks-pin-audit.py")
         self.audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.audit)
@@ -136,6 +136,11 @@ else:
 
     @unittest.skipIf(os.name == 'nt', 'lint.sh is a POSIX shell entry point; Windows uses the native CLI')
     def test_lint_development_fallback_requires_a_repository(self):
+        relocated = self.root / ".agents/skills/easyeda-agent"
+        relocated.parent.mkdir(parents=True)
+        self.skill.rename(relocated)
+        self.skill = relocated
+        self.scripts = self.skill / "scripts"
         (self.root / "go.mod").write_text("module fixture\n", encoding="utf-8")
         (self.root / "cmd/easyeda").mkdir(parents=True)
         (self.root / "bin").mkdir()
@@ -145,7 +150,7 @@ else:
         env = {**os.environ, "PATH": "/usr/bin:/bin"}
         env.pop("EASYEDA_BIN", None)
         result = self.run_lint(env)
-        self.assertIn(f"run: {fallback} daemon", result.stderr)
+        self.assertIn(f"run: {fallback.resolve()} daemon", result.stderr)
         (self.root / "go.mod").unlink()
         result = self.run_lint(env)
         self.assertIn("easyeda CLI not found", result.stderr)

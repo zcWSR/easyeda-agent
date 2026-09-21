@@ -34,7 +34,7 @@ Skill / CLI -> Go daemon -> EDA Agent Connector -> 官方 eda.* API
 动图使用电源与 RF 主控页实际 Apply 捕捉的 12 张关键阶段导图，加速播放；静图源自 EasyEDA 官方导图，展示名称已匿名化。
 录制方法见 [Apply 动图捕捉](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/schematic-showcase.md)。
 两页布局与连接检查均为 0 错误、0 警告；官方 DRC 仍有 3 WARN，严格门禁未通过，部分文字避让仍待完善。
-验证范围见 [1.4 发布与验证](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/release-1.4.md)。
+验证范围见 [1.4 发布与验证](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/releases/release-1.4.md)。
 
 ### 历史 PCB 案例：ESP32-S3 四层板
 
@@ -54,7 +54,7 @@ Skill / CLI -> Go daemon -> EDA Agent Connector -> 官方 eda.* API
 
 版本与资产以 GitHub Release 为准。组合器使用已设计的模块几何,
 不自动推导任意外围电路、分页或删除源页。构建步骤、已完成验证和未完成项见
-[1.4 发布与验证](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/release-1.4.md)。
+[1.4 发布与验证](https://github.com/zhoushoujianwork/easyeda-agent/blob/main/docs/releases/release-1.4.md)。
 
 ## 已支持能力概览
 

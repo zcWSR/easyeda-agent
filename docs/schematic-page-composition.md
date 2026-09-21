@@ -1,7 +1,7 @@
 # 单页 Lib 组合与 SCH Apply
 
 本页描述转换器；上游设计与修复遵守
-[数据驱动架构基准](../skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
+[数据驱动架构基准](../.agents/skills/easyeda-agent/references/schematic-data.md#数据驱动架构基准)。
 普通 zone 先走 `layout-plan --zones → layout-sheet-plan → layout-render`；确认的页用
 `compose --layout-page page.json` 固定转换，不能再调用默认重排覆盖选中几何/spacing。
 
@@ -115,7 +115,7 @@ easyeda sch apply verify-apply.json --yes
 已有同一批器件仅改布局时，dev.6 开发路径为 `--replace --preserve-instances`，
 保留原实例及属性；旧破坏性 `--replace` 不作为无损重排入口。源身份/引脚/NC/属性缺失
 或不一致时必须拒绝，不能手工补队列。详见 Skill 的
-[数据架构与实例保全门禁](../skills/easyeda-agent/references/schematic-data.md)。
+[数据架构与实例保全门禁](../.agents/skills/easyeda-agent/references/schematic-data.md)。
 dev.6 安装与现场验证仍须单独完成，不能由本文推定已发布或已通过。
 队列先核对项目/页面、工程内位号唯一性和目标旧状态；新增位号通过 `absentParts`
 检查其他页也未占用。根据新鲜回读选择以下路径：
