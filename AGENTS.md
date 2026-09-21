@@ -110,15 +110,27 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 
 reply as chiense! reply as chiense! reply as chiense!
 
-**Commit directly on `main` — do NOT create feature branches.** Develop and commit
-on `main` by default (user preference). Don't `git checkout -b`; just commit to
-`main`. When the user asks to submit fixes, update GitHub progress, or handle PRs,
-that authorizes committing and pushing the related verified changes without a
-second push confirmation. For completed issue/PR fixes, publish a patch release
-and close fixed issues or fully adopted PRs with links to the release/adoption
-commit; do not wait for reporter revalidation or add tests solely to close them.
-Run required automated/release checks as part of delivery. Keep unresolved issues
-open and report remaining validation gaps accurately.
+**Branch policy:** use `dev` as the default branch for ongoing local development
+and integration. Commit and push verified day-to-day work directly to `dev`; do
+not create per-task feature branches unless the user explicitly asks for one.
+Keep local `main` clean and aligned with `origin/main`. External PRs may still be
+reviewed and merged into `main`; after such merges, merge `main` back into `dev`
+before continuing so the development branch contains the latest accepted work.
+Promote `dev` to `main` only as a deliberate integration step after the required
+checks pass. Never discard diverged local work while cleaning branches: preserve
+it on `dev`, push it, then repair local tracking pointers.
+
+**Pushing code is not a release.** Development commits, `-dev.N` manifest values,
+and pushes to `dev` or `main` do not publish a version. A signed/annotated release
+tag `vX.Y.Z` created by `make release VERSION=vX.Y.Z` is the sole source of truth
+for a published version and its release assets. Do not create or push a release
+tag, GitHub Release, ClawHub release, or skillhub.cn release unless the user has
+explicitly selected/approved that release version. When the user asks to submit
+fixes, update GitHub progress, or handle PRs, that authorizes committing and
+pushing the related verified code without a second push confirmation, but it does
+not by itself authorize a release tag. Close fixed issues or fully adopted PRs
+with links to the adoption commit or approved release; keep unresolved issues open
+and report remaining validation gaps accurately.
 
 ## Layout
 
