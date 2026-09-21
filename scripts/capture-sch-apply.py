@@ -238,7 +238,9 @@ def prepare(source, out_dir, budget):
     print(shlex.join(["easyeda", "sch", "apply", str(output), "--dry-run"]))
     print(shlex.join(["easyeda", "sch", "apply", str(output), "--yes"]))
     print("After execution and journal inspection, validate all captures and encode locally:")
-    print(shlex.join(["python3", str(Path(__file__).resolve()), "--gif", str(manifest_path)]))
+    # sys.executable, not "python3": the printed line is meant to be pasted back,
+    # and Windows normally has no python3 on PATH (the copy would exit 9009).
+    print(shlex.join([sys.executable, str(Path(__file__).resolve()), "--gif", str(manifest_path)]))
     print("Equivalent ffmpeg command (after capture validation):")
     print(shlex.join(ffmpeg))
     print("Do not bypass a failed guard for recording. A final frame is not an acceptance result.")

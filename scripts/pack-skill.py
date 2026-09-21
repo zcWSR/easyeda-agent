@@ -69,7 +69,10 @@ def pack_skill(repo: Path, output: Path) -> int:
             for file in files:
                 path = repo / file
                 content = path.read_bytes()
-                entry = tarfile.TarInfo(str(Path("easyeda-agent") / file.relative_to(SKILL)))
+                # as_posix(): tar member names are always "/"-separated. str() on
+                # Windows yields "easyeda-agent\references\guide.md", which every
+                # extractor then treats as one flat filename.
+                entry = tarfile.TarInfo((Path("easyeda-agent") / file.relative_to(SKILL)).as_posix())
                 entry.size, entry.mtime = len(content), stamp
                 entry.mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
                 archive.addfile(entry, io.BytesIO(content))

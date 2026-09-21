@@ -11,14 +11,26 @@
  */
 
 import * as extensionConfig from '../extension.json';
+import { ensureHeaderMenusVisible } from './header-menu';
 import {
+	bootstrapFromModuleLoad,
 	getConnectionStatus,
 	reconnect as transportReconnect,
 	start as transportStart,
 	stop as transportStop,
+	deactivate as transportDeactivate,
 } from './transport';
 
 const STORAGE_KEY_AUTO_CONNECT = 'autoConnectEnabled';
+
+// EasyEDA can evaluate a user-extension bundle without dispatching an
+// activation event. Start from module scope as well; transport.start() keeps
+// the normal activate() path idempotent.
+bootstrapFromModuleLoad();
+// The same skipped-activate path must still publish the recovery menu. This is
+// best-effort and internally catches host errors; activate() retries below when
+// the normal lifecycle callback does arrive.
+void ensureHeaderMenusVisible(extensionConfig);
 
 // ─── Lifecycle ────────────────────────────────────────────────────────
 
@@ -30,14 +42,17 @@ const STORAGE_KEY_AUTO_CONNECT = 'autoConnectEnabled';
  */
 // eslint-disable-next-line unused-imports/no-unused-vars
 export function activate(status?: 'onStartupFinished', arg?: string): void {
-	transportStart();
+	// Declaring headerMenus in extension.json is not enough for a
+	// user-installed extension; see ./header-menu for the host-side trace.
+	void ensureHeaderMenusVisible(extensionConfig);
+	transportStart('activate');
 }
 
 /**
  * Extension deactivation: tear down the connection without showing a toast.
  */
 export function deactivate(): void {
-	transportStop(false);
+	transportDeactivate();
 }
 
 // ─── Menu actions ─────────────────────────────────────────────────────

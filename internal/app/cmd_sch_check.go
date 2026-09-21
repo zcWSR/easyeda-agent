@@ -300,8 +300,10 @@ func renderCheckReport(rep checkReport, w io.Writer) {
 		return
 	}
 	if s.FloatingPins > 0 {
-		// The floating-pin list is the exact input `sch no-connect` takes.
-		fmt.Fprintln(w, "→ floating pins: wire them, or (where supported) mark intentional ones NC")
+		// The per-pin breakdown printed above is the exact input `sch no-connect`
+		// takes, so name it: a hint that stops at "mark intentional ones NC"
+		// leaves the reader to discover the command that consumes its own output.
+		fmt.Fprintln(w, "→ floating pins: wire them, or mark the intentional ones NC — the listed pins are exactly what `sch no-connect --designator <REF> --pin <n>[,<n>]` takes")
 	}
 	if s.GeomNetMismatches > 0 {
 		// Geometry touches the pin but the authoritative netlist has no net for it —
@@ -324,7 +326,11 @@ func renderCheckReport(rep checkReport, w io.Writer) {
 		fmt.Fprintln(w, "→ title-block: a part/marker intrudes the A4 图签 keep-out — move it out or pick another connect direction")
 	}
 	if s.MarkerOverlaps > 0 {
-		fmt.Fprintln(w, "→ marker overlap: net markers cover a part/each other — stagger the labels or re-run autoconnect with more offset")
+		// `sch destagger` exists for exactly this finding and is safe by default
+		// (plans only; --apply re-runs this very check per move and rolls the
+		// batch back on any electrical regression). Describing the manual fix
+		// while withholding the command is the same dead end #227 reported.
+		fmt.Fprintln(w, "→ marker overlap: net markers cover a part/each other — `sch destagger` plans the fix (add --apply to land it; it re-verifies and rolls back on any electrical regression), or re-run autoconnect with more offset")
 	}
 	// 交付三件套共用一个聚合计数槽,所以**提示行不能读那个槽** —— 读了就会在只有
 	// missing-titleblock(图签写入当前禁用,必然长亮)的页上印出「→ missing-partition:

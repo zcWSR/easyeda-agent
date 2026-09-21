@@ -90,7 +90,7 @@ a warning is printed, but the export itself still succeeds.`,
 				fmt.Fprintln(stderr, "warning: --enrich skipped — export returned no file path")
 				return nil
 			}
-			// Best-effort: a missing python3 / script must NOT fail an
+			// Best-effort: a missing python / script must NOT fail an
 			// already-exported BOM. Warn and keep the raw file.
 			if err := enrichBomFile(scriptPath, bomPath, partsPath, stderr); err != nil {
 				fmt.Fprintf(stderr, "warning: BOM exported but enrichment failed (file left un-enriched): %v\n", err)
@@ -116,11 +116,14 @@ func enrichBomFile(scriptOverride, bomPath, partsPath string, stderr io.Writer) 
 	if err != nil {
 		return err
 	}
-	cmdArgs := []string{script, bomPath, "--out", bomPath}
+	cmdArgs := []string{bomPath, "--out", bomPath}
 	if partsPath != "" {
 		cmdArgs = append(cmdArgs, "--parts", partsPath)
 	}
-	py := exec.Command("python3", cmdArgs...)
+	py, err := pythonCommand(script, cmdArgs...)
+	if err != nil {
+		return err
+	}
 	py.Stdout = stderr // match report -> stderr, never the BOM file or action JSON
 	py.Stderr = stderr
 	return py.Run()
@@ -150,7 +153,10 @@ func newBomEnrichCmd(stdout, stderr io.Writer) *cobra.Command {
 				cmdArgs = append(cmdArgs, "--out", outFile)
 			}
 
-			py := exec.Command("python3", append([]string{script}, cmdArgs...)...)
+			py, err := pythonCommand(script, cmdArgs...)
+			if err != nil {
+				return err
+			}
 			py.Stdin = os.Stdin
 			py.Stdout = stdout
 			py.Stderr = stderr

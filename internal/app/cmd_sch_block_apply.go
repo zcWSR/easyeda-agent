@@ -244,6 +244,11 @@ type bapInput struct {
 	// sheet bbox is known; nil → not enforced. Treated as an extra obstacle so the
 	// block origin never lands on the title block (issue #141).
 	TitleBlock *layoutBBox
+	// SkipDevicePreflight disables the pre-placement library.device.get sweep.
+	// The sweep costs one read per distinct device and turns an unresolvable
+	// parts file into a refusal with the canvas untouched; skipping it restores
+	// the old behaviour of finding out one failed placement at a time.
+	SkipDevicePreflight bool
 	// Sheet 是图纸边框 bbox。**它必须参与螺旋搜索**,不能只做事后 warning:
 	// origin 搜索从前给 findSlot 的 inBounds 传 nil,于是"最近的空位"可以在图纸
 	// 外面 —— 实测把 J_USB 放到 x=-20、把 R6 放到 y=880(sheet 上界 825)。

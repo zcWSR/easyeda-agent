@@ -34,14 +34,14 @@ def check_sources(repo: Path, tag: str, local_dev: bool = False) -> str:
         raise ValueError(f"VERSION must be a complete {'local development version' if local_dev else 'release tag'}: {expected}")
     version = tag[1:]
     for name in ["extension/extension.json", "extension/package.json", "extension/package-lock.json"]:
-        data = json.loads((repo / name).read_text())
+        data = json.loads((repo / name).read_text(encoding="utf-8"))
         if data.get("version") != version:
             raise ValueError(f"{name}: version {data.get('version')!r}, expected {version}")
         if name.endswith("package-lock.json") and data.get("packages", {}).get("", {}).get("version") != version:
             raise ValueError(f"{name}: packages[''].version must also be {version}")
-    if skill_version((repo / "skills/easyeda-agent/SKILL.md").read_text()) != version:
+    if skill_version((repo / "skills/easyeda-agent/SKILL.md").read_text(encoding="utf-8")) != version:
         raise ValueError(f"SKILL.md version must be {version}; run scripts/sync-skill-version.py {version}")
-    changelog = (repo / "extension/CHANGELOG.md").read_text()
+    changelog = (repo / "extension/CHANGELOG.md").read_text(encoding="utf-8")
     if not re.search(rf"^##\s*\[{re.escape(version)}\]", changelog, re.MULTILINE):
         raise ValueError(f"extension/CHANGELOG.md has no ## [{version}] entry")
     return version
@@ -63,12 +63,15 @@ def write_checksums(dist: Path) -> None:
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"missing/empty release asset: {path}")
         records.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n")
-    (dist / "checksums.txt").write_text("".join(records))
+    # newline="\n": checksums.txt is consumed by install.sh / internal/selfupdate,
+    # so it must stay LF even when the release is cut on Windows.
+    with (dist / "checksums.txt").open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write("".join(records))
 
 
 def check_artifacts(repo: Path, dist: Path, version: str) -> None:
     expected = {}
-    for line in (dist / "checksums.txt").read_text().splitlines():
+    for line in (dist / "checksums.txt").read_text(encoding="utf-8").splitlines():
         digest, name = line.split()
         if name in expected or name not in ASSETS or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError(f"invalid checksum asset entry: {line}")
@@ -78,7 +81,7 @@ def check_artifacts(repo: Path, dist: Path, version: str) -> None:
     for name in ASSETS:
         if hashlib.sha256((dist / name).read_bytes()).hexdigest() != expected[name]:
             raise ValueError(f"checksum mismatch: {name}")
-    manifest = json.loads((repo / "extension/extension.json").read_text())
+    manifest = json.loads((repo / "extension/extension.json").read_text(encoding="utf-8"))
     check_connector(dist / "easyeda-agent-connector.eext", version, manifest["uuid"])
     with tarfile.open(dist / "skills.tar.gz", "r:gz") as archive:
         item = archive.extractfile("easyeda-agent/SKILL.md")
@@ -107,7 +110,7 @@ def main() -> int:
     try:
         version = check_sources(args.repo, args.version, args.local_dev)
         if args.connector:
-            uuid = json.loads((args.repo / "extension/extension.json").read_text())["uuid"]
+            uuid = json.loads((args.repo / "extension/extension.json").read_text(encoding="utf-8"))["uuid"]
             check_connector(args.connector, version, uuid)
         if args.write_checksums:
             write_checksums(args.write_checksums)

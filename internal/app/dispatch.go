@@ -260,6 +260,7 @@ func requestActionOnce(cfg *appConfig, action, window string, payload any, timeo
 		Error     *struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
+			Detail  string `json:"detail"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
@@ -273,6 +274,13 @@ func requestActionOnce(cfg *appConfig, action, window string, payload any, timeo
 			code = parsed.Error.Code
 			if parsed.Error.Message != "" {
 				msg = parsed.Error.Message
+			}
+			// error.detail carries the *reason*; message is the category. A caller
+			// that only renders the error line (one row per pin in `sch autoconnect`)
+			// otherwise shows "schematic geometry guard failed (preflight)" with no
+			// way to tell which rule rejected the write.
+			if d := strings.TrimSpace(parsed.Error.Detail); d != "" && !strings.Contains(msg, d) {
+				msg += " — " + d
 			}
 		}
 		res.errorMsg = msg

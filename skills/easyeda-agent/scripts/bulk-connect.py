@@ -164,7 +164,7 @@ def repair_floaters(spec):
 
 def main():
     global PAGE
-    spec = json.load(open(sys.argv[1]))
+    spec = json.load(open(sys.argv[1], encoding="utf-8"))
     PAGE = spec["page"]
     mode = sys.argv[2] if len(sys.argv) > 2 else ""
     settle(PAGE)
@@ -183,7 +183,7 @@ def main():
                                 "staggerLabels": True, "offsetRange": [18, 80],
                                 "offsetStep": 6, "minLabelGap": 12}}
             fn = f"/tmp/ac_{spec['page']}.json"
-            json.dump(acspec, open(fn, "w"), ensure_ascii=False)
+            json.dump(acspec, open(fn, "w", encoding="utf-8"), ensure_ascii=False)
             rc, out, err = run(["sch", "autoconnect", "--spec", fn, "--json"], 600)
             res = jparse(out).get("result") or {}
             results = res.get("results") or res.get("connections") or []

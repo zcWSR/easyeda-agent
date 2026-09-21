@@ -239,11 +239,19 @@ def main():
     parser.add_argument("--assets", type=Path, help="release assets directory with checksums.txt")
     parser.add_argument("--binary", type=Path, help="explicit native CLI (defaults to matching release asset)")
     parser.add_argument("--skill-dir", type=Path, help="unpacked public Skill (defaults to extracting release archive)")
+    parser.add_argument("--local-dev", action="store_true", help="require vX.Y.Z-dev.N; never publish")
     args = parser.parse_args()
     if not args.assets and not (args.binary and args.skill_dir):
         parser.error("pass --assets, or both --binary and --skill-dir")
-    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", args.version):
-        parser.error("--version must be an exact release tag vX.Y.Z")
+    # Same version contract as release-check.py: a published tag is exact, a local
+    # development build carries the -dev.N suffix. Keeping the release form strict
+    # means an unreleasable version can never pass as one.
+    pattern = r"v[0-9]+\.[0-9]+\.[0-9]+"
+    if args.local_dev:
+        pattern += r"-dev\.[1-9][0-9]*"
+    if not re.fullmatch(pattern, args.version):
+        expected = "vX.Y.Z-dev.N (N >= 1)" if args.local_dev else "vX.Y.Z"
+        parser.error(f"--version must be an exact release tag {expected}")
     report = {"version": args.version, "offline": True, "edaRuntimeTested": False}
     try:
         with tempfile.TemporaryDirectory(prefix="easyeda-release-smoke-") as temporary:

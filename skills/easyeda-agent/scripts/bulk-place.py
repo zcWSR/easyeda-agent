@@ -96,7 +96,7 @@ def resolve_lcsc(lcscs):
 
 def main():
     manifest_path, page = sys.argv[1], sys.argv[2]
-    m = json.load(open(manifest_path))
+    m = json.load(open(manifest_path, encoding="utf-8"))
     grid = m.get("_grid", {"dx": 85, "dy": 85, "cols": 4})
     origins = (m.get("_origins") or {}).get(page) or {}
     modules = m[page]

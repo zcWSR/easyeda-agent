@@ -431,7 +431,7 @@ func markerOverlapFindings(comps []layoutComp, eps float64) []checkFinding {
 				PrimitiveIds: []string{pa.ID, pb.ID},
 				OverlapX:     round2(ox),
 				OverlapY:     round2(oy),
-				Message: fmt.Sprintf("%s(%s) 与 %s(%s) 视觉重叠 %.2f×%.2f — 换方向/offset 或 stagger",
+				Message: fmt.Sprintf("%s(%s) 与 %s(%s) 视觉重叠 %.2f×%.2f — `sch destagger` 可自动搬(默认只算不动),或换方向/offset",
 					markerLabel(pa), pa.ComponentType, markerLabel(pb), pb.ComponentType, round2(ox), round2(oy)),
 			})
 		}
@@ -527,7 +527,7 @@ func mergeMarkerGeomFindingsWith(cfg *appConfig, window string, allPages bool, o
 			geo = append(geo, *pf)
 		}
 		// 图签是交付件:标题/设计者/板名空着,打印出来就是一张没人认领的图。
-		if tf := titleBlockFinding(cfg, window, stderr); tf != nil {
+		for _, tf := range titleBlockFinding(cfg, window, stderr) {
 			geo = append(geo, *tf)
 		}
 
@@ -695,7 +695,7 @@ func partitionFinding(cfg *appConfig, window string, comps []layoutComp, stderr 
 // titleBlockFinding 判图签有没有填。**这是交付件不是装饰**:图纸标题、设计者、板名
 // 空着或还停在平台默认值(`Board1`),打印出来就是一张没人认领的图。
 // 平台把图签字段放在 sheet 上而不是自由文本里,所以 partitionFinding 那条判据看不见它。
-func titleBlockFinding(cfg *appConfig, window string, stderr io.Writer) *checkFinding {
+func titleBlockFinding(cfg *appConfig, window string, stderr io.Writer) []*checkFinding {
 	res, err := requestAction(cfg, "schematic.titleblock.get", window, map[string]any{})
 	if err != nil {
 		fmt.Fprintf(stderr, "sch check: titleblock-check skipped — titleblock.get failed: %v\n", err)
@@ -705,7 +705,38 @@ func titleBlockFinding(cfg *appConfig, window string, stderr io.Writer) *checkFi
 	if data == nil {
 		return nil
 	}
-	shown, _ := res.Result["showTitleBlock"].(bool)
+	// **不判 showTitleBlock**:平台两个读接口对它各说各话 —— `getCurrentSchematicPageInfo()`
+	// 报 true 而 `titleblock.get` 报 false(2026-08-15 实测,同一页同一时刻)。
+	// 建立在互相矛盾的读数上的判据只会误报,留给人眼。
+	return titleBlockFindingsFor(data)
+}
+
+// titleBlockRequired 是必填项与它们的中文说明。
+// 只列**可写**项。`@` 开头的是系统派生项(@Board Name / @Project Name / @Page No…),
+// 来自工程与板子对象,平台按「无法识别的明细项将被忽略」静默丢弃 —— 要求它等于
+// 要求一件做不到的事(实测写 `@Board Name` 返回 true 但纹丝不动)。
+var titleBlockRequired = []struct{ Key, Label string }{
+	{"Name", "Name(图纸标题)"},
+	{"Drawed", "Drawed(设计者)"},
+	{"Description", "Description(图纸说明)"},
+}
+
+// titleBlockFindingsFor 是纯判据,输入就是 `titleblock.get` 的 titleBlockData。
+//
+// 必填项分两种,**因为修法完全不同**:
+//
+//   - 页上**有这个明细项、只是空着** → `missing-titleblock`(warn,--strict 阻塞)。
+//     `sch titleblock --data …` 填得进去,提示照给。
+//   - 页上**根本没有这个明细项**(图签模板不带它) → `titleblock-key-absent`(info)。
+//     写入侧会明确拒绝它:schTitleBlockPatch 对不在 titleBlockData 里的 key 返回
+//     「这些明细项当前页没有:… —— 先跑 `easyeda sch titleblock-get` 看可用 key」。
+//     此前两处读的是同一份 titleBlockData,却只有写入侧看 key 在不在:缺项被
+//     valueOf 当成空值,于是 check 要求填一个 CLI 自己必定拒写的项,
+//     `sch gate --strict` 因此恒为 FAIL,且没有任何命令能解除。
+//
+// 缺项报 info 而不是直接丢掉:门禁不该要求做不到的事,但「这张图没有设计者栏位」
+// 仍然是交付前该知道的事,并且要把这一页**真正有的 key** 列出来,人才好选。
+func titleBlockFindingsFor(data map[string]any) []*checkFinding {
 	valueOf := func(k string) string {
 		m, _ := data[k].(map[string]any)
 		if m == nil {
@@ -713,32 +744,52 @@ func titleBlockFinding(cfg *appConfig, window string, stderr io.Writer) *checkFi
 		}
 		return strings.TrimSpace(asString(m["value"]))
 	}
-	var missing []string
-	// 只判**可写**的必填项。`@` 开头的是系统派生项(@Board Name / @Project Name /
-	// @Page No…),来自工程与板子对象,平台按「无法识别的明细项将被忽略」静默丢弃 ——
-	// 要求它等于要求一件做不到的事(实测写 `@Board Name` 返回 true 但纹丝不动)。
-	if valueOf("Name") == "" {
-		missing = append(missing, "Name(图纸标题)")
+	var blank, absent []string
+	for _, req := range titleBlockRequired {
+		if _, present := data[req.Key]; !present {
+			absent = append(absent, req.Key)
+			continue
+		}
+		if valueOf(req.Key) == "" {
+			blank = append(blank, req.Label)
+		}
 	}
-	if valueOf("Drawed") == "" {
-		missing = append(missing, "Drawed(设计者)")
+	var out []*checkFinding
+	if len(blank) > 0 {
+		out = append(out, &checkFinding{
+			Type:    "missing-titleblock",
+			Level:   "warn",
+			Count:   len(blank),
+			Message: fmt.Sprintf("图签未填:%s — 交付图必须能认领(`sch titleblock --data '{\"Name\":\"…\",\"Drawed\":\"…\"}'`)", strings.Join(blank, "、")),
+		})
 	}
-	if valueOf("Description") == "" {
-		missing = append(missing, "Description(图纸说明)")
+	if len(absent) > 0 {
+		out = append(out, &checkFinding{
+			Type:  "titleblock-key-absent",
+			Level: "info",
+			Count: len(absent),
+			Message: fmt.Sprintf("这一页的图签模板没有这些明细项:%s —— 写入会被拒(`sch titleblock` 只接受当前页已有的 key)。本页可用 key:%s",
+				strings.Join(absent, "、"), strings.Join(titleBlockAvailableKeys(data), ", ")),
+		})
 	}
-	// **不判 showTitleBlock**:平台两个读接口对它各说各话 —— `getCurrentSchematicPageInfo()`
-	// 报 true 而 `titleblock.get` 报 false(2026-08-15 实测,同一页同一时刻)。
-	// 建立在互相矛盾的读数上的判据只会误报,留给人眼。
-	_ = shown
-	if len(missing) == 0 {
-		return nil
+	return out
+}
+
+// titleBlockAvailableKeys 列出这一页真正能写的 key(排除 `@` 派生项),升序,
+// 供人照着改提示里的命令。
+func titleBlockAvailableKeys(data map[string]any) []string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		if strings.HasPrefix(k, "@") {
+			continue
+		}
+		keys = append(keys, k)
 	}
-	return &checkFinding{
-		Type:    "missing-titleblock",
-		Level:   "warn",
-		Count:   len(missing),
-		Message: fmt.Sprintf("图签未填:%s — 交付图必须能认领(`sch titleblock --data '{\"Name\":\"…\",\"Drawed\":\"…\"}'`)", strings.Join(missing, "、")),
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return []string{"(无可写明细项)"}
 	}
+	return keys
 }
 
 // partitionFindingFor checks module frames. Standalone circuit notes are not required.

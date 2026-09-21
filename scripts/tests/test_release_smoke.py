@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import importlib.util
 import io
@@ -148,6 +149,31 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(binary.read_bytes(), b"test-placeholder")
             self.assertIn("1-1", command)
             self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+    def test_version_form_follows_release_check(self):
+        # CI smokes whatever extension.json carries, which between releases is a
+        # -dev.N build. --local-dev selects that form, mirroring release-check.py;
+        # without it the release form stays strict, so an unreleasable version can
+        # never pass as a release.
+        def version_rejected(version, local_dev):
+            argv = ["release-smoke.py", "--version", version,
+                    "--binary", str(self.root / "absent-cli"),
+                    "--skill-dir", str(self.root / "absent-skill")]
+            if local_dev:
+                argv.append("--local-dev")
+            with patch("sys.argv", argv), contextlib.redirect_stderr(io.StringIO()), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    smoke.main()
+            # argparse exits 2 when it rejects --version. A version that passes the
+            # check goes on to the absent assets and exits 1 instead.
+            return raised.exception.code == 2
+
+        self.assertFalse(version_rejected("v1.5.2", local_dev=False))
+        self.assertFalse(version_rejected("v1.5.3-dev.3", local_dev=True))
+        self.assertTrue(version_rejected("v1.5.3-dev.3", local_dev=False))
+        self.assertTrue(version_rejected("v1.5.2", local_dev=True))
+        self.assertTrue(version_rejected("v1.5.3-dev.0", local_dev=True))
 
 
 if __name__ == "__main__":

@@ -73,6 +73,11 @@ jobs:
         shell: bash
         run: |
           smoke_version="v$(python -c 'import json; print(json.load(open("extension/extension.json"))["version"])')"
+          # Between releases extension.json carries a -dev.N version, which is not a
+          # publishable tag. Tell the smoke test which form to expect, the same way
+          # the Makefile's local-build target does for release-check.py.
+          local_dev=""
+          case "$smoke_version" in *-dev.*) local_dev="--local-dev" ;; esac
           go build -ldflags "-X github.com/zhoushoujianwork/easyeda-agent/internal/version.Version=$smoke_version" -o "$RUNNER_TEMP/easyeda-smoke.exe" ./cmd/easyeda
           python -m unittest discover -s scripts/tests -p test_release_smoke.py
-          python scripts/release-smoke.py --version "$smoke_version" --binary "$RUNNER_TEMP/easyeda-smoke.exe" --skill-dir skills/easyeda-agent
+          python scripts/release-smoke.py --version "$smoke_version" $local_dev --binary "$RUNNER_TEMP/easyeda-smoke.exe" --skill-dir skills/easyeda-agent

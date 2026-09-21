@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Bootstrap the Connector when EasyEDA evaluates its entry bundle without dispatching `activate()`. Keep one versioned transport controller on the host's shared per-extension `eda` object so repeated bundle evaluations delegate `start`, `stop`, `reconnect`, and status reads instead of registering duplicate sockets. `deactivate()` stops and releases that controller for a subsequent reload. Verified on macOS EasyEDA 3.2.203 with an official 1.5.2 cold-start baseline that did not connect, followed by import-time and fresh-process bootstrap registrations where `activateObserved=false`; this does not establish the behavior of Windows 3.2.149 or a startup path that never evaluates the bundle.
+
 ## [1.5.3-dev.3] — 2026-09-20 (local development)
 
 - Move the supported EasyEDA product mainline to V4 (recommended V4.1.60+), expose a separate host compatibility report in `easyeda health`, and update the Connector type baseline to `@jlceda/pro-api-types` 0.4.25 without confusing the V4 product version with the official 3.2 extension API engine.

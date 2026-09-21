@@ -33,6 +33,12 @@ GOLDEN = os.path.join(HERE, 'golden')
 sys.path.insert(0, ROOT)
 import orient  # noqa: E402
 
+# 报告含 ✓/↻ 和 lint 的中文输出:重定向到文件时 Windows 默认 cp936/cp950 会
+# UnicodeEncodeError,固定 utf-8(控制台本来就是 utf-8,等价空操作)。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8')
+
 GREEN, RED, DIM, RESET = '\033[32m', '\033[31m', '\033[2m', '\033[0m'
 
 
@@ -102,7 +108,7 @@ def check_ts_consistency(failures):
         print(f"{DIM}    To enable: run inside the easyeda-agent repo, or set "
               f"EASYEDA_AGENT_ROOT=/path/to/easyeda-agent{RESET}")
         return
-    src = open(actions).read()
+    src = open(actions, encoding='utf-8').read()
     spec = orient.load_spec()
 
     m = re.search(r"ROTATION_CYCLE\s*:\s*Direction\[\]\s*=\s*\[([^\]]*)\]", src)
@@ -139,7 +145,8 @@ def check_bulk_connect_envelope(failures):
 
 
 def run_lint(path):
-    proc = subprocess.run([sys.executable, LINT, path], capture_output=True, text=True)
+    proc = subprocess.run([sys.executable, LINT, path], capture_output=True,
+                          encoding='utf-8', errors='replace')
     if proc.returncode != 0:
         return f"<lint.py crashed: rc={proc.returncode}>\n{proc.stderr}"
     return proc.stdout
@@ -153,14 +160,14 @@ def check_fixtures(update, failures):
         out = run_lint(os.path.join(FIXTURES, fx))
         gpath = os.path.join(GOLDEN, name + '.txt')
         if update:
-            with open(gpath, 'w') as f:
+            with open(gpath, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(out)
             print(f"{DIM}↻ froze golden/{name}.txt{RESET}")
             continue
         if not os.path.exists(gpath):
             failures.append(f"fixture {name}: no golden (run --update)")
             continue
-        with open(gpath) as f:
+        with open(gpath, encoding='utf-8') as f:
             want = f.read()
         if out != want:
             failures.append(f"fixture {name}: output differs from golden/{name}.txt")
@@ -171,7 +178,7 @@ def check_fixtures(update, failures):
 
 def run_diff(base, cur):
     proc = subprocess.run([sys.executable, DIFF, base, cur, '--all'],
-                          capture_output=True, text=True)
+                          capture_output=True, encoding='utf-8', errors='replace')
     if proc.returncode not in (0, 1):  # 1 = "new problems found", expected
         return f"<diff.py crashed: rc={proc.returncode}>\n{proc.stderr}"
     return proc.stdout
@@ -191,14 +198,14 @@ def check_diffs(update, failures):
         out = run_diff(base, cur)
         gpath = os.path.join(GOLDEN, 'diff_' + name + '.txt')
         if update:
-            with open(gpath, 'w') as f:
+            with open(gpath, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(out)
             print(f"{DIM}↻ froze golden/diff_{name}.txt{RESET}")
             continue
         if not os.path.exists(gpath):
             failures.append(f"diff {name}: no golden (run --update)")
             continue
-        with open(gpath) as f:
+        with open(gpath, encoding='utf-8') as f:
             want = f.read()
         if out != want:
             failures.append(f"diff {name}: output differs from golden/diff_{name}.txt")

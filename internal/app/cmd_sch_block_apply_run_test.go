@@ -135,6 +135,9 @@ func assertBlockApplyStoppedBeforeWiring(t *testing.T, calls []blockApplyTestCal
 		switch call.Action {
 		case "schematic.components.list", "schematic.component.place", "schematic.component.delete":
 			// Placement and its compensating cleanup are the only allowed writes.
+		case "library.device.get":
+			// Pre-placement device resolution sweep: a read, and it is issued before
+			// the first place, so it can never be a write that outlived the gate.
 		case "document.current":
 			// Read-only page pin issued by the group-registry leg of the delete
 			// cascade (缺陷 2): a verified rollback strips the deleted designators
@@ -181,6 +184,9 @@ func TestRunBlockApplyOverlapStopsBeforeWiringAndRollsBack(t *testing.T) {
 		case "document.current":
 			// Group-registry cascade page pin; empty result → cascade fail-softs.
 			return `{"ok":true,"result":{}}`
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`
@@ -262,6 +268,9 @@ func TestRunBlockApplyReadOrParseFailureStopsBeforeWiring(t *testing.T) {
 				case "document.current":
 					// Group-registry cascade page pin; empty result → cascade fail-softs.
 					return `{"ok":true,"result":{}}`
+				case "library.device.get":
+					// The pre-placement resolution sweep; every fixture device resolves.
+					return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 				default:
 					t.Errorf("unexpected action %q", call.Action)
 					return `{"ok":true,"result":{}}`
@@ -311,6 +320,9 @@ func TestRunBlockApplyPinCoincidenceStopsBeforeWiring(t *testing.T) {
 		case "document.current":
 			// Group-registry cascade page pin; empty result → cascade fail-softs.
 			return `{"ok":true,"result":{}}`
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`
@@ -355,6 +367,9 @@ func TestRunBlockApplyRollbackSurvivorReportsPartialState(t *testing.T) {
 			return blockApplyPlaceResponse(placeCalls, true)
 		case "schematic.component.delete":
 			return `{"ok":true,"result":{"deleted":false,"survived":["pid-led","pid-r"]}}`
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`
@@ -396,6 +411,9 @@ func TestRunBlockApplyMissingPlacedIDDoesNotGuessRollbackTarget(t *testing.T) {
 			return `{"ok":true,"result":{"components":[{"primitiveId":"unknown-new-id","designator":"LED1"}]}}`
 		case "schematic.component.place":
 			return blockApplyPlaceResponse(1, false)
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`
@@ -560,6 +578,9 @@ func blockApplyBoardDaemon(t *testing.T, board *blockApplyBoard) (*appConfig, *b
 			return board.deleteJSON(call.Payload)
 		case "document.current":
 			return `{"ok":true,"result":{}}`
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`
@@ -708,6 +729,9 @@ func TestRunBlockApplyWithoutPreplaceSnapshotRefusesToGuess(t *testing.T) {
 			return `{"ok":false,"error":{"message":"connector did not respond"}}`
 		case "document.current":
 			return `{"ok":true,"result":{}}`
+		case "library.device.get":
+			// The pre-placement resolution sweep; every fixture device resolves.
+			return `{"ok":true,"result":{"device":{"uuid":"dev"}}}`
 		default:
 			t.Errorf("unexpected action %q", call.Action)
 			return `{"ok":true,"result":{}}`

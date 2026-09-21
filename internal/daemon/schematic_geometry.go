@@ -25,7 +25,53 @@ func schematicGeometrySerializes(req *protocol.Request) bool {
 	return mutatesAction[req.Action] || strings.HasPrefix(req.Action, "document.") || req.Action == "schematic.page.open" || req.Action == "debug.exec_js" || (req.Action == "schematic.components.list" && tagPages)
 }
 
+// geometryFindingDigest renders the first few finding messages so the rejection
+// reason travels with error.detail, not only inside result.geometryGuard.
+// A caller that only surfaces the error line (`sch autoconnect` prints one row
+// per pin) otherwise reports the generic "geometry guard failed (preflight)"
+// and the operator cannot tell a wrong exit direction from a wire crossing a
+// body without re-running the same connection through `sch connect`.
+func geometryFindingDigest(findings any) string {
+	list, ok := findings.([]schguard.Finding)
+	if !ok || len(list) == 0 {
+		return ""
+	}
+	const maxShown = 3
+	parts := make([]string, 0, maxShown)
+	for _, f := range list {
+		if len(parts) == maxShown {
+			break
+		}
+		if f.Message == "" {
+			continue
+		}
+		where := f.Designator
+		if where != "" && len(f.Pins) > 0 {
+			where += ":" + f.Pins[0]
+		}
+		if where != "" {
+			where = " (" + where + ")"
+		}
+		parts = append(parts, f.Type+where+": "+f.Message)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	digest := strings.Join(parts, "; ")
+	if len(list) > len(parts) {
+		digest += fmt.Sprintf("; +%d more", len(list)-len(parts))
+	}
+	return digest
+}
+
 func geometryFailure(req protocol.Request, phase string, applied bool, findings any, detail string) *protocol.Response {
+	if digest := geometryFindingDigest(findings); digest != "" {
+		detail = strings.TrimSpace(detail)
+		if detail != "" {
+			detail += " "
+		}
+		detail += digest
+	}
 	r := errorResponse(req.ID, "SCHEMATIC_GEOMETRY_INVALID", "schematic geometry guard failed ("+phase+")", detail)
 	r.Result = map[string]any{"geometryGuard": map[string]any{"phase": phase, "passed": false, "findings": findings, "mutationApplied": applied}}
 	if applied {

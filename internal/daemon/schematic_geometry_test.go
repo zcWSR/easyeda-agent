@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket/wsjson"
 	"github.com/zhoushoujianwork/easyeda-agent/internal/protocol"
+	"github.com/zhoushoujianwork/easyeda-agent/internal/schguard"
 )
 
 func geometryFixture(t *testing.T) map[string]any {
@@ -192,5 +193,56 @@ func TestSchematicGeometryRejectsUnexpectedContactDespiteEqualEdges(t *testing.T
 		if junction && (res.Result["partial"] != true || !strings.Contains(res.Error.Detail, "wire-contact-topology")) {
 			t.Fatalf("unexpected junction lost failure evidence: %+v", res)
 		}
+	}
+}
+
+// A rejection must carry WHY in error.detail, not only inside
+// result.geometryGuard. `sch autoconnect` renders one error line per pin, so a
+// generic "geometry guard failed (preflight)" leaves the operator unable to tell
+// a wrong exit direction from a wire crossing a body.
+func TestGeometryFailureDetailNamesTheRule(t *testing.T) {
+	findings := []schguard.Finding{
+		{Type: "pin-exit-direction", Level: "ERROR", Designator: "R3", Pins: []string{"2"},
+			Message: "pin 2 outward rotation 0° requires its first wire segment to leave outward"},
+		{Type: "wire-through-body", Level: "ERROR", Designator: "U1", Message: "segment crosses the body"},
+	}
+	res := geometryFailure(geometryRequest("[]"), "preflight", false, findings, "Rejected before write: replan.")
+	if res.Error == nil {
+		t.Fatal("expected an error response")
+	}
+	for _, want := range []string{
+		"Rejected before write: replan.",
+		"pin-exit-direction (R3:2)",
+		"requires its first wire segment to leave outward",
+		"wire-through-body (U1)",
+	} {
+		if !strings.Contains(res.Error.Detail, want) {
+			t.Errorf("detail missing %q:\n%s", want, res.Error.Detail)
+		}
+	}
+	// The category stays in message so existing matchers keep working.
+	if !strings.Contains(res.Error.Message, "schematic geometry guard failed (preflight)") {
+		t.Errorf("message changed: %q", res.Error.Message)
+	}
+	// findings stay in the structured result for callers that render them fully.
+	guard, _ := res.Result["geometryGuard"].(map[string]any)
+	if guard == nil || guard["findings"] == nil {
+		t.Error("geometryGuard.findings must still be present")
+	}
+}
+
+func TestGeometryFailureDetailTruncatesAndToleratesNoFindings(t *testing.T) {
+	var many []schguard.Finding
+	for i := 0; i < 5; i++ {
+		many = append(many, schguard.Finding{Type: "pin-exit-direction", Message: "outward"})
+	}
+	res := geometryFailure(geometryRequest("[]"), "preflight", false, many, "")
+	if !strings.Contains(res.Error.Detail, "+2 more") {
+		t.Errorf("expected the digest to be capped: %q", res.Error.Detail)
+	}
+	// nil findings (a read failure, not a rule violation) must not invent detail.
+	plain := geometryFailure(geometryRequest("[]"), "preflight", false, nil, "read failed")
+	if plain.Error.Detail != "read failed" {
+		t.Errorf("detail must be untouched without findings: %q", plain.Error.Detail)
 	}
 }

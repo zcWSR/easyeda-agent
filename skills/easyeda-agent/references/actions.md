@@ -87,6 +87,10 @@ Playbook 使用 `version:1`、`meta` 和有序 `steps`。每步只选一种执�
 `sch check --json` 使用 `{ok,result}` 信封，问题在 `result.findings`。
 `bom export --type csv` 默认 best-effort 补 LCSC C 号，`--enrich=false` 可关闭，xlsx 不补。
 需显式指定脚本时用 `--script`，安装态也可设置 `EASYEDA_SKILLS_DIR` 指向 Skill 的父目录。
+补号解释器按 `python3` → `python` → `py -3` 依次探测（Windows 上会真正运行一次候选，
+所以微软商店那个只会退出 9009 的 `python3.exe` 假入口会被跳过），需要钉死某个解释器
+（venv、指定小版本）时设 `EASYEDA_PYTHON=/abs/path/to/python`；设了但不可执行直接报错，
+不会退回其它解释器。找不到任何 Python 3 时只是补号失败并打 warning，导出的 BOM 仍然成立。
 
 ## 图纸与明细表
 

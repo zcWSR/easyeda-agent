@@ -152,6 +152,9 @@ const STUCK_CONNECTING_TICKS = 8; // ~24s @ 3s/tick
 // is cancelled in settle() so a completed/aborted attempt never re-registers.
 const REGISTER_DELAY_MS = 200;
 const STORAGE_KEY_AUTO_CONNECT = 'autoConnectEnabled';
+const SHARED_RUNTIME_KEY = '__easyedaAgentTransportRuntime';
+const SHARED_RUNTIME_IMPLEMENTATION = `${CONNECTOR_VERSION}:cross-eval-v1`;
+type TransportStartSource = 'activate' | 'bootstrap';
 
 // ─── State ────────────────────────────────────────────────────────────
 
@@ -194,6 +197,10 @@ let connectionSessionId = 0;
 // spam the toast; reset only on a real outage (daemon-not-found retry branch) or
 // an explicit user reconnect/stop, so the NEXT genuine connect announces once.
 let connectionAnnounced = false;
+let activateObserved = false;
+let bootstrappedFromModuleLoad = false;
+let bootstrapGeneration = 0;
+let moduleBootstrapObserved = false;
 
 // ─── Status ───────────────────────────────────────────────────────────
 
@@ -204,18 +211,88 @@ export interface ConnectionStatus {
 	windowId: string | null;
 }
 
-/**
- * Read the current connection status (for the About dialog).
- *
- * @returns the connection status snapshot
- */
-export function getConnectionStatus(): ConnectionStatus {
+interface SharedTransportRuntime {
+	implementation: string;
+	getConnectionStatus: () => ConnectionStatus;
+	reconnect: () => void;
+	stop: (showToast?: boolean) => void;
+	start: (source?: TransportStartSource) => void;
+	bootstrapFromModuleLoad: () => void;
+}
+
+function isSharedTransportRuntime(value: unknown): value is SharedTransportRuntime {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	const candidate = value as Partial<SharedTransportRuntime>;
+	return candidate.implementation === SHARED_RUNTIME_IMPLEMENTATION
+		&& typeof candidate.getConnectionStatus === 'function'
+		&& typeof candidate.reconnect === 'function'
+		&& typeof candidate.stop === 'function'
+		&& typeof candidate.start === 'function'
+		&& typeof candidate.bootstrapFromModuleLoad === 'function';
+}
+
+function getOrCreateSharedRuntime(): SharedTransportRuntime {
+	const host = eda as unknown as Record<string, unknown>;
+	const existing = host[SHARED_RUNTIME_KEY];
+	if (isSharedTransportRuntime(existing)) {
+		return existing;
+	}
+
+	// A re-import can evaluate a different connector build in the same editor
+	// process. Retire its controller before publishing this implementation.
+	if (existing && typeof existing === 'object') {
+		const previousStop = (existing as { stop?: unknown }).stop;
+		if (typeof previousStop === 'function') {
+			try {
+				previousStop.call(existing, false);
+			}
+			catch { /* stale controller cleanup is best-effort */ }
+		}
+	}
+
+	const runtime: SharedTransportRuntime = {
+		implementation: SHARED_RUNTIME_IMPLEMENTATION,
+		getConnectionStatus: localGetConnectionStatus,
+		reconnect: localReconnect,
+		stop: localStop,
+		start: localStart,
+		bootstrapFromModuleLoad: localBootstrapFromModuleLoad,
+	};
+	try {
+		Object.defineProperty(host, SHARED_RUNTIME_KEY, {
+			configurable: true,
+			enumerable: false,
+			value: runtime,
+			writable: true,
+		});
+	}
+	catch {
+		try {
+			host[SHARED_RUNTIME_KEY] = runtime;
+		}
+		catch { /* fall back to this evaluation's controller */ }
+	}
+	return runtime;
+}
+
+function localGetConnectionStatus(): ConnectionStatus {
 	return {
 		connected: handshakeVerified,
 		connecting: isConnecting,
 		port: currentPort,
 		windowId,
 	};
+}
+
+/**
+ * Read the current connection status (for the About dialog).
+ *
+ * @returns the connection status snapshot
+ */
+export function getConnectionStatus(): ConnectionStatus {
+	return getOrCreateSharedRuntime().getConnectionStatus();
 }
 
 // ─── Session helpers ──────────────────────────────────────────────────
@@ -366,7 +443,7 @@ function cancelConnectionFlow(resetRetryCount = true): void {
 /**
  * Force a reconnect: cancel any active flow and retry the daemon port now.
  */
-export function reconnect(): void {
+function localReconnect(): void {
 	eda.sys_Message.showToastMessage(eda.sys_I18n.text('Reconnecting...'));
 	connectionAnnounced = false;
 	suspended = false;
@@ -379,7 +456,8 @@ export function reconnect(): void {
  *
  * @param showToast - whether to show a toast confirming the stop
  */
-export function stop(showToast = true): void {
+function localStop(showToast = true): void {
+	bootstrapGeneration += 1;
 	connectionAnnounced = false;
 	suspended = true; // keep the watchdog from auto-reconnecting after an explicit stop
 	cancelConnectionFlow();
@@ -390,12 +468,87 @@ export function stop(showToast = true): void {
 
 /**
  * Start the connection flow if auto-connect is enabled.
+ *
+ * @param source - lifecycle path that requested the start
  */
-export function start(): void {
+function localStart(source: TransportStartSource = 'activate'): void {
+	if (source === 'activate') {
+		activateObserved = true;
+	}
 	suspended = false;
 	startWatchdog(); // always-on background-immune reconnect driver
-	if (autoConnectEnabled()) {
+	if (!handshakeVerified && !isConnecting && autoConnectEnabled()) {
 		void scanAndConnect();
+	}
+}
+
+/**
+ * Start when the host evaluates the extension entry, even if it does not
+ * subsequently dispatch activate(). The generation check prevents the delayed
+ * retry from undoing an explicit stop()/deactivate().
+ */
+function localBootstrapFromModuleLoad(): void {
+	if (bootstrappedFromModuleLoad) {
+		return;
+	}
+	bootstrappedFromModuleLoad = true;
+	moduleBootstrapObserved = true;
+	const generation = bootstrapGeneration;
+	diag('module evaluated; bootstrapping transport without requiring activate()');
+	const begin = (): void => {
+		if (generation !== bootstrapGeneration || handshakeVerified) {
+			return;
+		}
+		try {
+			localStart('bootstrap');
+		}
+		catch { /* sandbox globals may not be ready until the next macrotask */ }
+	};
+	begin();
+	try {
+		setTimeout(begin, 0);
+	}
+	catch { /* the synchronous attempt already ran */ }
+}
+
+/** Force a reconnect through the controller that owns this editor runtime. */
+export function reconnect(): void {
+	getOrCreateSharedRuntime().reconnect();
+}
+
+/** Stop the controller that owns this editor runtime. */
+export function stop(showToast = true): void {
+	getOrCreateSharedRuntime().stop(showToast);
+}
+
+/** Start through the controller that owns this editor runtime. */
+export function start(source: TransportStartSource = 'activate'): void {
+	getOrCreateSharedRuntime().start(source);
+}
+
+/** Bootstrap once per editor runtime, even when the bundle is re-evaluated. */
+export function bootstrapFromModuleLoad(): void {
+	getOrCreateSharedRuntime().bootstrapFromModuleLoad();
+}
+
+/**
+ * Stop the owning controller and release it so a subsequent extension load can
+ * install the newly evaluated implementation.
+ */
+export function deactivate(): void {
+	const host = eda as unknown as Record<string, unknown>;
+	const runtime = getOrCreateSharedRuntime();
+	runtime.stop(false);
+	if (host[SHARED_RUNTIME_KEY] === runtime) {
+		try {
+			delete host[SHARED_RUNTIME_KEY];
+		}
+		catch {
+			try {
+				host[SHARED_RUNTIME_KEY] = undefined;
+			}
+			catch { /* the stopped controller remains inert */ }
+		}
 	}
 }
 
@@ -614,6 +767,9 @@ function sendRegister(): void {
 		capabilities: CAPABILITIES,
 	};
 	sendFrame(frame);
+	diag(
+		`lifecycle registered moduleBootstrapObserved=${moduleBootstrapObserved} activateObserved=${activateObserved}`,
+	);
 }
 
 // contextSig fingerprints the project/document fields that matter for routing,

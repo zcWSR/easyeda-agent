@@ -37,7 +37,9 @@ def derive(rotation_cycle, body_anchor):
 
 
 def load_spec(path=DEFAULT_SPEC):
-    with open(path) as f:
+    # utf-8 固定编码:orientation.json 含中文,Windows 中文环境默认 cp936/cp950
+    # 解码会抛 UnicodeDecodeError(仓库文件一律按 utf-8 读)。
+    with open(path, encoding='utf-8') as f:
         return json.load(f)
 
 

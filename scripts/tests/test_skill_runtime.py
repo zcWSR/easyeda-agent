@@ -32,11 +32,9 @@ class InstalledSkillTests(unittest.TestCase):
         self.audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.audit)
         self.log = self.root / "calls.jsonl"
-        self.binary = self.root / "fake-bin/easyeda"
-        self.binary.parent.mkdir()
-        self.binary.write_text(f"#!{sys.executable}\n" + '''import json, os, sys
+        body = '''import json, os, sys
 a=sys.argv[1:]
-with open(os.environ['FAKE_LOG'],'a') as f: f.write(json.dumps(a)+'\\n')
+with open(os.environ['FAKE_LOG'],'a',encoding='utf-8') as f: f.write(json.dumps(a)+'\\n')
 if a[:3]==['blocks','ls','--json']:
  print(json.dumps([{'id':'block.demo'}]))
 elif a[:2]==['blocks','show']:
@@ -47,14 +45,26 @@ elif a[:2]==['sch','list']:
  print(json.dumps({'ok':True,'result':{'components':[{'componentType':'part','x':200,'y':200,'pins':[{'pinNumber':'1','pinName':'VCC'}]}]}}))
 else:
  print(json.dumps({'ok':True,'result':{}}))
-''')
-        self.binary.chmod(0o755)
-        (self.refs / "standard-parts.json").write_text(json.dumps({"libraryUuid": "official", "parts": {"test-chip": {"deviceUuid": "a" * 32}}}))
-        (self.refs / "symbol-pins.json").write_text('{"parts":{}}')
+'''
+        # Windows has no shebang and an extensionless file is not executable
+        # there (shutil.which rejects it), so the fake CLI ships as a .cmd
+        # launcher next to the same Python body. POSIX keeps the shebang.
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        if os.name == "nt":
+            (fake_bin / "easyeda-fake.py").write_text(body, encoding="utf-8")
+            self.binary = fake_bin / "easyeda.cmd"
+            self.binary.write_text(f'@"{sys.executable}" "%~dp0easyeda-fake.py" %*\n', encoding="utf-8")
+        else:
+            self.binary = fake_bin / "easyeda"
+            self.binary.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
+            self.binary.chmod(0o755)
+        (self.refs / "standard-parts.json").write_text(json.dumps({"libraryUuid": "official", "parts": {"test-chip": {"deviceUuid": "a" * 32}}}), encoding="utf-8")
+        (self.refs / "symbol-pins.json").write_text('{"parts":{}}', encoding="utf-8")
         self.env = {"EASYEDA_BIN": str(self.binary), "FAKE_LOG": str(self.log)}
 
     def calls(self):
-        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] if self.log.exists() else []
 
     def test_installed_audit_reads_full_blocks_from_cli(self):
         with mock.patch.dict(os.environ, self.env):
@@ -78,7 +88,7 @@ else:
 
     def test_nothing_to_probe_never_clears(self):
         path = self.refs / "symbol-pins.json"
-        path.write_text('{"parts":{"test-chip":[{"n":"1","name":"VCC"}]}}')
+        path.write_text('{"parts":{"test-chip":[{"n":"1","name":"VCC"}]}}', encoding="utf-8")
         before = path.read_bytes()
         with mock.patch.dict(os.environ, self.env), contextlib.redirect_stdout(io.StringIO()):
             self.audit.probe("scratch", "measurement", True)
@@ -102,7 +112,7 @@ else:
         for call in writes:
             self.assertEqual(call[call.index("--project") + 1], "scratch")
             self.assertEqual(call[call.index("--doc") + 1], "measurement")
-        table = json.loads((self.refs / "symbol-pins.json").read_text())["parts"]
+        table = json.loads((self.refs / "symbol-pins.json").read_text(encoding="utf-8"))["parts"]
         self.assertEqual(table["test-chip"], [{"n": "1", "name": "VCC"}])
 
     def run_lint(self, env):
@@ -111,6 +121,7 @@ else:
         return subprocess.run(["/bin/bash", str(self.scripts / "lint.sh"), "fixture", "127.0.0.1", "2", "1"],
                               env=env, text=True, capture_output=True)
 
+    @unittest.skipIf(os.name == 'nt', 'lint.sh is a POSIX shell entry point; Windows uses the native CLI')
     def test_lint_cli_explicit_path_and_path_fallback(self):
         env = {**os.environ, **self.env, "PATH": f"{self.binary.parent}:/usr/bin:/bin"}
         result = self.run_lint(env)
@@ -123,8 +134,9 @@ else:
         self.assertIn("EASYEDA_BIN is not an executable", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    @unittest.skipIf(os.name == 'nt', 'lint.sh is a POSIX shell entry point; Windows uses the native CLI')
     def test_lint_development_fallback_requires_a_repository(self):
-        (self.root / "go.mod").write_text("module fixture\n")
+        (self.root / "go.mod").write_text("module fixture\n", encoding="utf-8")
         (self.root / "cmd/easyeda").mkdir(parents=True)
         (self.root / "bin").mkdir()
         fallback = self.root / "bin/easyeda"
