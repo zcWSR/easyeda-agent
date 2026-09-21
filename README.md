@@ -111,16 +111,25 @@ DRC 规则，再修复可以确定的问题。不要凭截图猜连接；所有�
 尚未验证实物装配、放置实例和 PCB DRC，不作为生产就绪证明。
 [查看原始需求图、封装预览、规格与回读结果](docs/examples/as07-m1101d-sma/README.md)。
 
-### ESP32-S3 四层板
+### 嘉立创 PCB 初级考试第十八期：AT32F415 Layout
+
+当前参数化 Layout 基线包含 69 个器件、15 个功能区和 90 × 50 mm 圆角板框，用于验证
+“样例关系 → 算法候选 → AI 选择 → typed 写入 → 回读”的布局方法。该图展示布局阶段结果，
+不代表整板布线或生产检查已经完成。
+
+<p align="center">
+  <img src="docs/assets/demo-at32f415-exam-layout.png" width="820" alt="嘉立创 PCB 初级考试第十八期 AT32F415 学习板参数化 Layout" />
+</p>
+
+标准考试来源：**嘉立创 PCB 初级考试题第十八期**。执行步骤、参数和验证边界见
+[260919 AT32F415 考试执行指导](docs/260919-exam-execution-guide.md)。
+
+### ESP32-S3 四层板（历史案例）
 
 Agent 完成原理图到 PCB 的完整流程，包括模块布局、圆角板框、4 层电源结构、天线净空、
 规则感知布线、铺铜和丝印整理。
 
 ![AI 在 EasyEDA 中完成 PCB 布局、板框和铺铜](docs/assets/demo-pcb-layout.gif)
-
-<p align="center">
-  <img src="docs/assets/demo-esp32-board.png" width="620" alt="ESP32-S3 四层板：电源平面、圆角板框、天线净空和丝印" />
-</p>
 
 | 板框贴合 | 丝印避让 |
 |---|---|
