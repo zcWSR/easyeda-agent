@@ -12,7 +12,7 @@
               ↓
 Skill/Agent：在目标源数据中表达电气事实、核心/外围归属、约束
               ↓
-Go 纯计算：区内 layout-plan → 纸张 layout-sheet-plan → 数据校验
+Go 纯计算：SCH 区内/纸张计划，或 PCB 模块 layout-plan 候选 → 数据校验
               ↓
 固定渲染 / compose --layout-page → 可检查的 Apply 队列
               ↓
@@ -31,9 +31,18 @@ Go CLI/daemon ── typed actions / WebSocket ── Connector ── 官方 ed
 ### Go CLI / 纯计算内核
 
 CLI 以 Cobra 子命令暴露功能；布局内核消费数据、返回完整结果或明确失败，不操作编辑器。
-区内负责核心/外围、连接与避碰；纸张层只选择和平移完整合法区域。
+原理图区内负责核心/外围、连接与避碰，纸张层只选择和平移完整合法区域；PCB 模块规划器
+读取实测 anchor/bbox/pads，用显式 pad 所有权生成少量完整坐标候选，不访问编辑器、不替
+Agent 合成总分。候选经选择后转成 typed Apply，写后再由官方回读对账。
 检查器基于原始几何/连接证据报告对象与规则，缺测不是零问题，评分也不替代具体事实。
 Compose 固定转换已确认几何，Apply 执行和回读，不在写入阶段偷偷重设计。
+
+PCB 局部寻路使用公开纯 Go 包 `pkg/pcbrouting`，由命令层和既有晶振规划器直接引用。
+包只消费几何端点、搜索约束和整段合法性函数；宿主数据采集、规则解析与文件 IO 留在
+`internal/app`。`pcb route solve/check` 承载离线求解与复验，没有额外二进制、RPC 或安装步骤。
+独立校验不重跑求解器，按输入需求逐段检查候选；命令层从同一快照和报告默认生成整板 SVG，
+渲染不参与求解或通过判定。后续扩大布线能力继续保持此依赖方向。
+当前提取范围和状态语义见 [概念表](concepts.md#pcb-布线求解内核与宿主适配)。
 
 ### daemon / Connector
 

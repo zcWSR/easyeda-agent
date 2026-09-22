@@ -45,9 +45,17 @@ func (d *Document) refreshDesignatorIssues() {
 			issues = append(issues, issue)
 		}
 	}
+	matcher, err := d.designatorRegexp()
+	if err != nil {
+		return // Validate reports the policy error before this derived diagnosis.
+	}
 	for _, c := range d.Components {
-		if !numberedDesignator.MatchString(c.Ref) {
-			issues = append(issues, Issue{Code: nonstandardDesignatorIssue, Severity: "warning", ComponentID: c.ID, Message: fmt.Sprintf("%s is not a numbered reference designator; keep its functional name in role and assign the official library prefix plus a number before placement", c.Ref)})
+		if !matcher.MatchString(c.Ref) {
+			message := fmt.Sprintf("%s is not a numbered reference designator; keep its functional name in role and assign the official library prefix plus a number before placement", c.Ref)
+			if d.DesignatorPolicy != nil && d.DesignatorPolicy.Mode == "custom" {
+				message = fmt.Sprintf("%s does not match the declared V4 custom designator pattern %q", c.Ref, d.DesignatorPolicy.Pattern)
+			}
+			issues = append(issues, Issue{Code: nonstandardDesignatorIssue, Severity: "warning", ComponentID: c.ID, Message: message})
 		}
 	}
 	if len(issues) == 0 && d.Issues == nil {
@@ -55,6 +63,24 @@ func (d *Document) refreshDesignatorIssues() {
 	} else {
 		d.Issues = issues
 	}
+}
+
+func (d Document) designatorRegexp() (*regexp.Regexp, error) {
+	if d.DesignatorPolicy == nil || d.DesignatorPolicy.Mode == "" || d.DesignatorPolicy.Mode == "classic" {
+		return numberedDesignator, nil
+	}
+	if d.DesignatorPolicy.Mode != "custom" {
+		return nil, fmt.Errorf("unsupported designatorPolicy.mode %q", d.DesignatorPolicy.Mode)
+	}
+	pattern := strings.TrimSpace(d.DesignatorPolicy.Pattern)
+	if pattern == "" || !strings.HasPrefix(pattern, "^") || !strings.HasSuffix(pattern, "$") {
+		return nil, fmt.Errorf("custom designatorPolicy.pattern must be a nonempty anchored RE2 expression (^...$)")
+	}
+	r, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid custom designatorPolicy.pattern %q: %w", pattern, err)
+	}
+	return r, nil
 }
 
 // ValidatePlacementDesignators is the mutation preflight. Legacy functional
@@ -66,8 +92,15 @@ func ValidatePlacementDesignators(d Document) error {
 	if err := probe.Validate(); err != nil {
 		return err
 	}
+	matcher, err := d.designatorRegexp()
+	if err != nil {
+		return err
+	}
 	for _, c := range d.Components {
-		if !numberedDesignator.MatchString(c.Ref) {
+		if !matcher.MatchString(c.Ref) {
+			if d.DesignatorPolicy != nil && d.DesignatorPolicy.Mode == "custom" {
+				return fmt.Errorf("%s (%s): designator does not match the declared V4 custom designator policy", c.ID, c.Ref)
+			}
 			return fmt.Errorf("%s (%s): nonstandard designator; allocate a numbered reference from the official library prefix before placement", c.ID, c.Ref)
 		}
 	}
@@ -83,6 +116,14 @@ func AllocateDesignators(d Document, prefixes map[string]string) (Document, []De
 	probe.Issues = nil
 	if err := probe.Validate(); err != nil {
 		return Document{}, nil, err
+	}
+	if d.DesignatorPolicy != nil && d.DesignatorPolicy.Mode == "custom" {
+		if err := ValidatePlacementDesignators(d); err != nil {
+			return Document{}, nil, fmt.Errorf("V4 custom designators are preserved, not auto-incremented: %w", err)
+		}
+		out := cloneDesignatorDocument(d)
+		out.refreshDesignatorIssues()
+		return out, nil, nil
 	}
 	used := map[string]map[string]bool{}
 	reserve := func(prefix, number string) {
@@ -138,6 +179,10 @@ func AllocateDesignators(d Document, prefixes map[string]string) (Document, []De
 // allocation must never mutate caller-owned snapshots through shared slices.
 func cloneDesignatorDocument(d Document) Document {
 	out := d
+	if d.DesignatorPolicy != nil {
+		policy := *d.DesignatorPolicy
+		out.DesignatorPolicy = &policy
+	}
 	out.Components = slices.Clone(d.Components)
 	for i := range out.Components {
 		c := &out.Components[i]

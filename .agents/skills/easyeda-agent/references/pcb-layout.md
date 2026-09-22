@@ -16,6 +16,118 @@ grid-snap/分档摆放)、板框、自动布局。入口与 guardrails 仍在 `p
 - `pcb.component.modify` (`pcb modify`) — move (x/y), rotate, flip layer (top/bottom), lock, designator/BOM flags. Patch x/y = **anchor**; `pcb modify --center --x <cx> --y <cy>` writes by **bbox center** instead (CLI converts via the live bbox; mutually exclusive with a rotation change in the same call — rotate first, then center).
 - `pcb.component.delete` (`pcb delete --ids`) — delete component primitives **by id** (`--ids` CSV or JSON array). 只在当前任务已授权的删除范围内执行并保留删除前快照；没有程序化 undo。⚠️ **只删器件**,布线/铺铜/区域/丝印会残留 —— 要整版清板重来用 **`easyeda pcb clear`**(`pcb.page.clear`,见上「一键整版复位」)。
 
+### 模块候选布局：AI 定关系，算法算坐标
+
+对有明确功能归属的模块，优先使用离线候选入口，避免整板启发式把同网外围重新分给错误引脚：
+
+```bash
+easyeda pcb dump --project ceshi --out board.json
+easyeda pcb layout-plan \
+  --from layout.json --board board.json --module rgb-led \
+  --candidates 3 --out candidates/
+easyeda apply candidates/candidate-01.apply.json
+```
+
+`layout.json` 使用 mil、`footprint-anchor` 坐标语义，逐模块声明成员、策略、固定轴、允许的
+0/90/180/270°角度、装配面、搜索间距和显式 `copperPolicy`。去耦等外围必须写
+`member pad → owner pad`；同一电源网有多个物理供电脚时以真实 pad number/primitiveId 归属，
+不能按最近的同网焊盘重分。AMS1117 VOUT/TAB 这类等电位物理脚可用 `ownerPads` 表达，但
+等价组只用于刚体关系和距离测量，逐脚放置仍需要唯一 owner pad。
+
+三种策略分别用于：
+
+- `edge`：把指定 `edgeMember` 放到板框中心线给定间隙，再按 pad 归属重排内侧 follower；
+  混合模式要求 `anchorRef == edgeMember`，其余成员必须是 follower 或明确锁定/三轴固定的 root。
+- `pin-satellites`：核心保持，外围按所属焊盘、方位和 bbox 间隙逐个放置。
+- `rigid`：模块整体平移/直角旋转，anchor、bbox、pads 和成员角度统一变换。
+
+命令只做本地计算，不访问 EDA，也不替 AI 选择。每个候选输出完整坐标、pad 距离、
+`polygon-centerline`/`outline-aabb` 板边测量、分开的 component/keepout gap，以及各最小间隙的
+`from`/`to` 对象，避免只看到一个数却不知道是谁限制了空间；同时生成 SVG 和 typed apply。
+没有综合分数。AI 用一句具体理由选择；都不合适就改关系、方位、间距或可用区域后重算。
+候选带原始 board/layout 文件 SHA256；执行前重新 `pcb dump` 对照目标对象，primitiveId 或
+几何缺失时不生成可执行候选。
+
+`copperPolicy: require-board-empty` 会在板上已有走线时拒绝移动，适合已有局部铜的模块；
+`ignore` 只表示本轮不以全板铜计数拒绝，并会明确报告“铜几何未证明”。写入前另用 typed
+`track-list` 确认目标模块没有已有铜。执行后显式 `pcb save`，有界 `doc reload`，重新 dump
+并核对坐标、角度、固定件、板框、模块成员和铜段数。完整可迁移例见
+[260919 模块候选布局](examples/260919-at32f415/layout-candidates.md)。
+
+Region/keepout 是附加约束，不是换模型的理由。既有器件已经正确绑定 device、footprint 与
+3D model 时，先回读三项身份和 source library 类型。可写 source footprint 可原位增加区域，
+保存后再次逐项核对关联和 PCB 实例；EasyEDA system library 必须在打开编辑器/创建几何前
+拒绝。系统源不可写时只能使用已经现场证明保持绑定、且不会把 owner 本身判为违规的实例级/
+工程级 typed region；该能力不存在就标 `incomplete`，不能复制封装后默认 rebind。
+普通 top-level `no-components` region 没有 owner 语义时也不能冒充实例级区域：它会把承载该
+区域的器件自身判成 `Device to Prohibited Region`。必须先用 DRC 负例证明 owner 豁免；出现
+自违规就 typed 删除、保存重载并对账，不能通过忽略这条 DRC 来宣称完成。
+
+### Layout 观察视图与连续两轮自检
+
+元件属性有时会遮挡本体、焊盘出口和模块间空隙。可以为了观察临时隐藏，但这不是设计修改：
+
+1. 先用 typed 读取当前属性可见性，把对象、字段和旧值保存到本轮 review manifest；
+2. 只用 typed **view-state** 动作隐藏所需属性，不删除属性、不改文字/位号，也不把临时状态写成
+   新的设计基线；
+3. 无论观察图生成成功或失败，都恢复全部旧值，并再次 typed 回读，逐项证明恢复一致；恢复失败时
+   Layout 保持 `incomplete`；
+4. 当前 action catalog 没有可回读、可恢复的逐元件属性视图动作时标 `unsupported`，保持属性
+   可见继续检查。`pcb layer-visibility` 只控制层，不能冒充属性显隐；禁止从属性面板或 GUI 兜底。
+
+参数化布局全部写入后，必须通过 typed capture/export 生成一张包含板框和全部器件的整板集成图。
+当前可用入口是 `pcb stage-snapshot --fit-mode board`：它先调用公开
+`pcb_Document.zoomToBoardOutline()`，再由 `getCurrentRenderedAreaImage()` 保存
+`board-fitted-viewport-png`，同时保存 components/tracks/vias/pours/nets/DRC 数据包。返回和
+`stage.json` 必须记录 `fitMode`、`fitApi`、`captureKind` 及 `objectLevelExport:false`。编辑器右键
+“复制为 SVG/PNG”使用的对象级整板导出尚未暴露为公开 `eda.*`，不能调用内部 message bus，也
+不能把当前视口 PNG 称为该原生导出。`--fit-mode all` 用于需要容纳板外图元的诊断图，`none`
+保留当前视口。截图为空、上下文不匹配或 typed 渲染不可用时，记录 `unsupported/incomplete` 并
+停止完成声明，不能手工截图补齐。正式复核图必须在属性视图恢复后生成。
+
+两轮自检是连续的“未修正通过”，不组成 workflow/stage 许可：
+
+- **第 1 轮：集成视觉检查。** 对整板图检查空间利用、板边/插拔方向、模块关系、禁区、器件
+  聚团或孤立、明显拥挤、丝印/属性遮挡和异常空洞，并用 dump/lint/测量定位具体对象。发现问题
+  就修改关系或参数、重新计算和 typed apply，再重新生成整板图；本轮不计通过，连续计数归零。
+- **第 2 轮：持久化复核。** 第 1 轮无修正后，严格执行 `pcb save` → `doc reload` → fresh
+  `pcb dump` → fresh `pcb stage-snapshot`。以新 dump 核对器件 anchor/角度/层/锁定、板框、region、现存局部
+  铜和机械事实，再检查新整板图。若发现并修复任何问题，同样清零并回到第 1 轮；即使修复很小，
+  也不能把修复前的第 1 轮算作连续通过。
+
+fresh render 是 reload 后的新 capture 调用和新 artifact，不要求未改设计的 PNG 字节必须变化；
+记录每轮 dump/render 路径、SHA256、检查项、findings 和 `fixesApplied`。只有第 1 轮与紧接着的
+第 2 轮都没有待修的明显布局/视觉 finding，且 `fixesApplied=false`，才可称整板 Layout 完成并
+进入用户确认；纯观察项可以保留，但必须说明为什么不需要修改。
+
+### Layout 完成、局部电源铜与用户确认
+
+模块候选全部执行不等于整板 Layout 已完成。先逐项落实板框、固定件、板边方向、机械/封装
+禁区、核心与专属外围、逐脚归属和预留通道；任何题目要求仍为 `incomplete` 时，都只能报告
+“候选或局部布局已完成”。随后按上节生成整板图并连续通过两轮无修正自检，再形成给用户看的
+布局复核包：
+
+- 当前 board/layout 输入哈希、器件总数以及全部成员的 anchor、角度、层和锁定状态；
+- 第 2 轮 fresh 整板预览，以及固定坐标、板内/禁区、重叠、间距和关键模块关系的事实结果；
+- 两轮 review manifest；若曾修正，记录计数清零和重新开始的证据；
+- 为后续走线保留的出口/通道和仍需用户取舍的项目，不用综合分数替用户作决定；
+- 当前版本的未完成项。存在机械违规、缺测或保存重载失败时，不请求把它当成完成态确认。
+
+展示复核包后停止在 Layout，等待用户明确回复“OK”“布局确认”或“可以布线”，也接受用户
+描述继续调整。用户提出修改时更新参数、重新生成候选、typed 执行并再次复核。用户也可以
+自己调整 EDA；这不是 Agent 使用 GUI 兜底。用户说调整完成并确认后，Agent 必须先重新 dump，
+以现场 anchor/角度重建参数基线并重跑布局事实检查，避免用旧候选坐标开始走线。
+
+LDO、DCDC 等电源模块是例外：输入电容到芯片、芯片到输出电容、局部 GND 回流及必要的
+EP/地过孔直接决定模块布局，可以在整板确认前作为一个参数化整体完成。局部铜必须逐网回读、
+保存，作为候选比较和布局复核包的一部分；以后移动或旋转模块时，器件与这些 track/via 一起
+重算，不能只移动器件。已有局部铜而工具还不能整体变换时，候选应拒绝移动。该例外不包含
+跨模块电源主干、普通信号、全局铺铜或缝合孔。
+
+没有用户对**当前回读版本**的明确确认，不开始上述例外之外的 track/via/pour 写入，也不运行
+会改变整板铜的自动布线命令。确认记录写明基线哈希、时间和用户原话；它是设计评审记录，
+不是 `workflow/stage`、评分、版本许可或 CLI 解锁令牌。
+
 ### Layout adjustment (deterministic — EasyEDA exposes no align/grid API)
 
 - `easyeda pcb refine` — **打分驱动的布局精修环(#167 #153)**。读 `pcb layout-score` 逐维归因,
@@ -214,7 +326,7 @@ scripts, but their stored state is diagnostic history and does not authorize rou
 
 - `pcb.outline.set` — set the outline from a closed polygon `points` (`[[x,y],…]`, mil,
   y-up). Replaces any existing outline; reports `allInside`/`outside` (components out of
-  the board). **Confirm first** (redraws the board edge).
+  the board). 在已授权的目标板上先保存原板框参数，写后回读，不依赖 stage 签字。
 - `pcb.outline.get` — current outline (source/native arc count + bbox + **真多边形 `points`/`outlineFormat`**,#167)。
   新圆角 polyline 使用 `sourceArcs` / `nativeArcs`；兼容字段 `arcs` / `legacyArcs` 只统计独立旧式 Arc 图元。
   `points` 是板框折线**中心线**点集 = 铣刀走的真板边;`bbox` 是**渲染范围含线宽**(实测 10mil 线宽每边大 5mil)。
@@ -223,10 +335,10 @@ scripts, but their stored state is diagnostic history and does not authorize rou
   `CARC/C/R/CIRCLE`、并列外环、等面积环或无法证明包含关系时仍 fail closed，退化为 bbox 并标 `degraded`。
 - `pcb.outline.clear` — remove the outline.
 
-**The agent generates the `points`** for the wanted shape. Curves are **line-segment
-approximated** (~48–120 segments) — native arcs do not commit on this build, so a true
-circle/arc needs the EasyEDA UI (圆形/圆弧 tool) or an SVG import. Recipes (centre `(cx,cy)`,
-all mil):
+任意多边形仍由 Agent 生成闭合 `points`。标准圆角矩形使用 `outline-round` 的原生 ARC，
+不要用折线近似，也禁止转到 GUI 手工补画。其他曲线形状只有在 typed 接口能够创建、回读并
+保存时才执行；当前不能证明的能力标 `unsupported`。以下公式只用于离线计算点列（中心
+`(cx,cy)`，单位 mil），不能把采样折线声明成真圆弧：
 
 | Shape | Points |
 |---|---|

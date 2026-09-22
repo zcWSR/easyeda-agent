@@ -241,6 +241,16 @@ easyeda sch apply frame-diff-apply.json --yes
 `U_RF`、`J_AUDIO_MOD` 属于功能名，放入 role，不当成原始合法编号继续重放。
 官方库默认前缀可能是 `U?`、`CN?` 等，不能假定端子必定是 `J`。
 
+V4 若启用了自定义位号格式，在 canonical Document 顶层显式声明：
+
+```json
+{"designatorPolicy":{"mode":"custom","pattern":"^CTRL-[A-Z]+-[0-9]{3}$"}}
+```
+
+pattern 必须是锚定的 RE2 表达式。此模式只验证和原样保留现有位号；`designators allocate`
+不会猜 V4 编辑器中的递增规则。缺失/非法 pattern 或任一 ref 不匹配时在生成写队列前拒绝。
+省略该字段仍执行下面的 classic 字母前缀+数字分配流程。
+
 1. 用 `lib device get --uuid <deviceUuid> --library <libraryUuid>` 查询官方记录，保存响应。
 2. 将 `result.device.property.designator` 汇成 `prefixes.json`，格式为
    `{"<libraryUuid>/<deviceUuid>":"CN?"}`。不能将库的 `Designator:"CN?"` 占位属性写回已有实例。

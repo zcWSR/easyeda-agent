@@ -253,10 +253,10 @@ func actionCatalog() map[string]protocol.ActionSpec {
 // readOnlyRunPrefixes lists `run:` targets that are safe to auto-retry
 // (read-only or idempotent). Everything else is treated as mutating.
 var readOnlyRunPrefixes = []string{
-	"sch layout-lint", "pcb layout-lint", "sch check", "pcb check",
+	"sch layout-lint", "pcb layout-lint", "pcb layout-plan", "sch check", "pcb check",
 	"sch drc", "pcb drc", "sch list", "pcb list", "sch read",
 	"sch sheet-geometry", "pcb report", "pcb layers", "pcb nets",
-	"pcb track-list", "pcb via-list", "pcb pour-list", "pcb drc-rules",
+	"pcb track-list", "pcb via-list", "pcb net-path", "pcb pour-list", "pcb drc-rules",
 	"pcb outline-get", "pcb board-info", "pcb docs", "board list",
 	"doc ls", "doc switch", "project", "daemon health", "lib ", "api ",
 	"audit", "view ", "actions", "version",

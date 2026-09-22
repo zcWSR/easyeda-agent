@@ -24,6 +24,72 @@
 
 ### Routing (copper tracks + vias)
 
+### 离线单层寻路与独立复验
+
+`easyeda pcb route solve --board board.json --from request.json --out plan.json`
+读取 `pcb dump --include-copper` 快照，使用共用 Go 内核计算单层零过孔路径。
+`easyeda pcb route check --board board.json --from request.json --plan plan.json --out check.json`
+按独立需求重查端点、网、层、线宽、45°方向/转向、绕行边界和整段净距，不重新求解。
+两条命令均纯离线，不连接或写入编辑器；用户只需现有 easyeda CLI。
+每次命令默认在 JSON 旁生成同名 `.svg`：整板显示目标层焊盘、过孔、已有走线、静态/铺铜、
+开槽、禁线区、搜索边界、端点和候选路径。候选同时绘制真实线宽和净距光晕；检查失败时
+保留待检路径并标红，有限搜索失败也绘制端点、搜索范围和原因。SVG 是人审预览，JSON 与
+独立几何检查仍是机器证据；两者都不写编辑器。
+
+请求示例（mil、y-UP，端点使用唯一 `位号.焊盘号`）：
+
+```json
+{"schemaVersion":1,"units":"mil","net":"SIG","layer":1,"widthMil":6,
+ "from":"U1.1","to":"J1.1","stepMil":5,"maxDetourMil":100,"maxStates":100000}
+```
+
+板级规则必须来自真实读取；铜清单和精确几何必须完整。当前 CLI 只支持 TOP/BOTTOM，
+RECT/圆角 RECT/OVAL/圆焊盘、直线、实心多边形铜区、禁线区和多边形开槽。铜区描边宽度
+计入净距；圆弧铜/轮廓、非实心填充和热焊盘辐条暂拒绝，避免用未补偿的近似证明净距。
+缺测或未知形状输出 incomplete，不退化为 bbox/空障碍。
+结果包含原始板文件与需求 SHA256、候选路径、搜索状态和 `preview` 路径；复验要求同一输入文件版本。
+`pass` 仅证明该端点对在声明规则下的离线路径，不能代替整板连通、差分/阻抗、回流或官方 DRC。
+有限搜索失败与预算耗尽均输出 incomplete 和非零退出码；报告不包含可直接执行的写入队列。
+应用候选后仍须 typed 写入、save → reload → fresh dump → 原生 DRC；整板布线遵守布局确认约定。
+
+### 联合逃线与模块联动（offline-verified）
+
+布局候选必须同时预留所选核心四侧逐脚出线、供电和 GND 空间；不能用固定器件间隙、
+单网各自可达、零碰撞或当前 DRC 无短路代替多网共同可走。明确 NC 才可排除；未知不作 NC。
+普通信号 TOP 优先、全网最多两个过孔；本例 OSC、USB、CAN、PA9–PA14 为 TOP/0 via。
+
+规划接口：`pcb escape-plan --from layout.json --board board.json --out escapes.json`；
+`pcb layout-plan` 将同一内核用于候选及多模块联动，`pcb module-check --requirements layout.json`
+使用独立需求和新鲜回读检查预留。schemaVersion 3 声明 routing 与 reflow，旧输入兼容但不
+自动获得逃线通过结论。预留路径是规划数据，不写成工程铜；预览、apply 与验收共用几何。
+
+职责边界固定为：Layout 求解器枚举模块位置、旋转、移动组与外部连接重算；每个布局候选
+投影为临时板状态后，调用 PCB Router 公共内核验证固定几何下的端点路径和共同通道。
+Layout 不复制通用 Router。Router 单网通过也不批准器件位置，必须由 Layout 汇总同一候选中
+所有需求的占用冲突。Router 接口新增能力时保持这一适配层，不让晶振策略直接依赖其内部队列。
+
+先调整路线/组内布局，再移动目标模块，再递归纳入挡路的可动组，平移失败才换位置/允许
+朝向。每组声明成员、固定轴、内部铜归属和外部连接；整体变换内部对象，重算外部引线，
+重建铺铜后验证。未知归属作为固定障碍。检查全部受影响模块，有限搜索返回原因与预算。
+输出最多三个候选，分别比较移动范围、位移、过孔、关键路径长度和转折，不给综合评分。
+
+AT32F415 旧晶振对象已按身份清理并保存重载。首个 schemaVersion 3 候选虽离线生成 33 个
+焊盘的共同逃线并完整执行 90 步，但第一轮 fresh `module-check` 发现护环 PID 替换、OSC_OUT
+非端点铜重叠、U6.3 逃线终点不一致和旧对象声明不一致，已标 `candidate-rejected` 并精确回退到
+干净语义哈希。U6.33 的 `existingViasOnly` 两个 EP 地孔在回退后保持。
+U6/固定孔/CARD1 固定、CN1 固定 y=42mm 和 180°。允许必要的 LDO/USB 带铜模块联动，
+但不得只移动 C5/C6/C10 而丢失核心外围关系。护环、外围孔、双层禁铺和局部铜必须避让
+共同逃线通道。完成 CLI/Skill、负例测试、现场两轮保存重载验证及独立验收后才 live-verified。
+
+`routing.demands[].existingViasOnly=true` 表示该需求只允许列出的既有过孔充当换层/接地
+witness。每个 `existingViaIds` 必须在 fresh 快照存在，网络、位置及
+`existingViaInPadAnchors` 的焊盘归属全部匹配；它不会创建新过孔。`maxVias=0` 与这一模式并不
+矛盾，因为计数约束针对候选新增过孔。缺孔、错网、错焊盘或身份过期都必须失败。
+
+干净 OSC 基线可以声明空 `existingObjects` / `replacePrimitiveIds`，但 planner 必须证明 fresh
+快照上的 OSC track/arc 集合也严格为空。若输入多一个不存在 PID、漏掉任一实际 OSC 铜或只列
+子集，均失败。空集合通过不代表跳过旧对象核对。
+
 Real routing primitives — **additive creates**, like the schematic
 `wire.create`. Bind to a net **by name** (pull from `pcb.nets.list`); layer ids from
 `pcb.layers.list`. EasyEDA's `create()` is **lenient** — it can return no primitive on a
@@ -44,6 +110,39 @@ EasyEDA 原生自动布线或已配置的外部路由器，完成后都按网回
   mil) + `diameter` (outer pad, default 24 mil), optional `net`.
 - `pcb.line.list` / `pcb.via.list` — read what's routed (filter by net/layer) before
   rip-up or reroute.
+- `easyeda pcb net-path --from C3.1 --through C4.1 --to U2.3 --layer 1 [--net +5V] [--json]`
+  — **只读的逐焊盘铜路径举证**。它读取焊盘原始 `shape` / `rotation` / `specialPad`、
+  线段/圆弧、层、线宽和过孔，在 Go
+  侧构图；`--through` 是一条不重复使用铜图元的路径中按给定顺序出现的**必经焊盘**，
+  不是物理过孔。只因各焊盘分别可达、但必须沿分支回头的网络不会冒充顺序通过。输出每一段的
+  primitive 路径、层序列、线宽集合/最小值、唯一过孔数、实际中心线长度和转折数，因此可以分别证明
+  `C3.1 → C4.1`、`C4.1 → U2.3`，也能证明晶振路径是否确实 TOP-only。
+  长度按实际选中路径的 track 子段和 arc 子弧累计；焊盘或分叉落在线/弧中段时只计真实经过的
+  部分，不把整条 primitive 或圆弧弦长冒充实际路径长度。
+  测量优先使用唯一真实中心线接点构成的完整路径，输出 `measurementPathKind=exact-centerline`；
+  若只有铜宽接触可证明连接则回落 `copper-contact-fallback`，歧义仍返回 unknown。
+  相邻短于线宽的 45° 段以唯一中心线交点测量，不把铜边缘投影产生的第二个点当作另一接点；
+  正长度重叠、多重交点及仅靠平行铜边缘搭接仍不冒充唯一长度。
+  `--layer 1` 在受限图中求路，直接排除其它层和物理过孔；不是先任取一条跨层路径再检查
+  结果。因此 TOP-only 报告的 `requestedLayer=1`、`layers=[1]`、`viaCount=0`。
+  同网名本身不算连通，异层同坐标也不算连通，必须有实际接触的铜或过孔。旋转 RECT（含
+  圆角）和 OVAL 按实际几何判定；ELLIPSE、NGON 与 pad-to-pad 接触使用完全包含在真实铜内的
+  保守几何，允许漏掉边缘落点但不制造假连通。`POLYGON`、`specialPad`、缺失/畸形 shape
+  不使用 bbox 或中心点猜测：必经焊盘直接返回 unknown/error；其它同网未知焊盘若可能改变
+  FAIL 也返回 unknown/error。结果的 `excludedCopper` 固定列出
+  pours / filled regions / PLANE layers：第一版**不把铺铜或内电层推断成已验证路径**，所以
+  FAIL 只表示“没有被 listed routed copper 证明”，整板开路结论仍由 `pcb drc` 给出。
+  圆弧作为连续铜参与路径，但其它图元只在圆弧回读端点处与它建立接触；`arcsAvailable`
+  缺失/为假时不把空数组当成“没有圆弧”。圆弧中段分叉也会明确列为限制。对 ordered proof，
+  工具按实际线宽检查同层铜：平行近邻、正长度叠线、内部交叉、
+  track↔arc、arc↔arc 或 via↔via 的非规范重叠都返回 unknown/error；一个普通 endpoint 或
+  T junction 仍可使用。圆弧以有误差上界的中心线离散参与检查，无法在预算内可靠规范化时
+  同样返回 unknown，避免借不同 primitive ID 在同一物理铜上回走。直接 via-on-pad 重叠不算连接（平台实测需有 track/arc stub），避免制造假
+  连通。该命令适合每组关键网布完后的局部核查；保存重开后的最终批次仍应重跑。
+- `pcb check` 的 `dangling-end` 也复用 pad shape/rotation：同网 track 端部或其铜宽实际接触
+  pad 铜才算 anchor。旧 connector 只有 `width/height` 时使用保守 ellipse/cardinal 或内切圆，
+  不用完整 AABB；JSON/human report 的 `limitations` 会说明 legacy/unknown pad 数量。这样
+  AMS1117 的大 TAB/窄脚端部落铜不会被固定 30mil 半径误报，旋转焊盘的 AABB 空角也不会假通过。
 - `pcb.route.rip_up` — **reliable rip-up**: delete tracks+arcs+vias, `--net` to scope
   (string or list) or omit for ALL. **Copper layers only** — never deletes the board
   outline, silkscreen/assembly/mechanical artwork, or **locked** primitives. The
@@ -171,6 +270,14 @@ and re-pours; passing raw points to the bare `eda.*` create fails ("无法创建
   now refuses an empty `--net`, issue #34**). `fill = solid` (default) `| grid | grid45`.
   Size it to the board outline; verify `poured:true` + `pcb.drc.check`.
 - `pcb.pour.list` / `pcb.pour.delete` — inspect / remove pours.
+- `easyeda pcb poured-list [--net GND]`（typed action `pcb.poured.list`）读取**重建后的实际
+  铺铜图元**，按 pour primitiveId 返回每个 fill 的 complex polygon source、线宽、填充标志和
+  fill id。宿主这里使用 0.1mil 坐标/线宽，action 已逐命令归一化为 mil：坐标、半径、圆角与
+  宽高乘 10，`ARC/CARC` sweep 和矩形 rotation 仍为 degree；孔洞/多轮廓递归保留。
+  `geometryKind=filled-complex-polygon` 表示铜岛，`fill:false` 则保留为带 `lineWidth` 的
+  `stroked-thermal-spoke-path`，检查器必须按线段膨胀宽度判断连接。只有完整 inventory 成功且真实返回 `[]` 才是 known-empty；对象清单、fill、pour
+  boundary、net、layer 或 polygon 任一缺测都返回 unknown/error，或在
+  `pcb dump --include-copper` 的 `partial[]` 中记为 unknown，不能把缺字段或读取失败当作空铜。
 - `pcb pour-clean --netless` (daemon-side) — remove pours bound to **no net** (net:"" dead
   copper that `pour-fit --replace` can't clear — it only matches same-net pours). `--dry-run`
   lists them first. Detected by `pcb check` (netless-pour rule).
@@ -185,6 +292,75 @@ and re-pours; passing raw points to the bare `eda.*` create fails ("无法创建
   grid of `--net` vias: **thermal vias** under a power-IC center pad (tie it to the GND
   plane) or **GND stitching** between top & bottom pours. Run `pcb pour-rebuild` after so
   the planes reflow onto the new vias. `--margin` insets from the rect edges. `--dry-run`.
+- `pcb via-fence` (daemon-side) — place vias only on the perimeter of a derived rectangle.
+  Use it for a crystal/RF guard boundary where the center must remain free of copper and vias;
+  do not substitute `via-stitch`, whose full grid would populate the protected interior.
+  `--pitch` is the maximum edge spacing; corners are included once, short final gaps are
+  redistributed along each edge, and `--margin` expands outward from the protected rectangle.
+  Hole/diameter default to the live rule。生成器必须用真实板框、焊盘、异网铜和已有过孔避障；
+  非有限参数、外径不大于孔径、点数超限或无法保持围栏要求时拒绝执行，不能静默漏孔。
+  Dry-run first, then read back the GND vias and run `pcb pour-rebuild` + official DRC.
+
+### 带铜模块的离线组装、定位与验收
+
+`pcb layout-plan` 的 schemaVersion 2 把器件身份、局部铜、外部端口、regions、pours 和 vias
+放入同一模块契约。局部坐标先生成完整模块，再对候选做旋转/平移；器件位号和 footprint
+身份保持不变。连接固定 owner 的外部引线、GND 接线和受影响包络在最终位置重新求解，不能把
+局部刚体变换直接套到 owner 端点。
+schemaVersion 3 在此基础上增加 `routing` 与 `reflow`，用共同逃线和移动组验证候选；旧输入仍
+可生成旧范围候选，但不会自动取得新增的逃线结论。
+
+1. `easyeda pcb dump --include-copper --out before.json` 串行采集器件、精确焊盘、tracks/arcs、
+   vias、pour 边界、实际 poured fills、regions 和静态 fills。每类数据都保留 available/unknown；
+   原始文件 SHA256 用于溯源，执行保护使用去掉时间戳后的语义哈希。
+2. `easyeda pcb layout-plan ...` 输出最多三个候选、局部 SVG、板内 SVG、typed apply 和事实测量。
+   候选先满足拓扑、净距、层和过孔约束，再比较长度、转折和占地；不输出综合分数。
+3. `easyeda apply candidate.apply.json --dry-run` 通过后才能写入。journal 记录每步返回的实际
+   primitiveId；部分成功、超时或 stale 状态先回读，不直接重放。
+4. 保存、重载、重建铺铜并 fresh dump 后运行
+   `easyeda pcb module-check --candidate candidate.json --before before.json --after after.json
+   --journal candidate.apply.json.journal.jsonl --out check.json`。缺 journal、未知铜几何、旧语义
+   哈希、漏对象、非目标对象变化或实际铺铜无法读取均为 incomplete/fail。
+
+schema-v2 bundle 用 `affectedBaselinePours[]` 显式记录可能被本模块 `pour-rebuild` 局部重算的
+既有 pour boundary primitiveId、重建前 materialized primitiveId、net、layer 和参数化
+`impactEnvelope`。该清单由 planner 根据 fresh before 中的同网同层实际铜，与器件移动前后
+包络、routes、regions、pours 和 via 环相交关系计算；不能人工泛化成“所有 GND 铺铜都可变”。
+editable boundary 及其 name/填充方式/priority/线宽/锁定等语义仍必须保持。声明对象只允许
+`impactEnvelope` 内的材料化铜重算，包络外的 polygon、孔洞和 ARC 必须等价；未声明对象在全域
+严格保持。缺 inventory、边界关联或几何时 fail-closed。
+
+晶振 `crystal-guard` 起源于 schemaVersion 2；当前现场要求使用 schemaVersion 3 与联合逃线：X1、负载电容、两条 OSC 铜、顶层 GND
+护环、TOP/BOTTOM no-pours regions、外围 GND 过孔和显式 GND 导线一起计算。本板晶振区禁止创建局部或环形铺铜；`groundImplementation=tracks-vias` 时 bundle 的 `pours`、`unreservedPours`、`affectedBaselinePours` 必须为空，apply 也不得含 `pcb.pour.create`/`pcb.pour.rebuild`。双层 no-pours、护环和过孔围栏来自题目与用户复核，不推广成所有晶振的固定模板。no-pours 只阻止
+自动铺铜；静态 fills、tracks 和其它显式铜必须另查。GND 同名不证明回流，验收需证明晶振
+GND 焊盘、护环、分离接地点、过孔及声明的 GND anchor 通过真实铜连通。敏感包络必须联合
+X1/负载电容实测 bbox 与最终两条 `signal-main` 的实际中心线路径；每条路径按“线宽一半 + live
+铜净距”扩成 stroke bbox，再叠加 `keepoutMarginMil`，不能只框三个器件。护环在 owner 方向为
+两条信号保留合并入口，不能在入口间留下不接地的护环孤段。`replacePrimitiveIds` 默认严格等于
+fresh baseline 中两条 OSC 网的全部 track/arc primitiveId；子集、额外 ID、重复 ID 或缺失 arc
+均 fail-closed，删除时由 `pcb.route.delete` 按 fresh ID 分类，不能套 track-only kind guard。
+护环不能把计划中的 T junction 留在一条长 primitive 的内部。EasyEDA 在后创建的同网支路
+端点落到既有 track 中段时，会自动拆分该 track 并更换其 primitiveId；这样 apply 较早捕获的
+PID 在同一批次内就会失效。planner 必须在每个同层 GND spoke、ground-entry 等连接点预先给
+`role=guard` 路径增加顶点，apply 为顶点间每段分别创建并捕获 primitive；支路只能落在这些
+端点。支路从自身线段中部穿越护环或与护环共线重叠时 fail-closed。修改任何保护路径后须重新
+生成 candidate、apply 和 journal，旧 capture 不能复用。
+`module-check` 还会
+逐个证明每段 `role=guard` 的实际 track 经列出的 GND 铜连到声明 ground anchor，并
+逐个核对每个声明的 fence/ground-anchor GND via。`groundImplementation=tracks-vias` 时，
+TOP 与 BOTTOM 必须分别由 fresh 显式 GND track 接触其环形铜并经实际路径连到 ground-anchor；
+只有候选明确声明铺铜时才检查 materialized GND 铜岛。只证明两条 ground-entry、任意一个 via
+或同名 GND 不能通过。OSC 两网按 `电容 → X1 → MCU` 做 ordered path proof，fresh pad 身份、坐标、
+shape/specialPad、实际长度/转折及 TOP/0-via 一起核对；journal 的每个 capture PID 必须一一对应
+before 不存在、after 唯一且与候选网/层/几何相同的对象。region/pour/poured 比较规范化闭合、
+方向、共线重分段、holes 和 ARC，未知曲线或缺几何不退化为 bbox 判断。
+
+晶振定位搜索可选 `search.crystalOffsets`（`maxXMil`、`maxAwayMil`、`stepMil`，单位 mil；
+当前 `offline-verified`，尚未现场验收）：以 owner 信号焊盘中点为零横移，向远离 owner 的方向增加距离；
+显式 `search.offsetsMil` 同样相对此基准，y 为板坐标（bottom 侧只允许 y≤0）。
+有界网格结合实测障碍边界和对应信号焊盘对齐事件产生候选，每个位置重新求解外线及完整保护结构。
+搜索参数不降低 live 净距、不移动非成员；超过搜索数量上限报错，零合法候选只证明此有限搜索集失败，
+不代表整个布局问题无解。先保留更小离开距离、再更小横移的合法候选，无综合分数；通过仍需现场两轮验收。
 
 ### Keep-out / rule regions (禁止区域)
 
@@ -305,3 +481,57 @@ subset; `--dry-run` prints the per-corner plan. Save after placing; delete via
 > net-class rules (`createNetClass`/`overwriteNetRules`, @beta — so the native DRC
 > enforces per-class width) + diff-pair/equal-length **definitions** (read side is
 > in `pcb.report`).
+
+### 晶振障碍感知保护搜索（开发中）
+
+`crystalGuard.protectionSearch` 显式声明 `stepMil` 和 `maxDetourMil`，启用局部成员包络
+周围的护环/孔围栏搜索。双层禁铺区仍覆盖成员与完整信号 stroke；护环包围目标为三个
+局部成员，MCU 引线从必要入口穿出，不把 MCU 邻脚包进刚性矩形护环。轮廓、接地支线及
+孔位均按新鲜焊盘、铜及板边重新验证。孔位可沿轮廓移动，但必须报告最大实际节距，
+不能静默漏孔；无法满足最大节距、必需接地点或真实净距时拒绝整候选。
+本能力尚未现场验证，失败样例不得更新为 live-verified。
+
+`maxDetourMil` 是严格边界，不会自动扩大；`stepMil` 定义8方向搜索分辨率。两条 OSC
+依 MCU 信号焊盘间距保留紧凑入口，并尝试两网求解顺序，保持 TOP、0 via。RECT、
+圆角 RECT、OVAL 和圆焊盘使用真实旋转几何；一般椭圆、NGON 的精确净距尚为
+unsupported，不能用 bbox 证明通过。
+
+双层 no-pours 使用成员包络与分段信号 stroke 保守矩形的并集外轮廓，内部孔洞仍禁铺，
+不连通或边界分叉时拒绝。护环入口依据真实信号 stroke 切开相交侧，每段护环及四个局部
+GND 焊盘均需有实际铜路径到 anchor。`bundle.fenceContour` 和 `fencePitchMil` 记录闭合
+孔围栏及沿周长的最大节距，module-check 核对不自交、孔位在轮廓上及末首间隔。围栏
+不得进入成员敏感包络；MCU 外部信号禁铺区域可伸出局部围栏，孔仍不得在禁铺区内。
+无法放孔时报告最长无合法孔区间的两端坐标与长度，不静默漏孔。
+
+`protectionSearch.guardOffsetsMil` 可显式枚举护环的初始膨胀量，调试时用 `[0]` 固定一次
+轮廓尝试，不必缩减实际路径的 `maxDetourMil`。被障碍挡住的初始角点先迁移到合法种子，
+再求闭合 `guardContour`、核对不自交与包围成员，最后从最终轮廓切开信号入口。
+路径 A* 状态包含到达方向，只允许45°方向变化；绕行边界也约束对角偏移，不自动乘以 √2。
+信号路径随后执行有净距验证的 45° visibility/string-pull：每段候选重新调用精确障碍检查，
+并保持原绕行边界和最多 45° 的转向；优先最少真实转折，其次最短中心线长度，不使用综合分数。
+输出主线和电容支路各自的实际路径；不能把 A* 找到第一条合法但转折繁多的路线直接当作最优。
+
+孔围栏轮廓是非铜参考线，不能按24mil铜线要求它的每一毫米都可放孔。轮廓本身只硬性
+避让成员敏感区域和板边；实际孔逐点检查真实焊盘与异网铜。若筛孔形成超节距区间，使用
+合法孔位组成的有界路径重算该区间，每个候选孔合法、相邻参考线段不穿成员敏感区域且
+不超过最大节距。禁铺区只约束自动铺铜；外围孔中心在区外时，孔盘跨过禁铺边界本身
+不构成铜净距违规，但实际铺铜仍必须证实每个地孔与地锚点连通。
+
+### 旧模块保护对象替换（offline-verified）
+
+详见 [旧模块对象归属恢复](module-owned-objects.md)。
+
+`modules[].existingObjects` 显式列出旧模块对象，每项为 `kind`（track/arc/via/region/pour）、
+`primitiveId`、`expected`（新鲜快照中的完整原始对象）以及 `source`（归属的原候选/journal 依据）。
+这不是按网名删除；GND 同网不能证明归属。输入必须先和原候选及 journal 对账，再由规划器逐对象
+比较身份与完整几何，任一缺测、变更或重复都失败。仅声明 pour 的材料化子对象可一并撤出规划障碍，
+它们不整体平移，执行后重新铺铜。未知对象保持固定；新候选和独立 requirements 的声明必须一致。
+替换动作出现在移动与创建之前，写后验证所有声明旧对象已消失、未声明对象保持。重复执行或部分
+成功后必须新鲜回读重新生成声明，不能重放旧 apply。
+
+已有 EP 地过孔复用（offline-verified）：`crystalGuard.reuseGroundAnchorViaIds` 只能指向已存在且与声明
+MCU GND anchor 精确相接、尺寸/位置符合模块设计的过孔。候选 via 的 `existingPrimitiveId`
+表示验证保留，apply 不创建第二个孔；before/after 都必须存在同一真实对象。普通器件不因此获得
+via-in-pad 许可。`routing.demands[].existingViasOnly` 还要求列出的 PID、网络、位置及
+`existingViaInPadAnchors` 焊盘归属与 fresh 快照一致；这些孔只作为既有 witness，不计入
+候选新增过孔，不能仅靠同名网络代替实际入口铜路径。

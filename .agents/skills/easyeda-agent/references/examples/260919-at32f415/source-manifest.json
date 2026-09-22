@@ -51,7 +51,7 @@
   "derivedSourceData": [
     {
       "path": "example-catalog.json",
-      "status": "offline-verified",
+      "status": "partial-live-verified",
       "purpose": "SCH/PCB/LAY/RTE/FIN 共 36 个来源技术点的机器可读教学字段与现场待验证项"
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "initial-placement.json",
-      "status": "live-verified",
+      "status": "partial-live-verified",
       "purpose": "69 件初始布局的参数样例与保存刷新后的几何回读；不含易失 primitiveId"
     },
     {
@@ -158,7 +158,24 @@
       "ui-footprint-anchor",
       "bbox-center"
     ],
-    "verification": "Compare one asymmetric footprint's Web property-panel X/Y with pcb list x/y and bbox center before any batch move."
+    "verification": "本例历史回读使用 footprint anchor；后续从题目坐标、参数中的 coordinateSemantic 及 typed pcb list 的 x/y、pads/bbox 交叉核对。原题未定义 anchor/bbox-center；不得仅由 bbox 中心推断，也不得通过属性面板操作补证。"
+  },
+  "decouplingOwnership": {
+    "C1": "U1.5 VCC",
+    "C2": "LED1.1 VDD",
+    "C3": "U2.3 VIN input bulk",
+    "C4": "U2.3 VIN input high-frequency",
+    "C5": "U2.2/U2.4 VOUT output bulk",
+    "C6": "U2.2/U2.4 VOUT output high-frequency",
+    "C9": "U4.8 V3",
+    "C10": "U4.5 VCC",
+    "C12": "U5.3 VCC bulk",
+    "C13": "U5.3 VCC high-frequency",
+    "C14": "U6.1 VDD",
+    "C15": "U6.5 VDDA",
+    "C16": "U6.17 VDD",
+    "C18": "CARD1.4 VDD bulk",
+    "C19": "CARD1.4 VDD high-frequency"
   },
   "functionalZones": [
     {
@@ -338,17 +355,18 @@
   ],
   "orderingExamples": {
     "fixedExamBoard": [
+      "rules-and-stackup",
       "outline-and-origin",
       "fixed-parts",
       "mechanical-keepouts",
-      "critical-paths",
-      "core-and-peripherals",
-      "rules",
+      "critical-path-trials",
+      "core-peripherals-and-power-return",
       "routing",
       "silk-pour-teardrops",
       "save-reload-readback"
     ],
     "adjustableTeachingVariant": [
+      "rules-and-stackup",
       "functional-modules",
       "edge-interfaces",
       "critical-paths",
@@ -377,17 +395,23 @@
       "native-arc outline readback",
       "pcb origin get/set",
       "full rule overwrite using bare config",
-      "pcb net-class list/create"
+      "pcb net-class list/create",
+      "pcb config clearance/track/via/bind/net-color with typed save/reload/readback and idempotent replay",
+      "bounded doc reload on the recorded exam configuration batch"
     ],
     "liveValidationPending": [
       "project create",
       "silk font-family read/write",
-      "writable footprint-copy save and instance binding",
-      "bounded doc reload fix with newly loaded connector"
+      "writable footprint-copy save and instance binding"
     ],
     "unsupportedCapabilities": [
       "teardrop creation",
       "LCD footprint edit when the writable-copy binding path is unavailable"
-    ]
+    ],
+    "laterEvidence": {
+      "reference": "../../pcb-config.md",
+      "date": "2026-09-20",
+      "scope": "新配置入口已在考试 PCB 实测并恢复 69 件/46 网基线；早期 live-validation.json 保留原批次。单次 typed 重载成功不能外推所有加载故障已解决；ESP32 回归仍 incomplete。"
+    }
   }
 }

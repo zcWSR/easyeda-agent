@@ -19,7 +19,8 @@ import (
 const placeTimeout = 8*time.Second + protocol.DispatchResponseGrace
 
 // rebind/replace run a long SERIAL eda.* chain (identity resolution via online
-// library search → lib_Device copy/modify → delete → create → restore); the
+// library search → lib_Device copy/modify → candidate create/readback → delete
+// original → restore/readback); the
 // clone fallback pushed the worst case past the default 20s dispatch window.
 const rebindTimeout = 90 * time.Second
 
@@ -47,6 +48,24 @@ func placeDispatchError(err error) error {
 		return fmt.Errorf("%w\n%s", err, placeUUIDHint(placeTimeout))
 	}
 	return err
+}
+
+func rebindDispatchError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var actionErr *actionError
+	deadline := errors.Is(err, context.DeadlineExceeded)
+	if errors.As(err, &actionErr) && (actionErr.Code == "DISPATCH_FAILED" || actionErr.Code == "ACTION_ABANDONED") {
+		deadline = deadline || strings.Contains(actionErr.Detail, context.DeadlineExceeded.Error()) || actionErr.Code == "ACTION_ABANDONED"
+	}
+	if !deadline {
+		return err
+	}
+	return fmt.Errorf(
+		"%w\nrebind confirmation timed out. The handler or an EasyEDA library/create call may still settle late. Do not blindly retry and do not run PCB import-changes. First run a fresh `easyeda sch list --include-device-identity` on the target page and reconcile the original primitiveId, any replacement instance, and the exact uniqueId.",
+		err,
+	)
 }
 
 // netflagKindAliases maps user-friendly CLI shorthands to the canonical kind
@@ -726,18 +745,21 @@ platform still dropped is reported in result.notApplied (non-zero exit).`,
 		var id, footprint, footprintUUID, footprintLib, scope string
 		c := &cobra.Command{
 			Use:   "rebind-footprint",
-			Short: "Swap a placed component's footprint (five-step rebind: modify→delete→create→restore)",
+			Short: "Swap a footprint transactionally (candidate create/readback before original delete)",
 			Args:  cobra.NoArgs,
 			Long: `Rebind the footprint of an already-placed schematic component to a same-named
 (or explicitly identified) library footprint.
 
-modify() cannot change the footprint reference of a placed instance, so this runs the
-"five-step binding": lib_Device.modify → delete old instance → create fresh instance →
-restore designator/position/props. Imported devices with an empty libraryUuid are
+modify() cannot change the footprint reference of a placed instance, so this runs a
+candidate-first transaction: lib_Device.modify → create/read back a replacement while
+the original still exists → delete/read back the original → restore and freshly verify
+designator/uniqueId/position/props. Imported devices with an empty libraryUuid are
 reverse-looked-up in the project library first.
 
 NOTE: re-placing mints a NEW primitiveId; wires on the old pins may need re-drawing —
-run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm connectivity.`,
+run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm connectivity.
+On timeout, do not retry or run PCB import-changes until a fresh schematic read reconciles
+the original, replacement, and exact uniqueId.`,
 			Example: `  easyeda sch rebind-footprint --id <primitiveId> --footprint QFN-32_L5.0-W5.0
   easyeda sch rebind-footprint --id <id> --footprint-uuid <u> --footprint-lib <l>`,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -760,7 +782,7 @@ run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm
 				if scope != "" {
 					payload["scope"] = scope
 				}
-				return dispatchTimed(cfg, "schematic.rebind.footprint", window, payload, rebindTimeout, stdout, stderr)
+				return rebindDispatchError(dispatchTimed(cfg, "schematic.rebind.footprint", window, payload, rebindTimeout, stdout, stderr))
 			},
 		}
 		c.Flags().StringVar(&id, "id", "", "placed component primitive ID (required)")
@@ -777,18 +799,21 @@ run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm
 		var id, symbol, symbolUUID, symbolLib, scope string
 		c := &cobra.Command{
 			Use:   "rebind-symbol",
-			Short: "Swap a placed component's symbol (five-step rebind: modify→delete→create→restore)",
+			Short: "Swap a symbol transactionally (candidate create/readback before original delete)",
 			Args:  cobra.NoArgs,
 			Long: `Rebind the symbol of an already-placed schematic component to a same-named
 (or explicitly identified) library symbol.
 
-modify() cannot change the symbol reference of a placed instance, so this runs the
-"five-step binding": lib_Device.modify → delete old instance → create fresh instance →
-restore designator/position/props. Imported devices with an empty libraryUuid are
+modify() cannot change the symbol reference of a placed instance, so this runs a
+candidate-first transaction: lib_Device.modify → create/read back a replacement while
+the original still exists → delete/read back the original → restore and freshly verify
+designator/uniqueId/position/props. Imported devices with an empty libraryUuid are
 reverse-looked-up in the project library first.
 
 NOTE: re-placing mints a NEW primitiveId; wires on the old pins may need re-drawing —
-run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm connectivity.`,
+run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm connectivity.
+On timeout, do not retry or run PCB import-changes until a fresh schematic read reconciles
+the original, replacement, and exact uniqueId.`,
 			Example: `  easyeda sch rebind-symbol --id <primitiveId> --symbol ESP32-S3
   easyeda sch rebind-symbol --id <id> --symbol-uuid <u> --symbol-lib <l>`,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -811,7 +836,7 @@ run ` + "`easyeda sch drc`" + ` / ` + "`easyeda sch check`" + ` after to confirm
 				if scope != "" {
 					payload["scope"] = scope
 				}
-				return dispatchTimed(cfg, "schematic.rebind.symbol", window, payload, rebindTimeout, stdout, stderr)
+				return rebindDispatchError(dispatchTimed(cfg, "schematic.rebind.symbol", window, payload, rebindTimeout, stdout, stderr))
 			},
 		}
 		c.Flags().StringVar(&id, "id", "", "placed component primitive ID (required)")

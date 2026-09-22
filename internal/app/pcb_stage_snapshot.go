@@ -17,7 +17,7 @@ import (
 //
 // WHY a dedicated command: for engineering validation we judge state by DATA
 // (list/drc/check), because a screenshot can be stale. But a recording/demo run
-// ALSO needs a trustworthy native screenshot at each visual stage, plus the
+// ALSO needs a trustworthy public-API viewport capture at each visual stage, plus the
 // data that proves what the screenshot shows. This bundles both into one call
 // and — crucially — GATES on the frame: if the capture is blank (window not
 // rendering; see snapshot_frame.go) or stale (byte-identical to --previous),
@@ -28,15 +28,16 @@ func newPcbStageSnapshotCmd(cfg *appConfig, window *string, stdout, stderr io.Wr
 		stage       string
 		outDir      string
 		noFit       bool
+		fitMode     string
 		previousSha string
 		allowStale  bool
 	)
 	c := &cobra.Command{
 		Use:   "stage-snapshot",
-		Short: "Capture a recording/demo STAGE: native snapshot + data bundle, gated on a non-blank/non-stale frame",
+		Short: "Capture a recording/demo STAGE: board-fitted viewport PNG + data bundle, gated on a non-blank/non-stale frame",
 		Long: `Capture one recording/demo STAGE in a single call:
 
-  1. a native EasyEDA PCB snapshot  → <out>/<stage>/snapshot.png
+  1. a public-API PCB viewport PNG  → <out>/<stage>/snapshot.png
   2. a data bundle (the proof)      → components/tracks/vias/pours/nets/drc .json
   3. a stage.json manifest with the frame verdict
 
@@ -46,8 +47,11 @@ to --previous-sha256) exits NON-ZERO, so a 'set -e' recording script halts
 instead of saving an empty/duplicate frame as a finished stage. Pass
 --allow-stale to downgrade a stale (but non-blank) frame to a warning.
 
-No API call can force a hidden window to repaint — if this reports BLANK, bring
-EasyEDA to the FOREGROUND on the target PCB and re-run.`,
+No public API can force a hidden window to repaint. Use typed document switching
+to activate the target PCB and re-run; if it remains BLANK, record the render as
+unavailable instead of falling back to GUI operation. The default --fit-mode
+board uses pcb_Document.zoomToBoardOutline before capture. This is not the editor
+menu's object-level Copy-as-PNG/SVG export, which public eda.* does not expose.`,
 		Args: cobra.NoArgs,
 		Example: `  easyeda pcb stage-snapshot --project ceshi --stage "P7 routing"
   PREV=$(easyeda pcb stage-snapshot --stage P6 --out ./rec | jq -r .sha256)
@@ -61,8 +65,18 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 				return fmt.Errorf("create stage dir %s: %w", dir, err)
 			}
 
-			// 1) native snapshot -------------------------------------------------
-			payload := map[string]any{"fit": !noFit}
+			// 1) public-API viewport capture ------------------------------------
+			mode, modeErr := normalizePcbSnapshotFitMode(fitMode)
+			if modeErr != nil {
+				return modeErr
+			}
+			if noFit {
+				if cmd.Flags().Changed("fit-mode") {
+					return fmt.Errorf("--no-fit and --fit-mode cannot be used together")
+				}
+				mode = "none"
+			}
+			payload := map[string]any{"fitMode": mode, "fit": mode != "none"}
 			if previousSha != "" {
 				payload["previousSha256"] = previousSha
 			}
@@ -77,11 +91,10 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 			// rather than bank a mismatched frame.
 			if snap.Context != nil && snap.Context.DocumentType != "" && snap.Context.DocumentType != "pcb" {
 				fmt.Fprintf(stderr, "❌ stage %q: the foreground tab is a %s, not a PCB — the capture would be "+
-					"the wrong document. Switch EasyEDA to the target PCB tab (`easyeda doc switch <pcb>`), "+
-					"bring it to the FOREGROUND, and re-run.\n", stage, snap.Context.DocumentType)
+					"the wrong document. Activate it with `easyeda doc switch <pcb>` and re-run.\n", stage, snap.Context.DocumentType)
 				return errActionFailed
 			}
-			sha, _ := snap.Result["sha256"].(string)
+			reportedSHA, _ := snap.Result["sha256"].(string)
 			pngPath := ""
 			if src := snapshotArtifact(snap); src != "" {
 				pngPath = filepath.Join(dir, "snapshot.png")
@@ -89,6 +102,10 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 					fmt.Fprintf(stderr, "⚠️  could not copy snapshot into stage dir: %v\n", err)
 					pngPath = src // fall back to the original artifact path
 				}
+			}
+			sha, shaSource, shaErr := resolveStageSnapshotSHA(reportedSHA, pngPath)
+			if shaErr != nil {
+				fmt.Fprintf(stderr, "⚠️  could not hash stage snapshot: %v\n", shaErr)
 			}
 
 			// analyze the frame for blankness (the "window not rendering" case)
@@ -101,6 +118,12 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 				}
 			}
 			stale := snapshotIsStale(snap)
+			// Older connectors produced the PNG artifact but omitted result.sha256,
+			// which made --previous-sha256 silently ineffective. The persisted bytes
+			// are the same bytes under review, so the CLI hash is authoritative too.
+			if previousSha != "" && sha != "" && strings.EqualFold(previousSha, sha) {
+				stale = true
+			}
 
 			// 2) data bundle (the proof of what the screenshot shows) ------------
 			bundle := []struct {
@@ -136,34 +159,42 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 
 			// 3) stage manifest + verdict ---------------------------------------
 			manifest := map[string]any{
-				"stage":        stage,
-				"sha256":       sha,
-				"snapshot":     pngPath,
-				"blank":        blank,
-				"stale":        stale,
-				"frameContent": frame.NonBgFraction,
-				"frameColors":  frame.DistinctBins,
-				"dataFiles":    written,
-				"drcPassed":    drcPassed,
-				"drcPassKnown": drcKnown,
+				"stage":             stage,
+				"sha256":            sha,
+				"sha256Source":      shaSource,
+				"snapshot":          pngPath,
+				"blank":             blank,
+				"stale":             stale,
+				"frameContent":      frame.NonBgFraction,
+				"frameColors":       frame.DistinctBins,
+				"dataFiles":         written,
+				"drcPassed":         drcPassed,
+				"drcPassKnown":      drcKnown,
+				"captureKind":       snap.Result["captureKind"],
+				"fitMode":           snap.Result["fitModeApplied"],
+				"fitApi":            snap.Result["fitApi"],
+				"objectLevelExport": snap.Result["objectLevelExport"],
 			}
 			_ = writeJSONFile(filepath.Join(dir, "stage.json"), manifest)
 
 			// machine-readable verdict on stdout (jq-friendly)
 			_ = json.NewEncoder(stdout).Encode(map[string]any{
-				"stage":     stage,
-				"dir":       dir,
-				"sha256":    sha,
-				"blank":     blank,
-				"stale":     stale,
-				"drcPassed": drcPassed,
+				"stage":             stage,
+				"dir":               dir,
+				"sha256":            sha,
+				"blank":             blank,
+				"stale":             stale,
+				"drcPassed":         drcPassed,
+				"captureKind":       snap.Result["captureKind"],
+				"fitMode":           snap.Result["fitModeApplied"],
+				"objectLevelExport": snap.Result["objectLevelExport"],
 			})
 
 			// gate ---------------------------------------------------------------
 			if blank {
 				fmt.Fprintf(stderr, "❌ stage %q: BLANK frame (%.3f%% content, %d colors) — "+
-					"EasyEDA is not rendering this PCB. Bring it to the FOREGROUND on the target "+
-					"canvas and re-run. Not banking this stage.\n", stage, frame.NonBgFraction*100, frame.DistinctBins)
+					"EasyEDA is not rendering this PCB. Activate it through typed document switching "+
+					"and re-run; if it remains blank, record render unavailable. Not banking this stage.\n", stage, frame.NonBgFraction*100, frame.DistinctBins)
 				return errActionFailed
 			}
 			if stale && !allowStale {
@@ -184,10 +215,38 @@ EasyEDA to the FOREGROUND on the target PCB and re-run.`,
 	}
 	c.Flags().StringVar(&stage, "stage", "", "stage label, e.g. \"P7 routing\" (required)")
 	c.Flags().StringVar(&outDir, "out", "", "output root (default ./.easyeda/stages)")
-	c.Flags().BoolVar(&noFit, "no-fit", false, "do NOT zoom to fit before capturing")
+	c.Flags().StringVar(&fitMode, "fit-mode", "board", "viewport fit: board | all | none (default board)")
+	c.Flags().BoolVar(&noFit, "no-fit", false, "legacy alias for --fit-mode none")
 	c.Flags().StringVar(&previousSha, "previous-sha256", "", "prior stage's sha256 → detect+gate a stale (non-repainted) frame")
 	c.Flags().BoolVar(&allowStale, "allow-stale", false, "downgrade a stale (but non-blank) frame from error to warning")
 	return c
+}
+
+func normalizePcbSnapshotFitMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "board", nil
+	}
+	switch mode {
+	case "board", "all", "none":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid --fit-mode %q: expected board, all, or none", mode)
+	}
+}
+
+func resolveStageSnapshotSHA(reported, pngPath string) (sha, source string, err error) {
+	if strings.TrimSpace(reported) != "" {
+		return strings.TrimSpace(reported), "connector", nil
+	}
+	if strings.TrimSpace(pngPath) == "" {
+		return "", "unavailable", nil
+	}
+	raw, err := os.ReadFile(pngPath)
+	if err != nil {
+		return "", "unavailable", err
+	}
+	return sha256Hex(raw), "cli-artifact", nil
 }
 
 // outDirOrDefault resolves the stage output root.

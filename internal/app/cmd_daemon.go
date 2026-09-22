@@ -171,6 +171,8 @@ func newDaemonHealthCmd(cfg *appConfig, stdout, stderr io.Writer) *cobra.Command
 			if result.Found != nil {
 				rep := versionGateFromHealth(result.Found.Raw)
 				result.VersionGate = &rep
+				hostRep := hostCompatibilityFromHealth(result.Found.Raw)
+				result.HostCompatibility = &hostRep
 			}
 			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")
@@ -179,6 +181,9 @@ func newDaemonHealthCmd(cfg *appConfig, stdout, stderr io.Writer) *cobra.Command
 			}
 			if result.VersionGate != nil {
 				fmt.Fprintln(stderr, versionGateSummary(*result.VersionGate))
+			}
+			if result.HostCompatibility != nil {
+				fmt.Fprintln(stderr, hostCompatibilitySummary(*result.HostCompatibility))
 			}
 			if result.Found == nil {
 				return errActionFailed // daemon absent; response already printed

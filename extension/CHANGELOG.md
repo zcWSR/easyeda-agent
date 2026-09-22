@@ -2,19 +2,39 @@
 
 ## [Unreleased]
 
+- Add daemon-side `pcb via-fence` for perimeter-only GND/RF stitching around a protected rectangle. It includes each corner once, redistributes every edge so `--pitch` is a maximum spacing, expands outward with `--margin`, uses live via rules for unspecified sizes, and keeps dry-run pure. The AT32F415 crystal example now treats its former TOP/0-via route as verified historical evidence rather than a final design: the replacement `crystal-guard` contract jointly requires controlled MCU spacing, shorter/direct OSC paths, a real TOP GND guard, TOP/BOTTOM `no-pours` regions, and a GND via fence outside the protected envelope.
 - Bootstrap the Connector when EasyEDA evaluates its entry bundle without dispatching `activate()`. Keep one versioned transport controller on the host's shared per-extension `eda` object so repeated bundle evaluations delegate `start`, `stop`, `reconnect`, and status reads instead of registering duplicate sockets. `deactivate()` stops and releases that controller for a subsequent reload. Verified on macOS EasyEDA 3.2.203 with an official 1.5.2 cold-start baseline that did not connect, followed by import-time and fresh-process bootstrap registrations where `activateObserved=false`; this does not establish the behavior of Windows 3.2.149 or a startup path that never evaluates the bundle.
 - Gate on netlist availability, not just pin geometry. `pinsAvailable` proves the PIN API read succeeded; it says nothing about whether the netlist that every pin's `net` comes from was fetched. A muted export leaves every pin's `net` null while `pinsAvailable` stays true, so a downstream reader could not tell "this pin has no net" from "no net could be read". `sch block-apply`'s layout proof and `sch designators plan` now require `netlistAvailable` and report the netlist as the cause when it is missing.
 - Surface the same distinction in `sch layout-lint`: parts whose geometry is proven but whose pin-to-net attribution is not are reported as a separate `nets-unproven` category (new `netsUnproven` field, its own strict-gate reason and summary column) instead of being conflated with the legacy-connector `unprovenPins` bucket, which would send the reader to a different fix.
 - Skill: `sch read.floatingPins` may only be recorded as `connectionState:"unconnected"` when `sch read.netlistAvailable` is true — with a muted netlist every pin lands in that list, so it states a failed read rather than an unconnected design.
 
+## [1.5.3-dev.6] — 2026-09-22 (local development)
+
+- Add fail-closed typed `document.close` and use it for `doc reload`, removing the old `debug.exec_js` close path. The close request binds both the fresh document UUID and tab ID, preserves the official split ID when readable, and only then allows typed reopen plus fresh document/object settlement checks.
+- Normalize `pcb.poured.list` materialized copper from the SDK's native 0.1mil units to mil, including nested contours and arc commands, while preserving `fill:false` thermal-spoke paths as stroked geometry instead of misreporting them as invalid polygons.
+- Allow `doc ls` and UUID-based `doc open` to recover a project with no active document tab while keeping every other `document.current` failure closed.
+
+## [1.5.3-dev.5] — 2026-09-22 (local development; fresh UUID fallback)
+
+- Repackage the dev.4 crystal-guard connector under a fresh extension UUID after the Web host reported the new manifest version while continuing to dispatch the cached pre-`pcb.poured.list` bundle. The runtime handler probe, rather than the version string, remains the acceptance gate; remove the stale connector after importing this fallback to avoid competing sockets.
+
+## [1.5.3-dev.4] — 2026-09-22 (local development)
+
+- Add typed `pcb.poured.list` and `pcb dump --include-copper` evidence for routed copper, regions, static fills, pour boundaries, and materialized poured geometry while distinguishing a known-empty board from unavailable geometry.
+- Add schema-v2 `crystal-guard` planning and `pcb module-check`: assemble and rigidly transform the crystal/capacitor module offline, recompute fixed-MCU routes, emit whole-board/local/comparison previews and a typed Apply playbook, then verify the journal, preserved non-owned objects, dual-layer no-pours, GND guard/via paths, and materialized copper after reload.
+- Harden `pcb via-fence` obstacle and parameter checks and report routed `pcb net-path` length and turn count for candidate comparison.
+
 ## [1.5.3-dev.3] — 2026-09-20 (local development)
 
+- Move the supported EasyEDA product mainline to V4 (recommended V4.1.60+), expose a separate host compatibility report in `easyeda health`, and update the Connector type baseline to `@jlceda/pro-api-types` 0.4.25 without confusing the V4 product version with the official 3.2 extension API engine.
+- Preserve V4 schematic pin `otherProperty` in component snapshots, reject plural symbol/device/footprint variant shapes before mutation, and support explicit custom-designator validation/preservation without guessing the editor's increment policy.
 - Add `install.ps1` for native Windows (Windows PowerShell 5.1 and PowerShell 7), usable as `irm .../install.ps1 | iex`. It mirrors `install.sh`: the same `EASYEDA_VERSION` / `EASYEDA_INSTALL_DIR` / `EASYEDA_INSTALL_SKILLS` / `EASYEDA_SKILL_PRESERVE` / `CODEX_HOME` / `CLAUDE_CONFIG_DIR` / GitHub-token / mirror knobs, `checksums.txt` fetched from GitHub before any mirror fallback is allowed, SHA-256 plus CLI `--version` plus Skill `metadata.version` verified before an installed file is touched, and the same stage-then-swap Skill replace with backup/restore and `.version` marker. Windows-specific: a running `easyeda.exe` is renamed aside so a locked upgrade still completes, and the user PATH is changed only on explicit request while the machine PATH is never touched. `install.sh` now points Windows users at it, and releases publish `install.ps1` next to `install.sh` with a checksum.
 - Make `pcb stackup set` read back copper count and every requested inner-layer type. Rejected layer writes now return unverified/partial evidence and a non-zero CLI status instead of a false success; repeated matching requests are no-op verified.
 - Accept only relative IEEE roundoff in PCB rule write/readback and idempotence; keep exact source-drift checks and reject missing fields, unit changes and real value differences. Found on Web 3.2.203 during live clearance write.
 - Add typed `pcb.net.color.set` and `pcb config net-color` with hex RGB input, preserved alpha, dry-run and strict readback failure reporting.
 - Require expected versions and SHA-256 hashes for the development connector hot reload; replace the index and bundle atomically while preserving existing permissions.
 - Live Web 3.2.203 validation on the 69-component exam PCB covers dry-run, rule/via/class/color writes, strict readback, save/reload persistence, idempotent replay and full baseline restoration. The fixed ESP32 regression persisted 31 components, four copper layers, inner GND/+3V3 pours and its antenna keep-out, but remains incomplete: native DRC has 53 unique violations and requested inner `PLANE` types revert to `SIGNAL` after reload. The temporary Board was deleted after preserving evidence.
+- Add `pcb snapshot --fit-mode board|all|none`; Layout review now defaults to the public `zoomToBoardOutline` plus viewport capture, records the actual fit API and `objectLevelExport:false`, and keeps the editor's internal object-level Copy-as-PNG/SVG capability explicitly unsupported until it has a public `eda.*` wrapper.
 
 ## [1.5.2] — 2026-09-20
 

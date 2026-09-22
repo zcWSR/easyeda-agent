@@ -98,28 +98,6 @@
     ],
     "placementPlanSha256": "064d986c79d9d43d54547c6a542adb6b319e335fc9238fbd44eee85087cabede"
   },
-  "independentVerification": {
-    "status": "completed-with-findings",
-    "method": "subagent只读使用原题、BOM、source数据和整页刷新后的pcb list快照重新计算；未接收执行者通过结论，未操作Web EDA",
-    "passed": [
-      "69件/69唯一位号且BOM/C号一致",
-      "全TOP且bbox重叠0",
-      "六个固定件坐标/角度/锁定正确",
-      "CN1 y=42mm/180°且x未锁",
-      "15区成员完整",
-      "按键475mil等距",
-      "RGB靠USB且光敏远离RGB"
-    ],
-    "findings": [
-      "LED1距最近板边546.57mil（13.88mm），不满足题面摆放在板边",
-      "U1-C2、U4-C9、U5-C13、CARD1-C18/C19、U3-C7及LDO输出C5/C6偏远，应按真实电源pad重排",
-      "晶振信号与负载电容距离可接受，但200mil守护区被11个外围侵入；U6-X1 bbox间隙仅8.447mil",
-      "D1靠CN1外形但CANH/CANL到端子pad支路约217/295mil，应对齐信号脚",
-      "现有快照不能证明U3封装级component-keepout对象存在",
-      "有7组bbox装配间隙小于12mil"
-    ],
-    "developmentReport": "docs/reviews/2026-09-20-260919-placement-independent.md"
-  },
   "notClaimed": [
     "第一轮初始布局不是考试完成态：LED板边、若干去耦/晶振/CAN关系需再迭代",
     "初始布局只证明已列通过的机械/空间事实，不证明关键网络已经可布通",
@@ -733,11 +711,5 @@
       "U6",
       "CARD1"
     ]
-  },
-  "knownException": {
-    "ref": "CN1",
-    "requirement": "y=42mm, rotation=180deg; x free",
-    "observation": "rendered bbox top exceeds center-line outline by about 1.17mil while pads remain in board",
-    "handling": "keep the mandated y/rotation; inspect typed bbox/pad/region data, and keep the exception unverified if body/courtyard data is unavailable"
   }
 }

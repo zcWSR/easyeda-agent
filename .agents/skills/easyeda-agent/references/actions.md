@@ -64,15 +64,15 @@ Playbook 使用 `version:1`、`meta` 和有序 `steps`。每步只选一种执�
 
 | CLI / action | 必要边界 |
 |---|---|
-| `doc ls/switch/open`，`document.current/open` | 使用工程和页面目标；同名页用 UUID。CLI 同时核对活动 UUID 与对象枚举 settle；只出现目标标签、但对象仍不可读时失败并要求停止写入、修复 typed reload/open 后复测 |
-| `sch list`，`schematic.components.list` | `includeDeviceIdentity` 为重放解析真正库 UUID；`includePins/BBox/Wires` 取得几何基线。非激活页可能是浅数据 |
-| `sch place`，`schematic.component.place` | 使用库 UUID；自动回填可确定的 C 号与空属性是 best-effort，须检查警告。没有 place 自定义属性输入契约 |
+| `doc ls/switch/open/reload`，`document.current/open/close` | 使用工程和页面目标；同名页用 UUID。工程仍在线但没有活动标签时，`doc ls --project` 继续读取工程级原理图页/PCB 清单，`doc open <uuid> --project` 用 typed `document.open` 恢复并以 fresh `document.current` 确认；其他 current/清单错误仍失败关闭。`doc reload` 保存后把 fresh current 的 UUID + tabId 一起交给 typed `document.close`，由官方 API 在关闭前回读身份和 splitScreenId，再用 `document.open` 恢复；禁止以 `debug.exec_js` 关闭标签。CLI 同时核对活动 UUID 与对象枚举 settle；只出现目标标签、但对象仍不可读时失败并要求停止写入、修复 typed reload/open 后复测 |
+| `sch list`，`schematic.components.list` | `includeDeviceIdentity` 为重放解析真正库 UUID；`includePins/BBox/Wires` 取得几何基线。V4 `pins[].otherProperty` 保留引脚文本属性；字段缺失不能当空对象。非激活页可能是浅数据 |
+| `sch place`，`schematic.component.place` | 使用库 UUID；自动回填可确定的 C 号与空属性是 best-effort，须检查警告。没有 place 自定义属性输入契约；V4 复数 symbol/device/footprint association 在 canonical selector 完成前写前拒绝，不能取第一项 |
 | `sch modify`，`schematic.component.modify` | `otherProperty`/`customAttributes` 二选一，合并保留原属性。`verified:false` 需要再回读，不能当已验证 |
 | `sch prim-delete/clear` | 删除后按 ID 或完整图元清单验证；默认保护 sheet。未知枚举或幸存图元不能报告清空 |
 | `sch connect/autoconnect`，`schematic.power.connect_pin` | 必须生成非零短线，flag 不能与 pin 重叠；connect 非幂等，autoconnect 可跳过已连接目标网 |
 | `sch disconnect`，`schematic.pin.disconnect` | 检查共享树的 `alsoDisconnectedPins` 和删除残留；逐个恢复受影响引脚 |
 | `sch no-connect` | 显式设置/清除 NC，不创建零长线，不推断缺失数据为 NC |
-| `sch replace/rebind-symbol/rebind-footprint` | 会重建实例，重新读 ID；换器件查看 pinDiff，按引脚差异重连和验收 |
+| `sch replace/rebind-symbol/rebind-footprint` | rebind 先回读 Device association，再创建并回读候选，之后才删除原件；恢复后逐字段核对设备/符号或封装绑定、`uniqueId`、位姿和属性。失败回执含 phase、原件/候选存在性和 rollback 事实。超时后禁止盲重试及 `pcb import-changes`，先新鲜回读。换器件另查看 pinDiff，按引脚差异重连和验收 |
 | `sch export-image` | 文档渲染 SVG/PNG/PDF；`--ids` 导局部，不依赖视口截图 |
 | `sch read/check/bridge-check/drc/gate` | 用法与判读见 [schematic.md](schematic.md)；SDK DRC 聚合值不代表 UI 所有警告消失 |
 | `sch save` | 通过阶段验证后保存并确认 `saved:true`，不能只依赖防抖 autosave |
@@ -161,12 +161,40 @@ EasyEDA 交互界面兜底。能力边界与未来 typed 验收见 [project-impo
   [pcb-config.md](pcb-config.md)。`get` 导出可交给 `pcb drc-rules-set --from` 完整恢复。
 
 - `pcb.documents.list` — 工程内所有 PCB 文档（uuid + name）
-- `pcb.components.list` — PCB 上的封装/器件（可含 pads）
+- `pcb.components.list` — PCB 上的封装/器件；`includePads:true` 回传 pad 的原始
+  `shape` / `rotation` / `specialPad`，支持形状另带旋转后 bbox `width/height`
+- `pcb.line.list` — 铜线与圆弧；`arcsAvailable:true` 才能证明空 `arcs` 确实表示没有圆弧
+- `pcb net-path` — 用 fresh pads/tracks/arcs/vias 证明有序焊盘拓扑、层与过孔；长度累计实际
+  经过的 track 子段和 arc 子弧，分叉落在图元中段时不把整图元或圆弧弦长计入结果。
 - `pcb.layers.list` — PCB 层列表 + 当前层 + 铜层数（会先激活 PCB tab 保证 `currentLayer` 可读回；无当前层时附带 `visibleLayers` 作为显示状态证据）→ `easyeda pcb layers`
 - `pcb.layers.set_current` — 切换当前编辑层（`--layer` 接受 id|层名|top|bottom|inner1）→ `easyeda pcb layer-set --layer bottom`
 - `pcb.layers.visibility` — 显示/隐藏/聚焦层做视觉 QA：`--preset top-only|bottom-only|copper-only|silk-only`，或 `--show/--hide`（可加 `--exclusive` 只留所选）→ `easyeda pcb layer-visibility --preset bottom-only`
 - `pcb.view.side` — 切到顶面/底面视图（选该面铜层为当前层 + 聚焦该面铜+丝印），随后 `pcb snapshot` 即反映该面。注意：EasyEDA 无原生画布翻面 API，这是「层聚焦」近似而非物理翻板 → `easyeda pcb view-side --side bottom`
+- `pcb.view.filter.get` — 只读返回当前 PCB 画布过滤配置 → `easyeda pcb view-filter`。当前官方 SDK 只有 getter，没有“元件属性”显隐 setter；因此自动隐藏/恢复保持 `unsupported`，不能用 `pcb_PrimitiveAttribute.modify` 改持久属性，也不能点击 GUI 兜底。
+- `pcb.snapshot` — `--fit-mode board|all|none`；默认 `board` 先执行公开 `zoomToBoardOutline()` 再抓取当前渲染区，返回实际 `fitModeApplied` / `fitApi` / `captureKind`。它是 board-fitted viewport PNG，`objectLevelExport=false`；不能冒充编辑器菜单的对象级“复制为 SVG/PNG”，后者当前没有公开 `eda.*` 包装。旧 `--fit=true|false` 仅兼容映射为 `all|none`。
 - `pcb.nets.list` — PCB 全部网络
+- `pcb dump --include-copper --out board.json` — 生成自包含快照；焊盘保留原始 shape、旋转和
+  specialPad，铜按 routing/vias/pours/poured/regions/fills 分别标记 available/unknown，
+  `semanticSha256` 排除采集时间与自身哈希后用于执行前 stale 检查。
+- `pcb.poured.list` / `pcb poured-list` — 读取 `pour-rebuild` 后的实际铜岛，不等同于
+  `pcb.pour.list` 的可编辑边界；complex polygon 的孔洞与已验证 ARC 原样保留，任一 fill
+  几何读取失败则整个 action 失败。宿主 poured fill 的坐标和 `lineWidth` 为 0.1mil，typed
+  action 按 polygon 命令角色归一化到 mil；`ARC/CARC` sweep 和 `R` rotation 保持 degree，
+  nested contours 递归保留。每个 fill 返回单位字段和 `geometryKind`；`fill:false` 保留为带
+  线宽的 `stroked-thermal-spoke-path`，不能按填充面解释。只有完整 inventory 返回真实 `[]` 才是 known-empty；fill、
+  boundary、net、layer、polygon 或关联 ID 任一缺测均为 unknown/error。
+- `pcb layout-plan` — schemaVersion 1 做纯布局；schemaVersion 2 保留历史模块；schemaVersion 3 的 `crystal-guard` 要求 `groundImplementation=tracks-vias`，在局部坐标完成器件、OSC、GND 护环/导线、双层 no-pours 和接地孔后整体平移，输出 `candidate-XX.svg`（整板）、`.local.svg`（局部组装）和
+  `.compare.svg`（前后对比），三者与 apply 共用候选几何。`crystal-guard` 的 no-pours 包络
+  包含最终 signal-main 的“线宽一半 + live 净距”stroke bbox，并保留 owner 侧信号入口；
+  `replacePrimitiveIds` 必须精确覆盖 fresh baseline 两条 OSC 网的全部 track/arc ID。
+- `pcb module-check` — 离线比较 before/after fresh dump、候选与 apply journal；检查遗漏/
+  额外对象、非目标变化、no-pours 内实际铺铜与静态 fill、OSC ordered path、fresh pad 几何、
+  capture PID 一一对应，以及 polygon/holes/ARC 等价。schema-v2 的 `affectedBaselinePours` 把
+  可局部重建的既有材料化铺铜绑定到 boundary/materialized ID 和 `impactEnvelope`：只允许声明
+  对象在包络内变化，区外及未声明对象严格保持。晶振 GND 会逐段证明 `role=guard` 实际 track
+  经列出铜连接到 ground anchor，并逐个验证每个 fence/anchor via 在
+  TOP/BOTTOM 实际 GND 铜上与 ground-anchor 同岛，而不是只验任意 via 或两条入口。官方 DRC
+  仍须单独运行并按对象/错误类型保存证据。
 
 ### 长度约束：差分对 / 等长网络组（#176）
 

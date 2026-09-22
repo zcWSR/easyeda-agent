@@ -279,7 +279,7 @@ func newLibraryFootprintCmd(cfg *appConfig, stdout, stderr io.Writer, window *st
 		var locked bool
 		c := &cobra.Command{
 			Use:   "region",
-			Short: "Add a saved rule/keep-out region inside a writable footprint",
+			Short: "Add a saved rule/keep-out region inside a writable non-system footprint",
 			Args:  cobra.NoArgs,
 			Example: `  easyeda lib footprint region --uuid <copy> --library <lib> \
     --points '[[0,0],[1200,0],[1200,900],[0,900]]' --rule no-components --name LCD_BODY`,
@@ -305,7 +305,7 @@ func newLibraryFootprintCmd(cfg *appConfig, stdout, stderr io.Writer, window *st
 			},
 		}
 		c.Flags().StringVar(&uuid, "uuid", "", "writable footprint UUID (required)")
-		c.Flags().StringVar(&libraryUUID, "library", "", "writable library UUID (required)")
+		c.Flags().StringVar(&libraryUUID, "library", "", "writable non-system library UUID (required)")
 		c.Flags().StringVar(&pointsJSON, "points", "", "JSON array of [x,y] vertices in footprint mil (required)")
 		c.Flags().IntVar(&layer, "layer", 12, "region layer; default MULTI=12")
 		c.Flags().StringVar(&ruleType, "rule", "no-components", "region rule name or numeric value")

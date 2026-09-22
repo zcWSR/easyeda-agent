@@ -24,17 +24,21 @@ import (
 
 func newPcbDumpCmd(cfg *appConfig, window *string, stdout, stderr io.Writer) *cobra.Command {
 	var (
-		outPath  string
-		noSilk   bool
-		noRules  bool
-		noLayers bool
-		label    string
+		outPath       string
+		noSilk        bool
+		noRules       bool
+		noLayers      bool
+		includeCopper bool
+		label         string
 	)
 	c := &cobra.Command{
 		Use:   "dump",
 		Short: "Dump the board's read-only geometry to a self-contained JSON snapshot",
 		Long: "Capture components (anchor/rotation/locked/bbox/pads), board outline, silkscreen,\n" +
 			"live DRC rules and copper layer count in ONE file.\n\n" +
+			"--include-copper also captures tracks/arcs, vias, pour boundaries, materialized\n" +
+			"poured copper, regions and static fills. Each category records available/unknown,\n" +
+			"so a failed read cannot be mistaken for an empty board.\n\n" +
 			"The snapshot is what `" + "pcb layout-score --from <file>" + "` replays offline, so a\n" +
 			"reference board can become a regression fixture that needs no live editor.\n\n" +
 			"Board outline requires the PCB to be the FOREGROUND document (the platform\n" +
@@ -52,6 +56,7 @@ func newPcbDumpCmd(cfg *appConfig, window *string, stdout, stderr io.Writer) *co
 				withSilk:   !noSilk,
 				withRules:  !noRules,
 				withLayers: !noLayers,
+				withCopper: includeCopper,
 			})
 			if err != nil {
 				return err
@@ -87,6 +92,7 @@ func newPcbDumpCmd(cfg *appConfig, window *string, stdout, stderr io.Writer) *co
 	c.Flags().BoolVar(&noSilk, "no-silk", false, "skip silkscreen (drops the silk-consistency dimensions)")
 	c.Flags().BoolVar(&noRules, "no-rules", false, "skip live DRC rules (thresholds fall back to the JLCPCB baseline)")
 	c.Flags().BoolVar(&noLayers, "no-layers", false, "skip copper layer count")
+	c.Flags().BoolVar(&includeCopper, "include-copper", false, "capture exact routed/area copper and rule-region lists with per-category availability")
 	return c
 }
 

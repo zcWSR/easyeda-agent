@@ -146,6 +146,51 @@ func TestLegacyDesignatorsRemainReadableButCannotBePlaced(t *testing.T) {
 	}
 }
 
+func TestV4CustomDesignatorPolicyPreservesAndValidatesReferences(t *testing.T) {
+	d := Document{
+		SchemaVersion:    "1.4",
+		DesignatorPolicy: &DesignatorPolicy{Mode: "custom", Pattern: `^CTRL-[A-Z]+-[0-9]{3}$`},
+		Components:       []Component{{ID: "controller", Ref: "CTRL-MAIN-001", Pins: []Pin{{Number: "1", NoConnected: true}}}},
+	}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Issues) != 0 {
+		t.Fatalf("valid custom designator was diagnosed as nonstandard: %+v", d.Issues)
+	}
+	if err := ValidatePlacementDesignators(d); err != nil {
+		t.Fatal(err)
+	}
+	out, changes, err := AllocateDesignators(d, map[string]string{"unused": "U"})
+	if err != nil || len(changes) != 0 || out.Components[0].Ref != "CTRL-MAIN-001" {
+		t.Fatalf("custom designator was changed or rejected: %+v %+v %v", out, changes, err)
+	}
+	out.DesignatorPolicy.Pattern = "changed"
+	if d.DesignatorPolicy.Pattern == "changed" {
+		t.Fatal("custom designator policy pointer was not cloned")
+	}
+}
+
+func TestV4CustomDesignatorPolicyFailsClosed(t *testing.T) {
+	for _, policy := range []*DesignatorPolicy{
+		{Mode: "custom", Pattern: "CTRL-.*"},
+		{Mode: "custom", Pattern: "^[$"},
+		{Mode: "future", Pattern: "^.*$"},
+	} {
+		d := Document{SchemaVersion: "1.4", DesignatorPolicy: policy, Components: []Component{{ID: "c", Ref: "CTRL-1", Pins: []Pin{{Number: "1", NoConnected: true}}}}}
+		if err := d.Validate(); err == nil {
+			t.Fatalf("invalid policy accepted: %+v", policy)
+		}
+	}
+	d := Document{SchemaVersion: "1.4", DesignatorPolicy: &DesignatorPolicy{Mode: "custom", Pattern: `^CTRL-[0-9]+$`}, Components: []Component{{ID: "c", Ref: "U1", Pins: []Pin{{Number: "1", NoConnected: true}}}}}
+	if err := ValidatePlacementDesignators(d); err == nil || !strings.Contains(err.Error(), "custom") {
+		t.Fatalf("mismatched custom reference was not refused: %v", err)
+	}
+	if _, _, err := AllocateDesignators(d, nil); err == nil || !strings.Contains(err.Error(), "preserved") {
+		t.Fatalf("allocator guessed a V4 custom sequence: %v", err)
+	}
+}
+
 func boundComponent(ref string, properties map[string]any) map[string]any {
 	return map[string]any{"componentType": "part", "designator": ref, "otherProperty": properties, "pins": []any{map[string]any{"pinNumber": "1", "net": "GND"}, map[string]any{"pinNumber": "2", "net": "", "noConnected": true}}}
 }

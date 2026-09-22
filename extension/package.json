@@ -1,6 +1,6 @@
 {
 	"name": "easyeda-agent-connector",
-	"version": "1.5.3-dev.3",
+	"version": "1.5.3-dev.6",
 	"description": "EasyEDA Pro extension that bridges the easyeda-agent Go daemon to the official eda.* API over WebSocket.",
 	"author": "easyeda-agent",
 	"license": "(MIT AND Apache-2.0)",
@@ -18,7 +18,7 @@
 		"release": "node ./scripts/bump.mjs && npm run typecheck && npm run build"
 	},
 	"devDependencies": {
-		"@jlceda/pro-api-types": "^0.2.21",
+		"@jlceda/pro-api-types": "^0.4.25",
 		"@types/fs-extra": "^11.0.4",
 		"@types/node": "^20.17.0",
 		"esbuild": "^0.24.2",

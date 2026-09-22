@@ -28,6 +28,14 @@ skill ──▶ Go CLI/daemon ──WebSocket──▶ connector .eext ──▶
 布局分档 T1–T4 / edge 语义 / 块数据模型 / 可信判据)。**引入或讨论新概念对象先落这里再引用**,
 让后续会话、贡献者、Skill 用同一套心智模型。验收判据见 [`docs/e2e-automation-acceptance.md`](docs/e2e-automation-acceptance.md)。
 
+## 首要准则 — 仓库能力沉淀优先
+
+现场工程是 `easyeda-agent` 能力与 Skill 约束的真实回归样例，不是一次性代做目标。遇到新的
+布局、布线、几何或回读要求时，先判断能否沉淀为可迁移的数据模型、Cobra 子命令、typed action、
+校验器、样例和 guardrail；缺少通用能力就先补仓库并验证，再回到现场。禁止为了把当前板做完而
+堆只对单一坐标成立的脚本、放宽证据标准或绕过 Skill。现场结果必须反向更新 Skill：保留正例、
+负例、能力边界和修法，让下一块板可以从参数重新计算，而不是复制这块板的绝对坐标。
+
 ## 首要准则 — 样例驱动、参数化迁移
 
 原理图、PCB 布局和布线统一采用“找到相近样例 → 理解理由 → 修改参数 → 执行 →
@@ -39,7 +47,27 @@ workflow/stage、版本一致性、布局评分和 stale-read 状态只提供诊
 普通 action 是否允许执行。连接检查、DRC、几何和回读继续报告具体事实。需要可信最终数据的
 批次必须保存、真实重载并回读；刷新失败就报告不可用，不以 force 或阶段签字代替证据。
 
+PCB Layout 全部要求落实并保存重载后，必须向用户展示当前布局事实和预览，等待用户对该回读
+版本明确确认；用户可继续描述调整，也可自行调整后回复“OK”。自行调整后先重新回读并把现场
+坐标/角度固化为参数基线。确认前不进入整板布线。LDO/DCDC 等电源模块的输入/输出电容、局部
+GND 回流与必要 EP/地过孔可以随布局先完成，但必须整体参数化、回读，并在模块移动时一同重算；
+跨模块电源主干、普通信号和全局铜仍等待确认。该确认是用户设计取舍，不恢复 workflow/stage、
+评分或版本许可门禁。
+
+参数化 Layout 后必须用 typed 截图/导出能力生成**整板集成预览**，并连续通过两轮 Agent 自检。
+第 1 轮检查空间、模块关系和视觉异常；发现问题就修改参数、重新生成预览，连续通过计数清零。
+第 2 轮必须执行 `save → reload → fresh dump → fresh render`，核对持久化后的数据与整板图；这一轮
+发现并修复任何问题也清零，重新从第 1 轮开始。只有连续两轮均未发现需要修复的明显问题，才可
+称 Layout 完成并把该回读版本交用户确认；截图不替代对象回读、几何检查或 DRC。
+
+Layout 观察时可以临时隐藏元件属性，但只能通过 typed API 改变**视图状态**。操作前必须读取并
+保存旧可见性状态，无论截图/导出成功或失败都要恢复并回读对账，不得修改属性内容或把临时状态留在工程中。没有
+可回读、可恢复的 typed 接口时标 `unsupported`，保持原视图继续检查；禁止用 GUI/属性面板兜底。
+
 ## 首要准则 — 禁止手工操作 EDA 工程
+
+本项目的现场 EDA 操作与验证使用用户已打开的内置浏览器 Web EDA；不得启动或切换到
+EasyEDA 桌面版。
 
 Agent 不得使用 CUA、鼠标、键盘、画布、属性面板、工程树或其他 GUI 自动化来创建、修复、
 补齐、保存、重载或验证原理图与 PCB，也不得把手工编辑作为 typed 工具失败后的兜底。所有
@@ -50,6 +78,10 @@ Agent 不得使用 CUA、鼠标、键盘、画布、属性面板、工程树或�
 将能力标为 `planned` / `unsupported`，先在代码中补齐 typed 接口和自动化验证，再重新执行。
 不得通过刷新浏览器、从工程树重开、拖动物件或修改属性面板来恢复任务。截图和界面观察只可
 作为只读证据，不能产生工程变更，也不能替代对象回读。
+
+Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows` 必须精确出现目标
+工程和文档后才可访问 EDA。同一窗口的 typed 调用串行执行，subagent 只并行做离线分析，或在
+主 Agent 停止访问该窗口时做只读核查，避免多个 `--doc` 选择/回读相互触发文档过渡保护。
 
 ## 首要准则 — 原理图数据驱动架构
 
@@ -75,7 +107,7 @@ Agent 不得使用 CUA、鼠标、键盘、画布、属性面板、工程树或�
 
 ## 首要准则 — CLI 子命令设计
 
-详见 [`docs/cli-design.md`](docs/cli-design.md)。核心约束：所有明确的功能模块必须以 **Cobra 子命令**方式暴露（`easyeda sch`、`easyeda pcb`、`easyeda bom` …），`--help` 自描述，新功能先设计命令接口再写实现，Skill 描述与子命令签名保持同步。开发闭环：`debug.exec_js` → typed action → Cobra 子命令。
+详见 [`docs/cli-design.md`](docs/cli-design.md)。核心约束：所有明确的功能模块必须以 **Cobra 子命令**方式暴露（`easyeda sch`、`easyeda pcb`、`easyeda bom` …），`--help` 自描述，新功能先设计命令接口再写实现，Skill 描述与子命令签名保持同步。开发闭环：官方 API/离线 fixture 调研 → typed action → Cobra 子命令；不得用 `debug.exec_js` 临时操作工程来跳过接口开发。
 
 ## 首要准则 — 固定测试用例（端到端验收）
 
@@ -96,6 +128,23 @@ Agent 不得使用 CUA、鼠标、键盘、画布、属性面板、工程树或�
 ## Notes
 
 reply as chiense! reply as chiense! reply as chiense!
+
+## 2026-09-23 晶振 schema-v3 现场状态
+
+- AT32F415 目标 PCB：project `475cc0f773ed4a6fb7a02336c8a6a67f`，doc
+  `2e719e9419653c72`。connector `1.5.3-dev.6`、EasyEDA Pro `4.1.60`。
+- 晶振区禁止铺铜；只允许显式 TOP/BOTTOM GND 导线、护环、接地孔和双层 `no-pours`。
+- 首个 schema-v3 共同逃线候选虽 90/90 写入成功，第一轮 fresh `pcb module-check` 仍失败：
+  护环 create PID 被宿主替换且恢复器不接受单段同几何替换；OSC_OUT 的 4mil 短斜段造成
+  8mil 铜非端点面积重叠；U6.3 逃线终点与独立需求不一致；候选与 requirements 的旧对象
+  替换声明不一致。该候选是 `candidate-rejected`，不得重放或称为现场通过。
+- 失败候选已经 typed 精确回退并保存重载：69 components、62 tracks、2 个 U6.33 EP vias、
+  0 pours/poured/regions/fills；fresh `semanticSha256` 恢复为
+  `338e12ac849c99771067a4a628fb8855a8a0b2bba609e4b64e198452f989c913`。
+- Layout 求解器负责模块位置、旋转和移动组；每个候选投影成临时板状态后，由 PCB Router
+  公共内核验证固定几何下的路径和共同通道。不要在晶振策略中再写一套通用 Router。
+- 后续若恢复此工作，先修复上述四项并补负例，再从该干净基线重新规划。完成
+  save → reload → fresh readback → DRC → module-check 的连续两轮和独立验收前，不进入下一模块。
 
 **Branch policy:** use `dev` as the default branch for ongoing local development
 and integration. Commit and push verified day-to-day work directly to `dev`; do
@@ -206,9 +255,9 @@ All tools live in `.agents/skills/easyeda-agent/scripts/`.
 .agents/skills/easyeda-agent/scripts/parts-relocalize.py --dry-run --json   # 只查询不落盘
 # 离线回归(纯函数,不跑 CLI):python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
-# flag 旋转真值表校准（导入新 .eext 后跑一次，需要已连接的 EasyEDA 窗口）
-# 在 EasyEDA 的 debug.exec_js 里粘贴 calibrate.js 内容
-.agents/skills/easyeda-agent/scripts/calibrate.js   # 读 getPrimitivesBBox 实测锚点
+# calibrate.js 仅作历史算法参考，不再粘贴到 EDA 的 debug.exec_js。
+# 需要重新校准时先提供 typed 校准 action/Cobra，再由参数化命令运行与回读。
+.agents/skills/easyeda-agent/scripts/calibrate.js
 
 # lint 规则信任测试
 make lint-test    # = python3 .agents/skills/easyeda-agent/scripts/tests/run.py
@@ -269,10 +318,13 @@ reaches the daemon.
   so a marketplace connector can be **older** than
   your CLI and flag `connectorVersionOk:false`. Pure CLI/daemon changes do not require a connector re-import;
   manifest or handler changes require a rebuild. Missing design capabilities must
-  not be bypassed with `debug.exec_js`. **And re-importing
-  does NOT reload already-open EasyEDA windows** — an open window keeps running the
-  OLD connector code and fights the freshly-imported one over the daemon socket;
-  **fully quit and relaunch EasyEDA** to load new connector code.
+  not be bypassed with `debug.exec_js`.
+  **Web EDA 更新扩展后，已打开页面仍可能运行旧 connector。** 2026-09-22 实测：
+  用户导入 `1.5.3-dev.6` 后建立了新连接，但 `health` 仍报 `dev.5`；用户刷新当前 Web EDA
+  页面后，目标 PCB 上报 `dev.6` 才确认生效。先卸载旧版再导入新包（同 UUID 去重规则仍适用），
+  由用户在扩展更新后刷新当前 Web 页面，再通过 `easyeda health` 的目标 project/doc 和
+  `connectorVersion` 验证，不能以“导入成功”或新 windowId 判断加载完成。涉及未保存工程时
+  先 typed save。此记录不授权 Agent 用 GUI 刷新来恢复卡死工程，也不要求启动桌面版。
 - **EasyEDA schematic coords are y-UP** (+y renders upward). The orientation table
   in `.agents/skills/easyeda-agent/references/orientation.json` is the **stored-rotation** truth (the
   value `getState_Rotation` reads back for a correctly-oriented flag), validated
@@ -282,9 +334,9 @@ reaches the daemon.
   pointing **right** (up/down at 0/180 are symmetric, which is why it hid for so
   long). `connect_pin` now **auto-detects this at runtime** (`detectRotationNegation`,
   a one-shot probe flag) and compensates, so its output is correct whether the build
-  negates or not. Two follow-ons: (1) if you create flags via **raw**
-  `eda.createNetFlag` (`debug.exec_js`), YOU must pass the negated value — or just
-  use `connect_pin`; (2) `getState_Rotation()` *immediately* after create can echo
+  negates or not. Two follow-ons: (1) raw `eda.createNetFlag` handling belongs
+  inside the connector; Agent workflows must use typed `connect_pin`; (2)
+  `getState_Rotation()` *immediately* after create can echo
   the input — a fresh **re-pull** (`getAll`) shows the real stored value.
 - **A netflag must connect via a real wire** — overlapping the pin coordinate is
   NOT a connection (DRC won't see it).

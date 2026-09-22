@@ -964,7 +964,12 @@ type healthResult struct {
 	// VersionGate is the CLI↔daemon↔connector consistency diagnostic filled
 	// in by `health`. It never authorizes or refuses action dispatch.
 	VersionGate *versionGateReport `json:"versionGate,omitempty"`
-	Checked     []checkedHealth    `json:"checked"`
+	// HostCompatibility is the EasyEDA PRODUCT-version verdict. It is distinct
+	// from VersionGate (our CLI/daemon/connector releases) and from engines.eda
+	// (the extension API engine). It guides the Skill preflight but does not
+	// authorize or refuse ordinary action dispatch.
+	HostCompatibility *hostCompatibilityReport `json:"hostCompatibility,omitempty"`
+	Checked           []checkedHealth          `json:"checked"`
 }
 
 type checkedHealth struct {

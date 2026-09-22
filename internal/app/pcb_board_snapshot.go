@@ -23,6 +23,8 @@ package app
 // 在 pcb_drc_flat.go 里已归一，不流到这里）。
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,16 +42,18 @@ import (
 // 0 = 未知（POLYGON 焊盘 padExtent 返回 null）——下游必须把 0 当"测不到"而不是
 // "尺寸为零"。Layer 是焊盘的铜层：1=top / 2=bottom / 12=multi(通孔桶，每层导通)。
 type boardPad struct {
-	ID       string  `json:"primitiveId,omitempty"`
-	Number   string  `json:"padNumber"`
-	Net      string  `json:"net"`
-	Layer    int     `json:"layer"`
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	W        float64 `json:"width,omitempty"`
-	H        float64 `json:"height,omitempty"`
-	Rotation float64 `json:"rotation,omitempty"`
-	PadType  int     `json:"padType,omitempty"` // 0=NORMAL 1=TEST 2=MARK_POINT
+	ID         string  `json:"primitiveId,omitempty"`
+	Number     string  `json:"padNumber"`
+	Net        string  `json:"net"`
+	Layer      int     `json:"layer"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	W          float64 `json:"width,omitempty"`
+	H          float64 `json:"height,omitempty"`
+	Rotation   float64 `json:"rotation,omitempty"`
+	PadType    int     `json:"padType,omitempty"` // 0=NORMAL 1=TEST 2=MARK_POINT
+	Shape      any     `json:"shape,omitempty"`
+	SpecialPad any     `json:"specialPad,omitempty"`
 }
 
 // isThroughHole 报告焊盘是否为通孔（连接器不给 hole 字段，只能用 MULTI 层反推）。
@@ -273,19 +277,37 @@ func (o *boardOutline) containsPoint(x, y float64) bool {
 // 报错），下游据此降级并在报告里说明——**绝不能因为某段数据缺失就静默跳过一整维
 // 却仍然给满分**，那会让"好板得高分"的校准判据失去意义。
 type boardSnapshot struct {
-	Components   []boardComp   `json:"components"`
-	Outline      *boardOutline `json:"outline,omitempty"`
-	Silk         []pcbSilkText `json:"silk,omitempty"`
-	CopperLayers int           `json:"copperLayers,omitempty"`
-	Rules        *boardRules   `json:"rules,omitempty"`
+	Components   []boardComp          `json:"components"`
+	Outline      *boardOutline        `json:"outline,omitempty"`
+	Silk         []pcbSilkText        `json:"silk,omitempty"`
+	CopperLayers int                  `json:"copperLayers,omitempty"`
+	Rules        *boardRules          `json:"rules,omitempty"`
+	Copper       *boardCopperSnapshot `json:"copper,omitempty"`
 	// RoutedLines 是抓取时板上已布铜线段数（pcb.line.list 计数）。指针三态：
 	// nil = 旧 dump/没读到（未知），0 = 真没布线。routable 维用它对**成品板**
 	// 诚实 —— ratsnest 交叉不知道板子已经布完了，五块开源好板校准实锤该维在
 	// 成品板上恒 26~40（布线自由度早已被真实走线兑现，量表系统性偏低）。
-	RoutedLines *int     `json:"routedLines,omitempty"`
-	Partial     []string `json:"partial,omitempty"`
-	CapturedAt  string   `json:"capturedAt,omitempty"`
-	Project     string   `json:"project,omitempty"`
+	RoutedLines    *int     `json:"routedLines,omitempty"`
+	Partial        []string `json:"partial,omitempty"`
+	CapturedAt     string   `json:"capturedAt,omitempty"`
+	Project        string   `json:"project,omitempty"`
+	SemanticSHA256 string   `json:"semanticSha256,omitempty"`
+}
+
+// boardCopperSnapshot keeps the connector's exact JSON projections.  The list
+// actions are already the public typed schema; retaining their objects avoids a
+// second lossy parser and preserves polygon commands/holes for offline checks.
+// Availability is per category so [] (known empty) never aliases a failed read.
+type boardCopperSnapshot struct {
+	Availability  map[string]string `json:"availability"`
+	Lines         []any             `json:"lines"`
+	Arcs          []any             `json:"arcs"`
+	ArcsAvailable *bool             `json:"arcsAvailable,omitempty"`
+	Vias          []any             `json:"vias"`
+	Pours         []any             `json:"pours"`
+	Poured        []any             `json:"poured"`
+	Regions       []any             `json:"regions"`
+	Fills         []any             `json:"fills"`
 }
 
 // boardRules 是 pcbRules 的可序列化投影（pcbRules 字段不导出，进不了 fixture）。
@@ -508,6 +530,11 @@ func parseBoardComponents(result map[string]any) []boardComp {
 				if v, ok := asFloatOK(pm["padType"]); ok {
 					p.PadType = int(v)
 				}
+				// Preserve the exact connector shape tuple and special-pad data for
+				// offline fail-closed clearance checks. Width/height alone are only
+				// an axis-aligned envelope and cannot prove complex pad clearance.
+				p.Shape = pm["shape"]
+				p.SpecialPad = pm["specialPad"]
 				c.Pads = append(c.Pads, p)
 			}
 		}
@@ -579,6 +606,7 @@ type boardSnapshotOpts struct {
 	withSilk   bool
 	withRules  bool
 	withLayers bool
+	withCopper bool
 }
 
 // fetchBoardSnapshot 一次拉齐板级只读视图。任何一段失败都只记进 Partial 并继续
@@ -659,7 +687,79 @@ func fetchBoardSnapshot(cfg *appConfig, window string, opts boardSnapshotOpts) (
 			snap.note("copper layer count unreadable (%v)", lerr)
 		}
 	}
+	if opts.withCopper {
+		snap.fetchCopper(cfg, window)
+	}
+	semantic, serr := boardSnapshotSemanticSHA256(snap)
+	if serr != nil {
+		snap.note("semantic hash unavailable (%v)", serr)
+	} else {
+		snap.SemanticSHA256 = semantic
+	}
 	return snap, nil
+}
+
+func (s *boardSnapshot) fetchCopper(cfg *appConfig, window string) {
+	c := &boardCopperSnapshot{Availability: map[string]string{}}
+	s.Copper = c
+	read := func(name, action string, payload map[string]any, key string, dst *[]any) map[string]any {
+		res, err := requestAction(cfg, action, window, payload)
+		if err != nil || res == nil {
+			c.Availability[name] = "unknown"
+			s.note("copper %s unreadable (%v)", name, err)
+			return nil
+		}
+		raw, ok := res.Result[key].([]any)
+		if !ok {
+			c.Availability[name] = "unknown"
+			s.note("copper %s response has no %s array", name, key)
+			return res.Result
+		}
+		*dst = raw
+		c.Availability[name] = "available"
+		return res.Result
+	}
+	lineResult := read("routing", "pcb.line.list", nil, "lines", &c.Lines)
+	if lineResult != nil {
+		if arcs, ok := lineResult["arcs"].([]any); ok {
+			c.Arcs = arcs
+		}
+		if available, ok := lineResult["arcsAvailable"].(bool); ok {
+			c.ArcsAvailable = &available
+		} else {
+			c.Availability["routing"] = "unknown"
+			s.note("copper routing arc availability is unknown")
+		}
+	}
+	read("vias", "pcb.via.list", nil, "vias", &c.Vias)
+	read("pours", "pcb.pour.list", nil, "pours", &c.Pours)
+	read("poured", "pcb.poured.list", nil, "poured", &c.Poured)
+	read("regions", "pcb.region.list", nil, "regions", &c.Regions)
+	read("fills", "pcb.fill.list", map[string]any{"includeBBox": true}, "fills", &c.Fills)
+	for _, group := range [][]any{c.Pours, c.Regions, c.Fills} {
+		for _, raw := range group {
+			m, ok := raw.(map[string]any)
+			if ok && m["geometryAvailable"] != true {
+				s.note("one or more copper/region boundaries have unknown polygon geometry")
+				break
+			}
+		}
+	}
+}
+
+func boardSnapshotSemanticSHA256(s *boardSnapshot) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("nil board snapshot")
+	}
+	clone := *s
+	clone.CapturedAt = ""
+	clone.SemanticSHA256 = ""
+	raw, err := json.Marshal(clone)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // fetchCopperLayerCount 读铜层数（射频 keepout 等叠层相关维度用）。

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -118,6 +119,57 @@ func TestDanglingEndViaAreaAnchor(t *testing.T) {
 	got = findDanglingEnds(tracks, foreign, pads, nil)
 	if len(got) != 1 {
 		t.Errorf("foreign via off-center must not anchor: %+v", got)
+	}
+}
+
+func TestDanglingEndAnchorsObservedU2LargeRectPads(t *testing.T) {
+	// Saved/reloaded 260919 LDO evidence. The old fixed 30mil center radius
+	// falsely marked both U2 endpoints dangling even though they lie in RECT
+	// copper (U2.4 is almost 71mil from its center).
+	u24 := netPathRectPad("u2-4", "U2", "4", "+3V3", 1, 2061.6, 400, 97.2, 141.7)
+	c5 := netPathRectPad("c5-1", "C5", "1", "+3V3", 1, 2050, 587.6, 40, 20)
+	output := []pcbTrack{{ID: "3V3-2", Net: "+3V3", Layer: 1, X1: 2050, Y1: 470, X2: 2050, Y2: 587.6, Width: 20}}
+	if got := findDanglingEnds(output, nil, []pcbPadP{u24, c5}, nil); len(got) != 0 {
+		t.Fatalf("U2.4 endpoint inside large RECT copper must anchor: %+v", got)
+	}
+
+	u21 := netPathRectPad("u2-1", "U2", "1", "GND", 1, 1838.4, 490.6, 97.2, 38.6)
+	c4 := netPathRectPad("c4-2", "C4", "2", "GND", 1, 1773, 460, 40, 20)
+	ground := []pcbTrack{{ID: "GND-I5", Net: "GND", Layer: 1, X1: 1773, Y1: 460, X2: 1803.6, Y2: 490.6, Width: 20}}
+	if got := findDanglingEnds(ground, nil, []pcbPadP{u21, c4}, nil); len(got) != 0 {
+		t.Fatalf("U2.1 off-center endpoint inside RECT copper must anchor: %+v", got)
+	}
+}
+
+func TestDanglingEndRotatedRectRejectsAABBCorner(t *testing.T) {
+	pad := netPathRectPad("p1", "U1", "1", "SIG", 1, 0, 0, 40, 10)
+	pad.Rotation = 45
+	contactRadius := 0.1 + pcbCoincEps // 0.2mil track radius + established endpoint tolerance
+	if pcbPadAnchorsPoint(pad, 16, 16, 1, "SIG", contactRadius) {
+		t.Fatal("rotated RECT AABB corner was treated as pad copper")
+	}
+	if !pcbPadAnchorsPoint(pad, 14, 14, 1, "SIG", contactRadius) {
+		t.Fatal("point on rotated RECT copper did not anchor")
+	}
+}
+
+func TestDanglingEndLegacyPadExtentIsConservativeAndReported(t *testing.T) {
+	// Connector 1.5.1 lacks source shape. Cardinal width/height use an ellipse
+	// contained in native RECT/OVAL/ELLIPSE pads; track stroke contact still proves
+	// the observed U2.4 landing without accepting an AABB corner.
+	legacy := pcbPadP{ID: "u2-4", Designator: "U2", Number: "4", Net: "+3V3", Layer: 1, X: 2061.6, Y: 400, W: 97.2, H: 141.7, Rotation: 180}
+	if !pcbPadAnchorsPoint(legacy, 2050, 470, 1, "+3V3", 10+pcbCoincEps) {
+		t.Fatal("conservative legacy ellipse did not recognize the observed track-stroke landing")
+	}
+	legacy.Rotation = 45
+	legacy.W, legacy.H = 40, 10
+	legacy.X, legacy.Y = 0, 0
+	if pcbPadAnchorsPoint(legacy, 16, 16, 1, "+3V3", 0.1+pcbCoincEps) {
+		t.Fatal("legacy non-cardinal AABB corner was treated as copper")
+	}
+	rep := analyzePcbCheck([]pcbPadP{legacy}, nil, nil, 0)
+	if !strings.Contains(strings.Join(rep.Limitations, "\n"), "conservative legacy") {
+		t.Fatalf("legacy geometry boundary missing from report: %v", rep.Limitations)
 	}
 }
 

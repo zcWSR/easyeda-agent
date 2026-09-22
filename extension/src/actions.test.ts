@@ -22,6 +22,7 @@ import {
 	isGroundLikeNet,
 	isPowerRailNet,
 	normalizeDeviceRef,
+	pcbPadExtent,
 	planOtherPropertyBackfill,
 	polygonSourceToPoints,
 	PROJECTED_STATE_KEYS,
@@ -29,8 +30,49 @@ import {
 	schematicComponentsList,
 	selectBoardOutlineSources,
 	serializeComponent,
+	serializePcbPad,
 	summarizeActivePageConnectivity,
 } from './actions';
+
+test('PCB pad serialization preserves source shape/rotation and computes shape-aware bbox extents', () => {
+	const pad: any = {
+		getState_PrimitiveId: () => 'p1',
+		getState_PadNumber: () => '1',
+		getState_Net: () => 'SIG',
+		getState_Layer: () => 1,
+		getState_X: () => 10,
+		getState_Y: () => 20,
+		getState_Rotation: () => 45,
+		getState_PadType: () => 0,
+		getState_Pad: () => ['RECT', 40, 10, 0],
+		getState_SpecialPad: () => undefined,
+	};
+	const got: any = serializePcbPad(pad);
+	assert.deepEqual(got.shape, ['RECT', 40, 10, 0]);
+	assert.equal(got.rotation, 45);
+	assert.equal(got.specialPad, null);
+	assert.ok(Math.abs(got.width - 35.3553390593) < 1e-6);
+	assert.ok(Math.abs(got.height - 35.3553390593) < 1e-6);
+
+	assert.deepEqual(pcbPadExtent(['NGON', 30, 6], 17), { width: 30, height: 30 },
+		'NGON side count must never be misread as pad height');
+	assert.equal(pcbPadExtent(['POLYGON', [0, 0, 'L', 1, 1]], 0), null);
+});
+
+test('special pads retain raw geometry and do not publish a misleading base-shape bbox', () => {
+	const special = [[1, 1, ['POLYGON', [0, 0, 'L', 20, 0, 20, 10]]]];
+	const pad: any = {
+		getState_PrimitiveId: () => 'p-special', getState_PadNumber: () => 'EP',
+		getState_Net: () => 'GND', getState_Layer: () => 1,
+		getState_X: () => 0, getState_Y: () => 0, getState_Rotation: () => 0,
+		getState_PadType: () => 0, getState_Pad: () => ['RECT', 20, 20, 0],
+		getState_SpecialPad: () => special,
+	};
+	const got: any = serializePcbPad(pad);
+	assert.deepEqual(got.specialPad, special);
+	assert.equal(got.width, undefined);
+	assert.equal(got.height, undefined);
+});
 
 function libraryDocumentControl(uuid: string, libraryUuid: string, documentType: number, tabId: string): Record<string, unknown> {
 	let current = { uuid: 'previous', parentLibraryUuid: 'previous-library', documentType: 0, tabId: 'previous-tab' };
@@ -46,6 +88,274 @@ function libraryDocumentControl(uuid: string, libraryUuid: string, documentType:
 		},
 	};
 }
+
+test('pcb.snapshot defaults to the public board-outline fit and labels the viewport capture honestly', async () => {
+	let boardFits = 0;
+	let allFits = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			zoomToAllPrimitives: async () => { allFits++; },
+			getCurrentRenderedAreaImage: async () => new Blob(['pcb-board'], { type: 'image/png' }),
+		},
+		pcb_Document: {
+			zoomToBoardOutline: async () => { boardFits++; return true; },
+			startCalculatingRatline: async () => true,
+		},
+	};
+	try {
+		const res: any = await runAction('pcb.snapshot', {});
+		assert.equal(boardFits, 1);
+		assert.equal(allFits, 0);
+		assert.equal(res.result.fitModeRequested, 'board');
+		assert.equal(res.result.fitModeApplied, 'board');
+		assert.equal(res.result.fitApi, 'eda.pcb_Document.zoomToBoardOutline');
+		assert.equal(res.result.captureKind, 'board-fitted-viewport-png');
+		assert.equal(res.result.objectLevelExport, false);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.snapshot reports the public zoom-to-all fallback when board fit is unavailable', async () => {
+	let allFits = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			zoomToAllPrimitives: async () => { allFits++; },
+			getCurrentRenderedAreaImage: async () => new Blob(['pcb-all'], { type: 'image/png' }),
+		},
+		pcb_Document: { zoomToBoardOutline: async () => false },
+	};
+	try {
+		const res: any = await runAction('pcb.snapshot', { fitMode: 'board' });
+		assert.equal(allFits, 1);
+		assert.equal(res.result.fitModeRequested, 'board');
+		assert.equal(res.result.fitModeApplied, 'all');
+		assert.equal(res.result.captureKind, 'all-primitives-fitted-viewport-png');
+		assert.match(res.result.fitFallbackReason, /zoomToBoardOutline/);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.snapshot rejects unknown fit modes before capture', async () => {
+	let captures = 0;
+	(globalThis as any).eda = {
+		dmt_EditorControl: {
+			getCurrentRenderedAreaImage: async () => { captures++; return new Blob(['never']); },
+		},
+	};
+	try {
+		await assert.rejects(
+			() => runAction('pcb.snapshot', { fitMode: 'selected' }),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /board.*all.*none/.test(err.message),
+		);
+		assert.equal(captures, 0);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+function pouredBoundary(id: string, net: string, layer: number): any {
+	return {
+		getState_PrimitiveId: () => id,
+		getState_Net: () => net,
+		getState_Layer: () => layer,
+	};
+}
+
+function materializedPour(id: string, boundaryId: string, fills: any): any {
+	return {
+		getState_PrimitiveId: () => id,
+		getState_PourPrimitiveId: () => boundaryId,
+		getState_PourFills: () => fills,
+	};
+}
+
+test('pcb.poured.list normalizes nested materialized fill coordinates/width to mil and keeps ARC sweep degrees', async () => {
+	const source = [[0, 0, 'L', 100, 0, 'ARC', 90, 100, 100, 'L', 0, 100, 0, 0], [20, 20, 'L', 20, 40, 40, 40, 40, 20, 20, 20]];
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('poured-1', 'pour-gnd', [{ id: 'island-1', lineWidth: 8, fill: true, path: { getSourceStrictComplex: () => source } }])] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', {});
+		assert.equal(res.result.available, true);
+		assert.equal(res.result.count, 1);
+		assert.equal(res.result.poured[0].net, 'GND');
+		assert.equal(res.result.poured[0].layer, 1);
+		const fill = res.result.poured[0].fills[0];
+		assert.deepEqual(fill.source, [
+			[0, 0, 'L', 1000, 0, 'ARC', 90, 1000, 1000, 'L', 0, 1000, 0, 0],
+			[200, 200, 'L', 200, 400, 400, 400, 400, 200, 200, 200],
+		]);
+		assert.equal(fill.lineWidth, 80);
+		assert.equal(fill.sourceUnits, 'mil');
+		assert.equal(fill.lineWidthUnits, 'mil');
+		assert.equal(fill.arcSweepUnits, 'degree');
+		assert.equal(fill.nativeSourceUnits, '0.1mil');
+		assert.equal(fill.nativeLineWidthUnits, '0.1mil');
+		assert.equal(fill.geometryKind, 'filled-complex-polygon');
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.poured.list normalizes compact/CARC/Bezier geometry by numeric role', async () => {
+	const source = [
+		['R', 10, 20, 30, 40, 45, 5],
+		['CIRCLE', 50, 60, 7],
+		[1, 2, 'CARC', -90, 3, 4, 'C', 5, 6, 7, 8, 9, 10],
+	];
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('poured-1', 'pour-gnd', [{ id: 'shapes', lineWidth: 2, fill: true, path: { getSourceStrictComplex: () => source } }])] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', {});
+		assert.deepEqual(res.result.poured[0].fills[0].source, [
+			['R', 100, 200, 300, 400, 45, 50],
+			['CIRCLE', 500, 600, 70],
+			[10, 20, 'CARC', -90, 30, 40, 'C', 50, 60, 70, 80, 90, 100],
+		]);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.poured.list preserves fill=false thermal spokes as stroked mil paths', async () => {
+	const spoke = { id: 'thermal-1', lineWidth: 1, fill: false, path: { getSourceStrictComplex: () => [[10, 20, 'L', 30, 40]] } };
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('poured-1', 'pour-gnd', [spoke])] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', {});
+		const fill = res.result.poured[0].fills[0];
+		assert.equal(fill.fill, false);
+		assert.equal(fill.geometryKind, 'stroked-thermal-spoke-path');
+		assert.equal(fill.lineWidth, 10);
+		assert.deepEqual(fill.source, [[100, 200, 'L', 300, 400]]);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.poured.list preserves a successful empty result', async () => {
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [] },
+		pcb_PrimitivePoured: { getAll: async () => [] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', {});
+		assert.deepEqual(res.result, { available: true, poured: [], count: 0 });
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.poured.list filters through the requested boundary net', async () => {
+	const requested: Array<string | undefined> = [];
+	const fill = { id: 'f', lineWidth: 8, fill: true, path: { getSourceStrictComplex: () => [[0, 0, 'L', 10, 0, 10, 10, 0, 0]] } };
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async (net?: string) => { requested.push(net); return [pouredBoundary('pour-gnd', 'GND', 2), pouredBoundary('pour-vcc', '+3V3', 1)]; } },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('pg', 'pour-gnd', [fill]), materializedPour('pv', 'pour-vcc', [fill])] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', { net: 'GND' });
+		assert.deepEqual(requested, [undefined], 'complete boundary inventory must be read before local filtering');
+		assert.equal(res.result.count, 1);
+		assert.equal(res.result.poured[0].primitiveId, 'pg');
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+for (const [name, pouredInventory, boundaryInventory, message] of [
+	['undefined materialized inventory', undefined, [], /materialized poured copper inventory is unavailable/i],
+	['null materialized inventory', null, [], /materialized poured copper inventory is unavailable/i],
+	['undefined boundary inventory', [], undefined, /pour boundary inventory is unavailable/i],
+	['null boundary inventory', [], null, /pour boundary inventory is unavailable/i],
+] as const) {
+	test(`pcb.poured.list fails closed for ${name}`, async () => {
+		(globalThis as any).eda = {
+			pcb_PrimitivePour: { getAll: async () => boundaryInventory },
+			pcb_PrimitivePoured: { getAll: async () => pouredInventory },
+		};
+		try {
+			await assert.rejects(
+				() => runAction('pcb.poured.list', {}),
+				(err: any) => err.code === 'EDA_CALL_FAILED' && message.test(err.message),
+			);
+		}
+		finally { delete (globalThis as any).eda; }
+	});
+}
+
+test('pcb.poured.list distinguishes readable empty fill inventory from unavailable fills', async () => {
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('known-empty-fills', 'pour-gnd', [])] },
+	};
+	try {
+		const res: any = await runAction('pcb.poured.list', {});
+		assert.deepEqual(res.result.poured[0].fills, []);
+	}
+	finally { delete (globalThis as any).eda; }
+
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('unknown-fills', 'pour-gnd', undefined)] },
+	};
+	try {
+		await assert.rejects(
+			() => runAction('pcb.poured.list', {}),
+			(err: any) => err.code === 'EDA_CALL_FAILED' && /fills are unavailable/.test(err.message),
+		);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+for (const netFilter of [undefined, 'GND']) {
+	test(`pcb.poured.list rejects missing boundary attribution${netFilter ? ' with --net filter' : ''}`, async () => {
+		const fill = { id: 'f', lineWidth: 8, fill: true, path: { getSourceStrictComplex: () => [[0, 0, 'L', 10, 0, 10, 10, 0, 0]] } };
+		(globalThis as any).eda = {
+			pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+			pcb_PrimitivePoured: { getAll: async () => [materializedPour('orphan', 'missing-boundary', [fill])] },
+		};
+		try {
+			await assert.rejects(
+				() => runAction('pcb.poured.list', netFilter ? { net: netFilter } : {}),
+				(err: any) => err.code === 'EDA_CALL_FAILED' && /references missing boundary/.test(err.message),
+			);
+		}
+		finally { delete (globalThis as any).eda; }
+	});
+}
+
+for (const [name, boundary] of [
+	['missing net', pouredBoundary('pour-bad', '', 1)],
+	['missing layer', pouredBoundary('pour-bad', 'GND', Number.NaN)],
+] as const) {
+	test(`pcb.poured.list rejects boundary with ${name}`, async () => {
+		(globalThis as any).eda = {
+			pcb_PrimitivePour: { getAll: async () => [boundary] },
+			pcb_PrimitivePoured: { getAll: async () => [] },
+		};
+		try {
+			await assert.rejects(
+				() => runAction('pcb.poured.list', {}),
+				(err: any) => err.code === 'EDA_CALL_FAILED' && new RegExp(name.split(' ')[1], 'i').test(err.message),
+			);
+		}
+		finally { delete (globalThis as any).eda; }
+	});
+}
+
+test('pcb.poured.list fails closed when one fill polygon cannot be read', async () => {
+	(globalThis as any).eda = {
+		pcb_PrimitivePour: { getAll: async () => [pouredBoundary('pour-gnd', 'GND', 1)] },
+		pcb_PrimitivePoured: { getAll: async () => [materializedPour('poured-1', 'pour-gnd', [{ id: 'bad', lineWidth: 8, fill: true, path: { getSourceStrictComplex: () => { throw new Error('polygon unavailable'); } } }])] },
+	};
+	try {
+		await assert.rejects(
+			() => runAction('pcb.poured.list', {}),
+			(err: any) => err.code === 'EDA_CALL_FAILED' && /unreadable polygon geometry/.test(err.message),
+		);
+	}
+	finally { delete (globalThis as any).eda; }
+});
 
 // ─── Board-outline ARC decoding (#215) ─────────────────────────────────
 
@@ -447,6 +757,86 @@ test('document.open does not report ready when activation cannot be read back', 
 	assert.equal(res.result.ready, false);
 });
 
+// ─── document.close: typed, identity-pinned reload primitive ─────────
+
+function installDocumentCloseStub(t: { after: (fn: () => void) => void }, options: {
+	uuid?: string;
+	tabId?: string;
+	split?: string;
+	splitFails?: boolean;
+	closeResult?: boolean;
+} = {}) {
+	const globals = globalThis as any;
+	const previous = globals.eda;
+	t.after(() => {
+		if (previous === undefined) delete globals.eda;
+		else globals.eda = previous;
+	});
+	const splitReads: string[] = [];
+	const closes: string[] = [];
+	globals.eda = {
+		dmt_SelectControl: {
+			getCurrentDocumentInfo: async () => ({
+				uuid: options.uuid ?? 'pcb-target',
+				tabId: options.tabId ?? 'tab-target',
+			}),
+		},
+		dmt_EditorControl: {
+			getSplitScreenIdByTabId: async (tabId: string) => {
+				splitReads.push(tabId);
+				if (options.splitFails) throw new Error('split unavailable');
+				return options.split ?? 'split-target';
+			},
+			closeDocument: async (tabId: string) => {
+				closes.push(tabId);
+				return options.closeResult ?? true;
+			},
+		},
+	};
+	return { splitReads, closes };
+}
+
+test('document.close verifies uuid and tabId, captures split, then closes through the official API', async (t) => {
+	const fx = installDocumentCloseStub(t);
+	const res: any = await runAction('document.close', { uuid: 'pcb-target', tabId: 'tab-target' });
+	assert.deepEqual(fx.splitReads, ['tab-target']);
+	assert.deepEqual(fx.closes, ['tab-target']);
+	assert.deepEqual(res.result, {
+		closed: true, uuid: 'pcb-target', tabId: 'tab-target', splitScreenId: 'split-target',
+	});
+});
+
+for (const [name, options] of Object.entries({
+	'uuid drift': { uuid: 'other-pcb' },
+	'tab drift': { tabId: 'other-tab' },
+})) {
+	test(`document.close refuses ${name} before reading split or closing`, async (t) => {
+		const fx = installDocumentCloseStub(t, options);
+		await assert.rejects(
+			runAction('document.close', { uuid: 'pcb-target', tabId: 'tab-target' }),
+			(err: any) => err.code === 'INVALID_STATE' && /Refusing to close/.test(err.message),
+		);
+		assert.deepEqual(fx.splitReads, []);
+		assert.deepEqual(fx.closes, []);
+	});
+}
+
+test('document.close tolerates unavailable optional split metadata', async (t) => {
+	const fx = installDocumentCloseStub(t, { splitFails: true });
+	const res: any = await runAction('document.close', { uuid: 'pcb-target', tabId: 'tab-target' });
+	assert.deepEqual(fx.closes, ['tab-target']);
+	assert.equal(res.result.splitScreenId, null);
+});
+
+test('document.close rejects a false close result', async (t) => {
+	const fx = installDocumentCloseStub(t, { closeResult: false });
+	await assert.rejects(
+		runAction('document.close', { uuid: 'pcb-target', tabId: 'tab-target' }),
+		(err: any) => err.code === 'EDA_CALL_FAILED' && /returned no success/.test(err.message),
+	);
+	assert.deepEqual(fx.closes, ['tab-target']);
+});
+
 // ─── Library asset authoring: footprint + symbol + Device ────────────────
 
 test('library footprint create defaults to personal library and verifies by get', async () => {
@@ -717,6 +1107,42 @@ test('library Device create refuses a malformed symbol ref before mutation', asy
 			(err: any) => err.code === 'PRECONDITION_REFUSED',
 		);
 		assert.equal(mutated, false);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('V4 plural device variants fail closed before create or placement mutation', async () => {
+	let deviceCreates = 0;
+	let placements = 0;
+	(globalThis as any).eda = {
+		lib_Device: {
+			create: async () => { deviceCreates++; return 'DEV-NEW'; },
+			get: async () => ({
+				uuid: 'DEV-V4',
+				association: { footprints: [{ uuid: 'FP-A' }, { uuid: 'FP-B' }] },
+			}),
+		},
+		sch_PrimitiveComponent: {
+			create: async () => { placements++; return mockComponent(); },
+		},
+	};
+	try {
+		await assert.rejects(
+			() => runAction('library.device.create', {
+				name: 'MULTI', libraryUuid: 'LIB-D',
+				symbol: { uuid: 'SYM-1', libraryUuid: 'LIB-S' },
+				footprints: [{ uuid: 'FP-A', libraryUuid: 'LIB-F' }, { uuid: 'FP-B', libraryUuid: 'LIB-F' }],
+			}),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /multi-variant/.test(err.message),
+		);
+		await assert.rejects(
+			() => runAction('schematic.component.place', {
+				libraryUuid: 'LIB-D', uuid: 'DEV-V4', x: 100, y: 200,
+			}),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /multi-variant/.test(err.message),
+		);
+		assert.equal(deviceCreates, 0);
+		assert.equal(placements, 0);
 	}
 	finally { delete (globalThis as any).eda; }
 });
@@ -1033,6 +1459,32 @@ test('components.list: includePins distinguishes empty success, unavailable data
 	finally {
 		delete (globalThis as any).eda;
 	}
+});
+
+test('components.list: V4 pin otherProperty is preserved in the snapshot', async () => {
+	const pin = {
+		getState_PrimitiveId: () => 'pin-1',
+		getState_PinNumber: () => '1',
+		getState_PinName: () => 'VCC',
+		getState_X: () => 100,
+		getState_Y: () => 200,
+		getState_Rotation: () => 0,
+		getState_NoConnected: () => false,
+		getState_OtherProperty: () => ({ NameVisible: true, NameFontSize: 9, Alias: 'POWER' }),
+	};
+	(globalThis as any).eda = {
+		sch_PrimitiveComponent: {
+			getAll: async () => [mockComponent({ PrimitiveId: 'u1', ComponentType: 'part', Designator: 'U1' })],
+			getAllPinsByPrimitiveId: async () => [pin],
+		},
+	};
+	try {
+		const res: any = await schematicComponentsList({ includePins: true, includePinNets: false });
+		assert.deepEqual(res.result.components[0].pins[0].otherProperty, {
+			NameVisible: true, NameFontSize: 9, Alias: 'POWER',
+		});
+	}
+	finally { delete (globalThis as any).eda; }
 });
 
 test('components.list: geometry-only pin reads do not compile a netlist; wire read failures remain unknown', async (t) => {

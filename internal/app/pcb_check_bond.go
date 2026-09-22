@@ -161,11 +161,7 @@ func findFloatingTrackIslands(tracks []pcbTrack, vias []pcbViaP, pads []pcbPadP,
 			sy += (t.Y1 + t.Y2) / 2
 			for _, ep := range [][2]float64{{t.X1, t.Y1}, {t.X2, t.Y2}} {
 				for _, p := range pads {
-					tol := pcbCoincEps
-					if t.Net != "" && p.Net == t.Net {
-						tol = padBodyAnchorTol
-					}
-					if math.Hypot(p.X-ep[0], p.Y-ep[1]) <= tol {
+					if pcbPadAnchorsPoint(p, ep[0], ep[1], t.Layer, t.Net, t.Width/2+pcbCoincEps) {
 						anchoredToPad = true
 					}
 				}

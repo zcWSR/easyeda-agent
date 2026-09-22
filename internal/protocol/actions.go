@@ -81,6 +81,16 @@ func AllActions() []ActionSpec {
 			Inputs:      []string{"uuid", "splitScreenId optional (preserve a known target split across close/reopen)"},
 			Outputs:     []string{"tab id"},
 		},
+		{
+			Name:        "document.close",
+			Domain:      DomainDocument,
+			Phase:       1,
+			Mutates:     false,
+			NeedsWindow: true,
+			Description: "Close the explicitly identified active document through the official editor API. Both uuid and tabId must match a fresh current-document read; returns the target split ID when the host exposes it so document.open can restore the same split.",
+			Inputs:      []string{"uuid", "tabId"},
+			Outputs:     []string{"closed", "uuid", "tabId", "splitScreenId (nullable)"},
+		},
 		// ── view (editor canvas, document-agnostic — schematic & PCB) ──────
 		// All map to eda.dmt_EditorControl.* and act on the focused canvas.
 		{
@@ -417,7 +427,7 @@ func AllActions() []ActionSpec {
 			Phase:       1,
 			Mutates:     true,
 			NeedsWindow: true,
-			Description: "Open an existing writable footprint, add a persistent rule/keep-out region, save the footprint editor, and verify the created primitive by readback. Intended for mechanical areas such as an LCD body keep-out; copy a system footprint into a writable library first.",
+			Description: "Open an existing writable footprint, add a persistent rule/keep-out region, save the footprint editor, and verify the created primitive by readback. EasyEDA system-library assets are immutable and are refused before the editor opens or geometry is created; keep an existing binding and use a parameterized PCB instance region, or explicitly author a verified writable-library variant.",
 			Inputs:      []string{"uuid", "libraryUuid", "points (closed polygon vertices in mil)", "layer optional (default MULTI=12)", "ruleType optional (default no-components)", "name optional", "lineWidth optional", "locked optional (default true)"},
 			Outputs:     []string{"tabId", "primitiveId", "saved", "requested", "actual", "verified", "partial/deleteRolledBack/saveRolledBack/absentAfterRollback/rolledBack on failure"},
 			VerifyWith:  []string{"library.footprint.get"},
@@ -719,6 +729,14 @@ func AllActions() []ActionSpec {
 			Inputs:      []string{"side (top|bottom)"},
 			Outputs:     []string{"side", "currentLayer", "focusedLayers", "note"},
 			VerifyWith:  []string{"pcb.layers.list", "pcb.snapshot"},
+		},
+		{
+			Name:        "pcb.view.filter.get",
+			Domain:      DomainPcb,
+			Phase:       2,
+			NeedsWindow: true,
+			Description: "Read the raw PCB canvas filter configuration through eda.pcb_Document.getCurrentFilterConfiguration. This is view-only and does not change component attributes or design data. The current public SDK has no matching setter, so automatic hiding/restoring of the UI's component-attributes category remains unsupported and must not fall back to pcb_PrimitiveAttribute.modify or GUI clicks.",
+			Outputs:     []string{"configuration", "readable", "writable=false", "componentAttributesVisible=null until a live fixture proves the raw key", "api getter/setter evidence"},
 		},
 		{
 			Name:        "pcb.stackup.set",
@@ -1261,9 +1279,9 @@ func AllActions() []ActionSpec {
 			Domain:      DomainPcb,
 			Phase:       2,
 			NeedsWindow: true,
-			Description: "Capture the active PCB canvas as a PNG artifact (eda.dmt_EditorControl.getCurrentRenderedAreaImage; fit-to-all by default, pass fit=false to keep viewport). The canvas-frame capture for the PCB (the schematic-side snapshot was removed — sch uses schematic.export.image). Returns a frame sha256 — pass it back via previousSha256 on the next snapshot and the connector detects a byte-identical (stale) frame, forces a redraw (ratline recompute + zoom-to-all) + retries once, and reports stale=true if it is still identical. WARNING: EasyEDA may return a STALE frame after API edits — judge layout/DRC by data (pcb list / pcb drc), screenshot for a human eyeball only.",
-			Inputs:      []string{"fit optional (default true)", "tabId optional", "previousSha256 optional (enables stale-frame detection + auto-retry)"},
-			Outputs:     []string{"artifact id", "file path", "fitted", "sha256", "stale", "staleRetry", "capturedAt"},
+			Description: "Capture the active PCB canvas as a PNG artifact using public eda.* APIs. fitMode=board (default) calls pcb_Document.zoomToBoardOutline before getCurrentRenderedAreaImage; all fits every primitive; none keeps the viewport. This is a board-fitted VIEWPORT capture, not the editor menu's object-level Copy-as-PNG/SVG export (that exporter is not public). Legacy fit=true|false remains compatible as all|none. Returns a frame sha256; thread it back as previousSha256 to detect and retry a byte-identical stale frame. Judge layout/DRC by data, with the PNG as visual evidence.",
+			Inputs:      []string{"fitMode optional (board|all|none, default board)", "fit optional legacy (true=all, false=none)", "tabId optional", "previousSha256 optional (enables stale-frame detection + auto-retry)"},
+			Outputs:     []string{"artifact id", "file path", "fitted", "fitModeRequested", "fitModeApplied", "fitApi", "captureKind", "objectLevelExport=false", "sha256", "stale", "staleRetry", "capturedAt"},
 		},
 		// ─── PCB routing: list + rip-up (iterate/clear copper routing) ────
 		{
@@ -1361,7 +1379,16 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List copper pours (铺铜) on the active PCB, optionally filtered by net. Read-only.",
 			Inputs:      []string{"net optional"},
-			Outputs:     []string{"pours[].primitiveId", "pours[].net", "pours[].layer", "pours[].pourName", "pours[].priority", "pours[].lineWidth", "pours[].locked", "count"},
+			Outputs:     []string{"pours[].primitiveId", "pours[].net", "pours[].layer", "pours[].pourName", "pours[].priority", "pours[].lineWidth", "pours[].locked", "pours[].geometryAvailable", "pours[].source", "count"},
+		},
+		{
+			Name:        "pcb.poured.list",
+			Domain:      DomainPcb,
+			Phase:       2,
+			NeedsWindow: true,
+			Description: "List materialized copper produced by pour rebuild. Unlike pcb.pour.list (editable boundaries), this returns every poured fill's complex-polygon source normalized from the host's 0.1mil coordinates/lineWidth to mil, preserving nested contours and ARC/CARC sweeps in degrees. fill=false is labeled as a stroked thermal-spoke path. A successful empty array means no materialized poured object; API or polygon failures return an error so callers cannot treat unknown as empty.",
+			Inputs:      []string{"net optional"},
+			Outputs:     []string{"available", "poured[].primitiveId", "poured[].pourPrimitiveId", "poured[].net", "poured[].layer", "poured[].fills[].{id,lineWidth,fill,source,sourceUnits,lineWidthUnits,arcSweepUnits,nativeSourceUnits,nativeLineWidthUnits,geometryKind}", "count"},
 		},
 		{
 			Name:         "pcb.pour.delete",
@@ -1418,7 +1445,7 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List keep-out / rule regions (禁止区域) on the active PCB, optionally filtered by layer. Read-only.",
 			Inputs:      []string{"layer optional"},
-			Outputs:     []string{"regions[].primitiveId", "regions[].layer", "regions[].ruleType", "regions[].ruleTypeNames", "regions[].regionName", "regions[].lineWidth", "regions[].locked", "count"},
+			Outputs:     []string{"regions[].primitiveId", "regions[].layer", "regions[].ruleType", "regions[].ruleTypeNames", "regions[].regionName", "regions[].lineWidth", "regions[].locked", "regions[].geometryAvailable", "regions[].source", "count"},
 		},
 		{
 			Name:         "pcb.region.delete",
@@ -1454,7 +1481,7 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List net-bound filled regions (填充区域) on the active PCB, optionally filtered by layer and/or net. includeBBox adds each fill's rendered extent (per-fill getPrimitivesBBox; null on failure) — feeds the `pcb check` via-bond rule (is this track↔via junction covered by a bond fill?). Read-only.",
 			Inputs:      []string{"layer optional", "net optional", "includeBBox optional (default false)"},
-			Outputs:     []string{"fills[].primitiveId", "fills[].net", "fills[].layer", "fills[].fillMode", "fills[].lineWidth", "fills[].locked", "fills[].bbox (includeBBox)", "count"},
+			Outputs:     []string{"fills[].primitiveId", "fills[].net", "fills[].layer", "fills[].fillMode", "fills[].lineWidth", "fills[].locked", "fills[].geometryAvailable", "fills[].source", "fills[].bbox (includeBBox)", "count"},
 		},
 		{
 			Name:         "pcb.fill.delete",
