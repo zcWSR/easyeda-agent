@@ -254,3 +254,8 @@ EasyEDA 交互界面兜底。能力边界与未来 typed 验收见 [project-impo
 | `project.export` | `projectUuid` | 仅导出当前匹配工程，前后核对身份；返回 `uuid/format/size/base64`，最大 16 MiB |
 
 CLI `project open --project-uuid` 与 `project export` 封装上述 action；导出 CLI 负责 ZIP/CRC 校验、禁止覆盖与 SHA-256。MCP 使用 `easyeda_project_transfer`。需要包含 handler 的连接器，无调试脚本回退；具体参数与恢复验证边界见 [project-import.md](project-import.md)。
+
+## 原生原理图 DRC 的判定与覆盖
+
+`schematic.drc.check` 的 `passed` / `nativePassed` 采用宿主布尔重载在指定 `strict` 下的判定。详细模式另取统计，两次 SDK 读取不是原子快照；检查期间不要并发修改工程。非严格通过并不代表零告警。
+`countsAvailable` / `detailsAvailable` 区分统计和逐项明细；仅布尔结果的 `summary` / `fatal` 为 null，不能把未知填成零。聚合 count/type 不能用来猜规则或对象，`schematic.check` 不替代原生规则。调用失败不能作为通过。
