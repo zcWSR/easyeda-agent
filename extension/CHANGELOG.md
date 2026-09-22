@@ -8,6 +8,22 @@
 - Surface the same distinction in `sch layout-lint`: parts whose geometry is proven but whose pin-to-net attribution is not are reported as a separate `nets-unproven` category (new `netsUnproven` field, its own strict-gate reason and summary column) instead of being conflated with the legacy-connector `unprovenPins` bucket, which would send the reader to a different fix.
 - Skill: `sch read.floatingPins` may only be recorded as `connectionState:"unconnected"` when `sch read.netlistAvailable` is true — with a muted netlist every pin lands in that list, so it states a failed read rather than an unconnected design.
 
+## [1.5.3-dev.6] — 2026-09-22 (local development)
+
+- Add fail-closed typed `document.close` and use it for `doc reload`, removing the old `debug.exec_js` close path. The close request binds both the fresh document UUID and tab ID, preserves the official split ID when readable, and only then allows typed reopen plus fresh document/object settlement checks.
+- Normalize `pcb.poured.list` materialized copper from the SDK's native 0.1mil units to mil, including nested contours and arc commands, while preserving `fill:false` thermal-spoke paths as stroked geometry instead of misreporting them as invalid polygons.
+- Allow `doc ls` and UUID-based `doc open` to recover a project with no active document tab while keeping every other `document.current` failure closed.
+
+## [1.5.3-dev.5] — 2026-09-22 (local development; fresh UUID fallback)
+
+- Repackage the dev.4 crystal-guard connector under a fresh extension UUID after the Web host reported the new manifest version while continuing to dispatch the cached pre-`pcb.poured.list` bundle. The runtime handler probe, rather than the version string, remains the acceptance gate; remove the stale connector after importing this fallback to avoid competing sockets.
+
+## [1.5.3-dev.4] — 2026-09-22 (local development)
+
+- Add typed `pcb.poured.list` and `pcb dump --include-copper` evidence for routed copper, regions, static fills, pour boundaries, and materialized poured geometry while distinguishing a known-empty board from unavailable geometry.
+- Add schema-v2 `crystal-guard` planning and `pcb module-check`: assemble and rigidly transform the crystal/capacitor module offline, recompute fixed-MCU routes, emit whole-board/local/comparison previews and a typed Apply playbook, then verify the journal, preserved non-owned objects, dual-layer no-pours, GND guard/via paths, and materialized copper after reload.
+- Harden `pcb via-fence` obstacle and parameter checks and report routed `pcb net-path` length and turn count for candidate comparison.
+
 ## [1.5.3-dev.3] — 2026-09-20 (local development)
 
 - Move the supported EasyEDA product mainline to V4 (recommended V4.1.60+), expose a separate host compatibility report in `easyeda health`, and update the Connector type baseline to `@jlceda/pro-api-types` 0.4.25 without confusing the V4 product version with the official 3.2 extension API engine.

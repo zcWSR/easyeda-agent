@@ -60,30 +60,35 @@ type pcbNetPathLeg struct {
 	MaxWidth   *float64         `json:"maxWidthMil,omitempty"`
 	ViaCount   int              `json:"viaCount"`
 	Primitives int              `json:"primitiveCount"`
+	LengthMil  float64          `json:"lengthMil"`
+	TurnCount  int              `json:"turnCount"`
 	Path       []pcbNetPathStep `json:"path,omitempty"`
 }
 
 type pcbNetPathReport struct {
-	Connected      bool             `json:"connected"`
-	Reason         string           `json:"reason,omitempty"`
-	Net            string           `json:"net"`
-	From           string           `json:"from"`
-	To             string           `json:"to"`
-	Through        []string         `json:"through,omitempty"`
-	WaypointOrder  []string         `json:"waypointOrder"`
-	RequestedLayer *int             `json:"requestedLayer,omitempty"`
-	Layers         []int            `json:"layers,omitempty"`
-	LayerSequence  []int            `json:"layerSequence,omitempty"`
-	WidthsMil      []float64        `json:"widthsMil,omitempty"`
-	MinWidth       *float64         `json:"minWidthMil,omitempty"`
-	MaxWidth       *float64         `json:"maxWidthMil,omitempty"`
-	ViaCount       int              `json:"viaCount"`
-	Primitives     int              `json:"primitiveCount"`
-	Path           []pcbNetPathStep `json:"path,omitempty"`
-	Legs           []pcbNetPathLeg  `json:"legs"`
-	Scope          string           `json:"scope"`
-	ExcludedCopper []string         `json:"excludedCopper"`
-	Limitations    []string         `json:"limitations"`
+	MeasurementPathKind string           `json:"measurementPathKind"`
+	Connected           bool             `json:"connected"`
+	Reason              string           `json:"reason,omitempty"`
+	Net                 string           `json:"net"`
+	From                string           `json:"from"`
+	To                  string           `json:"to"`
+	Through             []string         `json:"through,omitempty"`
+	WaypointOrder       []string         `json:"waypointOrder"`
+	RequestedLayer      *int             `json:"requestedLayer,omitempty"`
+	Layers              []int            `json:"layers,omitempty"`
+	LayerSequence       []int            `json:"layerSequence,omitempty"`
+	WidthsMil           []float64        `json:"widthsMil,omitempty"`
+	MinWidth            *float64         `json:"minWidthMil,omitempty"`
+	MaxWidth            *float64         `json:"maxWidthMil,omitempty"`
+	ViaCount            int              `json:"viaCount"`
+	Primitives          int              `json:"primitiveCount"`
+	LengthMil           float64          `json:"lengthMil"`
+	TurnCount           int              `json:"turnCount"`
+	Path                []pcbNetPathStep `json:"path,omitempty"`
+	Legs                []pcbNetPathLeg  `json:"legs"`
+	Scope               string           `json:"scope"`
+	ExcludedCopper      []string         `json:"excludedCopper"`
+	Limitations         []string         `json:"limitations"`
 }
 
 type pcbNetPathNode struct {
@@ -632,7 +637,7 @@ func analyzePcbNetPath(pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []
 		ExcludedCopper: []string{"pours", "filled regions", "PLANE layers"},
 		Limitations: []string{
 			"does not infer connectivity through copper pours, filled regions, or PLANE layers",
-			"arc primitives are continuous between their endpoints, but contacts to the interior of an arc are not inferred",
+			"arc primitives are measured on their reconstructed centerlines; ambiguous or unsupported interior contacts make path measurement unknown",
 			"rotated RECT/rounded RECT and OVAL contacts use shape geometry; ELLIPSE, NGON, and pad-to-pad contacts use conservative inscribed geometry that may miss edge landings but cannot invent them",
 		},
 	}
@@ -653,11 +658,23 @@ func analyzePcbNetPath(pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []
 
 	nodes, byRef := buildNetPathNodes(pads, tracks, arcs, vias, net, opts.Layer)
 	adj := make([][]int, len(nodes))
+	strongAdj := make([][]int, len(nodes))
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
 			if netPathNodesTouch(nodes[i], nodes[j], opts.Layer) {
 				adj[i] = append(adj[i], j)
 				adj[j] = append(adj[j], i)
+				a, b := nodes[i], nodes[j]
+				routed := func(n pcbNetPathNode) bool { return n.kind == "track" || n.kind == "arc" }
+				strong := true
+				if routed(a) && routed(b) {
+					points, e := netPathRouteCenterlineIntersections(a, b)
+					strong = e == nil && len(points) == 1
+				}
+				if strong {
+					strongAdj[i] = append(strongAdj[i], j)
+					strongAdj[j] = append(strongAdj[j], i)
+				}
 			}
 		}
 	}
@@ -670,16 +687,29 @@ func analyzePcbNetPath(pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []
 		}
 		waypointNodes[i] = idx
 	}
-	var combined []int
-	if len(waypointNodes) == 2 {
-		combined = bfsNetPath(adj, waypointNodes[0], waypointNodes[1])
+	// Prefer a complete path through exact centerline intersections. Copper
+	// width can create incidental shortcuts near an explicit junction; taking
+	// those shortcuts first loses a perfectly measurable routed path.
+	findPath := func(graph [][]int) ([]int, bool) {
+		if len(waypointNodes) == 2 {
+			return bfsNetPath(graph, waypointNodes[0], waypointNodes[1]), false
+		}
+		return orderedSimpleNetPath(graph, waypointNodes)
+	}
+	combined, exhausted := findPath(strongAdj)
+	if exhausted {
+		return pcbNetPathReport{}, fmt.Errorf("ordered strong waypoint search exceeded its safety bound; path is unknown, not failed")
+	}
+	if len(combined) > 0 {
+		rep.MeasurementPathKind = "exact-centerline"
 	} else {
-		var exhausted bool
-		combined, exhausted = orderedSimpleNetPath(adj, waypointNodes)
+		combined, exhausted = findPath(adj)
 		if exhausted {
 			return pcbNetPathReport{}, fmt.Errorf("ordered waypoint search exceeded its safety bound; path is unknown, not failed")
 		}
+		rep.MeasurementPathKind = "copper-contact-fallback"
 	}
+
 	rep.Connected = len(combined) > 0
 	if !rep.Connected {
 		rep.Reason = "no single continuous listed-copper path visits the requested pads in order without reusing copper primitives"
@@ -711,6 +741,10 @@ func analyzePcbNetPath(pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []
 		} else {
 			leg.Path = netPathSteps(nodes, path)
 			fillNetPathStats(&leg.Layers, nil, &leg.WidthsMil, &leg.MinWidth, &leg.MaxWidth, &leg.ViaCount, &leg.Primitives, nodes, path)
+			leg.LengthMil, leg.TurnCount, err = measureNetPathCenterline(nodes, path)
+			if err != nil {
+				return pcbNetPathReport{}, fmt.Errorf("path measurement is unknown for %s -> %s: %w", refs[i], refs[i+1], err)
+			}
 			if !rep.Connected {
 				leg.Reason = "this leg is individually reachable, but the full waypoint order has no single non-repeating copper path"
 			}
@@ -720,6 +754,10 @@ func analyzePcbNetPath(pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []
 	if rep.Connected {
 		rep.Path = netPathSteps(nodes, combined)
 		fillNetPathStats(&rep.Layers, &rep.LayerSequence, &rep.WidthsMil, &rep.MinWidth, &rep.MaxWidth, &rep.ViaCount, &rep.Primitives, nodes, combined)
+		rep.LengthMil, rep.TurnCount, err = measureNetPathCenterline(nodes, combined)
+		if err != nil {
+			return pcbNetPathReport{}, fmt.Errorf("path measurement is unknown for %s: %w", strings.Join(refs, " -> "), err)
+		}
 	}
 	if len(unknownSameNet) > 0 {
 		rep.Limitations = append(rep.Limitations, fmt.Sprintf("%d unsupported same-net pad(s) were excluded from the proof graph: %s", len(unknownSameNet), strings.Join(unknownSameNet, "; ")))
@@ -1083,21 +1121,21 @@ func netPathNodesTouch(a, b pcbNetPathNode, requestedLayer *int) bool {
 		if a.layer != b.layer {
 			return false
 		}
-		return endpointsNear(a, b, a.width/2+b.width/2+netPathGeomEps)
+		return netPathRoutedNodesTouch(a, b)
 	case "arc:pad":
 		if !padLayerMatches(b.layer, a.layer) {
 			return false
 		}
-		return pointTouchesPad(a.x1, a.y1, b, a.width/2) || pointTouchesPad(a.x2, a.y2, b, a.width/2)
+		p, _, err := netPathProjectPointToRoute(a, netPathPoint{x: b.x, y: b.y})
+		return err == nil && pointTouchesPad(p.x, p.y, b, a.width/2)
 	case "arc:track":
 		if a.layer != b.layer {
 			return false
 		}
-		r := a.width/2 + b.width/2 + netPathGeomEps
-		return segPtDist(a.x1, a.y1, b.x1, b.y1, b.x2, b.y2) <= r || segPtDist(a.x2, a.y2, b.x1, b.y1, b.x2, b.y2) <= r
+		return netPathRoutedNodesTouch(a, b)
 	case "arc:via":
-		r := a.width/2 + b.dia/2 + netPathGeomEps
-		return math.Hypot(a.x1-b.x, a.y1-b.y) <= r || math.Hypot(a.x2-b.x, a.y2-b.y) <= r
+		_, distance, err := netPathProjectPointToRoute(a, netPathPoint{x: b.x, y: b.y})
+		return err == nil && distance <= a.width/2+b.dia/2+netPathGeomEps
 	case "pad:pad":
 		if !padLayersCompatible(a.layer, b.layer) {
 			return false
@@ -1117,7 +1155,7 @@ func netPathNodesTouch(a, b pcbNetPathNode, requestedLayer *int) bool {
 		if a.layer != b.layer {
 			return false
 		}
-		return segSegDist(a.x1, a.y1, a.x2, a.y2, b.x1, b.y1, b.x2, b.y2) <= a.width/2+b.width/2+netPathGeomEps
+		return netPathRoutedNodesTouch(a, b)
 	case "track:via":
 		return segPtDist(b.x, b.y, a.x1, a.y1, a.x2, a.y2) <= a.width/2+b.dia/2+netPathGeomEps
 	case "via:via":
@@ -1404,6 +1442,503 @@ func fillNetPathStats(layers, sequence *[]int, widths *[]float64, minW, maxW **f
 	*primitives = len(primSet)
 }
 
+type netPathArcCenterline struct {
+	center netPathPoint
+	radius float64
+	start  float64
+	sweep  float64
+}
+
+type netPathRouteContact struct {
+	a netPathPoint
+	b netPathPoint
+}
+
+type netPathTraversal struct {
+	length     float64
+	startAngle float64
+	endAngle   float64
+	curved     bool
+}
+
+// measureNetPathCenterline measures only the portion of each routed primitive
+// actually traversed by the selected graph path. Each previous/next graph node
+// is projected onto the track or arc centerline to establish its entry/exit.
+// Pad interiors and vertical barrel length remain excluded. A copper-area
+// contact that does not establish one unique centerline junction is unknown;
+// summing the whole primitive in that case would manufacture an "actual" value.
+func measureNetPathCenterline(nodes []pcbNetPathNode, path []int) (float64, int, error) {
+	length := 0.0
+	turns := 0
+	lastAngle := 0.0
+	haveDirection := false
+	for pos, idx := range path {
+		if idx < 0 || idx >= len(nodes) {
+			return 0, 0, fmt.Errorf("path node index %d is out of range", idx)
+		}
+		n := nodes[idx]
+		if n.kind == "via" {
+			haveDirection = false
+			continue
+		}
+		if n.kind != "track" && n.kind != "arc" {
+			continue
+		}
+		if pos == 0 || pos+1 >= len(path) {
+			return 0, 0, fmt.Errorf("%s %s has no complete entry/exit in the selected path", n.kind, n.id)
+		}
+		entryNeighbor, exitNeighbor := nodes[path[pos-1]], nodes[path[pos+1]]
+		entry, err := netPathJunctionPointOnRoute(n, entryNeighbor)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s %s entry from %s %s: %w", n.kind, n.id, entryNeighbor.kind, entryNeighbor.id, err)
+		}
+		exit, err := netPathJunctionPointOnRoute(n, exitNeighbor)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s %s exit to %s %s: %w", n.kind, n.id, exitNeighbor.kind, exitNeighbor.id, err)
+		}
+		traversal, err := netPathMeasureTraversal(n, entry, exit)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s %s traversed subsection: %w", n.kind, n.id, err)
+		}
+		length += traversal.length
+		if traversal.length <= netPathGeomEps {
+			continue
+		}
+		if haveDirection && netPathUndirectedAngleDelta(lastAngle, traversal.startAngle) > 1e-6 {
+			turns++
+		}
+		if traversal.curved {
+			turns++
+		}
+		lastAngle, haveDirection = traversal.endAngle, true
+	}
+	return round4(length), turns, nil
+}
+
+func netPathMeasureTraversal(route pcbNetPathNode, entry, exit netPathPoint) (netPathTraversal, error) {
+	switch route.kind {
+	case "track":
+		length := math.Hypot(exit.x-entry.x, exit.y-entry.y)
+		if length <= netPathGeomEps {
+			return netPathTraversal{}, nil
+		}
+		angle := math.Atan2(exit.y-entry.y, exit.x-entry.x)
+		return netPathTraversal{length: length, startAngle: angle, endAngle: angle}, nil
+	case "arc":
+		arc, err := netPathArcCenterlineForNode(route)
+		if err != nil {
+			return netPathTraversal{}, err
+		}
+		entryParam, err := netPathArcParamAtPoint(arc, entry)
+		if err != nil {
+			return netPathTraversal{}, fmt.Errorf("entry point: %w", err)
+		}
+		exitParam, err := netPathArcParamAtPoint(arc, exit)
+		if err != nil {
+			return netPathTraversal{}, fmt.Errorf("exit point: %w", err)
+		}
+		travelSweep := arc.sweep * (exitParam - entryParam)
+		length := arc.radius * math.Abs(travelSweep)
+		if length <= netPathGeomEps {
+			return netPathTraversal{}, nil
+		}
+		direction := 1.0
+		if travelSweep < 0 {
+			direction = -1
+		}
+		entryRadial := arc.start + arc.sweep*entryParam
+		exitRadial := arc.start + arc.sweep*exitParam
+		return netPathTraversal{
+			length:     length,
+			startAngle: entryRadial + direction*math.Pi/2,
+			endAngle:   exitRadial + direction*math.Pi/2,
+			curved:     true,
+		}, nil
+	default:
+		return netPathTraversal{}, fmt.Errorf("unsupported routed primitive kind %q", route.kind)
+	}
+}
+
+func netPathUndirectedAngleDelta(a, b float64) float64 {
+	d := math.Mod(math.Abs(a-b), math.Pi)
+	if d < 0 {
+		d += math.Pi
+	}
+	return math.Min(d, math.Pi-d)
+}
+
+func netPathJunctionPointOnRoute(route, neighbor pcbNetPathNode) (netPathPoint, error) {
+	switch neighbor.kind {
+	case "pad", "via":
+		point, _, err := netPathProjectPointToRoute(route, netPathPoint{x: neighbor.x, y: neighbor.y})
+		return point, err
+	case "track", "arc":
+		contacts, err := netPathRoutedContactCandidates(route, neighbor)
+		if err != nil {
+			return netPathPoint{}, err
+		}
+		if len(contacts) == 0 {
+			return netPathPoint{}, fmt.Errorf("touching copper has no supported centerline junction")
+		}
+		if len(contacts) > 1 {
+			return netPathPoint{}, fmt.Errorf("touching copper has %d distinct centerline junction candidates: route=(%.4f,%.4f)-(%.4f,%.4f) neighbor=(%.4f,%.4f)-(%.4f,%.4f) contacts=%v", len(contacts), route.x1, route.y1, route.x2, route.y2, neighbor.x1, neighbor.y1, neighbor.x2, neighbor.y2, contacts)
+		}
+		return contacts[0].a, nil
+	default:
+		return netPathPoint{}, fmt.Errorf("unsupported adjacent primitive kind %q", neighbor.kind)
+	}
+}
+
+func netPathProjectPointToRoute(route pcbNetPathNode, point netPathPoint) (netPathPoint, float64, error) {
+	switch route.kind {
+	case "track":
+		dx, dy := route.x2-route.x1, route.y2-route.y1
+		denom := dx*dx + dy*dy
+		if denom <= netPathGeomEps*netPathGeomEps {
+			return netPathPoint{}, 0, fmt.Errorf("degenerate track centerline")
+		}
+		t := ((point.x-route.x1)*dx + (point.y-route.y1)*dy) / denom
+		t = math.Max(0, math.Min(1, t))
+		projected := netPathPoint{x: route.x1 + t*dx, y: route.y1 + t*dy}
+		return projected, math.Hypot(point.x-projected.x, point.y-projected.y), nil
+	case "arc":
+		arc, err := netPathArcCenterlineForNode(route)
+		if err != nil {
+			return netPathPoint{}, 0, err
+		}
+		dx, dy := point.x-arc.center.x, point.y-arc.center.y
+		distanceToCenter := math.Hypot(dx, dy)
+		if distanceToCenter <= netPathGeomEps {
+			return netPathPoint{}, 0, fmt.Errorf("point at arc center has no unique projection")
+		}
+		angle := math.Atan2(dy, dx)
+		delta := netPathDirectedAngleDelta(arc.start, angle, arc.sweep)
+		angularTolerance := netPathGeomEps / math.Max(arc.radius, netPathGeomEps)
+		if delta <= math.Abs(arc.sweep)+angularTolerance {
+			delta = math.Min(delta, math.Abs(arc.sweep))
+			if arc.sweep < 0 {
+				angle = arc.start - delta
+			} else {
+				angle = arc.start + delta
+			}
+			projected := netPathPoint{x: arc.center.x + arc.radius*math.Cos(angle), y: arc.center.y + arc.radius*math.Sin(angle)}
+			return projected, math.Hypot(point.x-projected.x, point.y-projected.y), nil
+		}
+		start := netPathPoint{x: route.x1, y: route.y1}
+		end := netPathPoint{x: route.x2, y: route.y2}
+		startDistance := math.Hypot(point.x-start.x, point.y-start.y)
+		endDistance := math.Hypot(point.x-end.x, point.y-end.y)
+		if math.Abs(startDistance-endDistance) <= netPathGeomEps {
+			return netPathPoint{}, 0, fmt.Errorf("point has equally near arc endpoints; projection is ambiguous")
+		}
+		if startDistance < endDistance {
+			return start, startDistance, nil
+		}
+		return end, endDistance, nil
+	default:
+		return netPathPoint{}, 0, fmt.Errorf("unsupported routed primitive kind %q", route.kind)
+	}
+}
+
+func netPathArcCenterlineForNode(n pcbNetPathNode) (netPathArcCenterline, error) {
+	if n.kind != "arc" {
+		return netPathArcCenterline{}, fmt.Errorf("primitive is %q, not arc", n.kind)
+	}
+	absSweep := math.Abs(n.arcAngle) * math.Pi / 180
+	chordX, chordY := n.x2-n.x1, n.y2-n.y1
+	chord := math.Hypot(chordX, chordY)
+	if absSweep <= netPathGeomEps*math.Pi/180 || absSweep >= 2*math.Pi-netPathGeomEps*math.Pi/180 || chord <= netPathGeomEps {
+		return netPathArcCenterline{}, fmt.Errorf("requires distinct endpoints and |arcAngle| between 0 and 360 degrees")
+	}
+	sineHalf := math.Sin(absSweep / 2)
+	if sineHalf <= 0 || math.IsNaN(sineHalf) || math.IsInf(sineHalf, 0) {
+		return netPathArcCenterline{}, fmt.Errorf("invalid sweep %.9g degrees", n.arcAngle)
+	}
+	radius := chord / (2 * sineHalf)
+	mid := netPathPoint{x: (n.x1 + n.x2) / 2, y: (n.y1 + n.y2) / 2}
+	offsetSq := radius*radius - chord*chord/4
+	if offsetSq < -netPathGeomEps*netPathGeomEps {
+		return netPathArcCenterline{}, fmt.Errorf("radius reconstruction is inconsistent")
+	}
+	offset := math.Sqrt(math.Max(0, offsetSq))
+	normalX, normalY := -chordY/chord, chordX/chord
+	type candidate struct {
+		mismatch float64
+		center   netPathPoint
+		start    float64
+	}
+	best := candidate{mismatch: math.Inf(1)}
+	for _, sign := range []float64{1, -1} {
+		center := netPathPoint{x: mid.x + sign*offset*normalX, y: mid.y + sign*offset*normalY}
+		start := math.Atan2(n.y1-center.y, n.x1-center.x)
+		end := math.Atan2(n.y2-center.y, n.x2-center.x)
+		directed := netPathDirectedAngleDelta(start, end, n.arcAngle)
+		c := candidate{mismatch: math.Abs(directed - absSweep), center: center, start: start}
+		if c.mismatch < best.mismatch {
+			best = c
+		}
+	}
+	if best.mismatch > 1e-6 || math.IsNaN(radius) || math.IsInf(radius, 0) {
+		return netPathArcCenterline{}, fmt.Errorf("directed sweep does not match endpoints (mismatch %.6g radians)", best.mismatch)
+	}
+	sweep := absSweep
+	if n.arcAngle < 0 {
+		sweep = -sweep
+	}
+	return netPathArcCenterline{center: best.center, radius: radius, start: best.start, sweep: sweep}, nil
+}
+
+func netPathDirectedAngleDelta(start, end, direction float64) float64 {
+	delta := end - start
+	if direction < 0 {
+		delta = start - end
+	}
+	delta = math.Mod(delta, 2*math.Pi)
+	if delta < 0 {
+		delta += 2 * math.Pi
+	}
+	return delta
+}
+
+func netPathArcParamAtPoint(arc netPathArcCenterline, point netPathPoint) (float64, error) {
+	dx, dy := point.x-arc.center.x, point.y-arc.center.y
+	radial := math.Hypot(dx, dy)
+	if math.Abs(radial-arc.radius) > 4*netPathGeomEps {
+		return 0, fmt.Errorf("point is %.6g mil off the arc centerline", math.Abs(radial-arc.radius))
+	}
+	delta := netPathDirectedAngleDelta(arc.start, math.Atan2(dy, dx), arc.sweep)
+	tolerance := 4 * netPathGeomEps / math.Max(arc.radius, netPathGeomEps)
+	if delta > math.Abs(arc.sweep)+tolerance {
+		return 0, fmt.Errorf("point is outside the declared arc sweep")
+	}
+	return math.Min(delta, math.Abs(arc.sweep)) / math.Abs(arc.sweep), nil
+}
+
+func netPathRoutedNodesTouch(a, b pcbNetPathNode) bool {
+	curveA, err := netPathNodeCurve(a)
+	if err != nil {
+		return false
+	}
+	curveB, err := netPathNodeCurve(b)
+	if err != nil {
+		return false
+	}
+	limit := a.width/2 + b.width/2 + curveA.approxErr + curveB.approxErr + netPathGeomEps
+	for i := 0; i+1 < len(curveA.points); i++ {
+		for j := 0; j+1 < len(curveB.points); j++ {
+			if segSegDist(curveA.points[i].x, curveA.points[i].y, curveA.points[i+1].x, curveA.points[i+1].y, curveB.points[j].x, curveB.points[j].y, curveB.points[j+1].x, curveB.points[j+1].y) <= limit {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func netPathNodeCurve(n pcbNetPathNode) (netPathCopperCurve, error) {
+	switch n.kind {
+	case "track":
+		if math.Hypot(n.x2-n.x1, n.y2-n.y1) <= netPathGeomEps {
+			return netPathCopperCurve{}, fmt.Errorf("degenerate track centerline")
+		}
+		return netPathCopperCurve{kind: n.kind, id: n.id, layer: n.layer, width: n.width, points: []netPathPoint{{x: n.x1, y: n.y1}, {x: n.x2, y: n.y2}}}, nil
+	case "arc":
+		points, approximation, err := flattenNetPathArc(pcbArc{ID: n.id, Net: n.net, Layer: n.layer, X1: n.x1, Y1: n.y1, X2: n.x2, Y2: n.y2, Width: n.width, ArcAngle: n.arcAngle})
+		if err != nil {
+			return netPathCopperCurve{}, err
+		}
+		return netPathCopperCurve{kind: n.kind, id: n.id, layer: n.layer, width: n.width, points: points, approxErr: approximation}, nil
+	default:
+		return netPathCopperCurve{}, fmt.Errorf("unsupported routed primitive kind %q", n.kind)
+	}
+}
+
+func netPathRoutedContactCandidates(a, b pcbNetPathNode) ([]netPathRouteContact, error) {
+	intersections, err := netPathRouteCenterlineIntersections(a, b)
+	if err != nil {
+		return nil, err
+	}
+	// A unique exact centerline intersection defines the routed junction.
+	// Short 45-degree neighbors can additionally overlap within their widths;
+	// endpoint projections of that copper must not invent a second junction.
+	// Positive-length collinear overlap was rejected above, and multiple true
+	// intersections remain multiple candidates below.
+	if len(intersections) == 1 {
+		return []netPathRouteContact{{a: intersections[0], b: intersections[0]}}, nil
+	}
+	contacts := make([]netPathRouteContact, 0, len(intersections)+4)
+	add := func(contact netPathRouteContact) {
+		for _, existing := range contacts {
+			if math.Hypot(contact.a.x-existing.a.x, contact.a.y-existing.a.y) <= 4*netPathGeomEps && math.Hypot(contact.b.x-existing.b.x, contact.b.y-existing.b.y) <= 4*netPathGeomEps {
+				return
+			}
+		}
+		contacts = append(contacts, contact)
+	}
+	for _, point := range intersections {
+		add(netPathRouteContact{a: point, b: point})
+	}
+	limit := a.width/2 + b.width/2 + netPathGeomEps
+	for _, endpoint := range []netPathPoint{{x: a.x1, y: a.y1}, {x: a.x2, y: a.y2}} {
+		projected, distance, err := netPathProjectPointToRoute(b, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if distance <= limit {
+			add(netPathRouteContact{a: endpoint, b: projected})
+		}
+	}
+	for _, endpoint := range []netPathPoint{{x: b.x1, y: b.y1}, {x: b.x2, y: b.y2}} {
+		projected, distance, err := netPathProjectPointToRoute(a, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if distance <= limit {
+			add(netPathRouteContact{a: projected, b: endpoint})
+		}
+	}
+	return contacts, nil
+}
+
+func netPathRouteCenterlineIntersections(a, b pcbNetPathNode) ([]netPathPoint, error) {
+	switch a.kind + ":" + b.kind {
+	case "track:track":
+		return netPathTrackTrackIntersections(a, b)
+	case "track:arc":
+		return netPathTrackArcIntersections(a, b)
+	case "arc:track":
+		return netPathTrackArcIntersections(b, a)
+	case "arc:arc":
+		return netPathArcArcIntersections(a, b)
+	default:
+		return nil, fmt.Errorf("unsupported routed contact %s:%s", a.kind, b.kind)
+	}
+}
+
+func netPathTrackTrackIntersections(a, b pcbNetPathNode) ([]netPathPoint, error) {
+	p := netPathPoint{x: a.x1, y: a.y1}
+	r := netPathPoint{x: a.x2 - a.x1, y: a.y2 - a.y1}
+	q := netPathPoint{x: b.x1, y: b.y1}
+	s := netPathPoint{x: b.x2 - b.x1, y: b.y2 - b.y1}
+	cross := func(u, v netPathPoint) float64 { return u.x*v.y - u.y*v.x }
+	denom := cross(r, s)
+	qp := netPathPoint{x: q.x - p.x, y: q.y - p.y}
+	tolerance := netPathGeomEps * math.Max(1, math.Hypot(r.x, r.y)*math.Hypot(s.x, s.y))
+	if math.Abs(denom) <= tolerance {
+		if math.Abs(cross(qp, r)) > netPathGeomEps*math.Max(1, math.Hypot(r.x, r.y)) {
+			return nil, nil
+		}
+		denomA := r.x*r.x + r.y*r.y
+		if denomA <= netPathGeomEps*netPathGeomEps {
+			return nil, fmt.Errorf("degenerate track centerline")
+		}
+		t0 := ((b.x1-a.x1)*r.x + (b.y1-a.y1)*r.y) / denomA
+		t1 := ((b.x2-a.x1)*r.x + (b.y2-a.y1)*r.y) / denomA
+		lo := math.Max(0, math.Min(t0, t1))
+		hi := math.Min(1, math.Max(t0, t1))
+		if hi < lo-netPathGeomEps {
+			return nil, nil
+		}
+		if (hi-lo)*math.Hypot(r.x, r.y) > netPathGeomEps {
+			return nil, fmt.Errorf("collinear centerlines overlap for a positive length")
+		}
+		t := math.Max(0, math.Min(1, (lo+hi)/2))
+		return []netPathPoint{{x: p.x + t*r.x, y: p.y + t*r.y}}, nil
+	}
+	t := cross(qp, s) / denom
+	u := cross(qp, r) / denom
+	if t < -netPathGeomEps || t > 1+netPathGeomEps || u < -netPathGeomEps || u > 1+netPathGeomEps {
+		return nil, nil
+	}
+	t = math.Max(0, math.Min(1, t))
+	return []netPathPoint{{x: p.x + t*r.x, y: p.y + t*r.y}}, nil
+}
+
+func netPathTrackArcIntersections(track, arcNode pcbNetPathNode) ([]netPathPoint, error) {
+	arc, err := netPathArcCenterlineForNode(arcNode)
+	if err != nil {
+		return nil, err
+	}
+	dx, dy := track.x2-track.x1, track.y2-track.y1
+	fx, fy := track.x1-arc.center.x, track.y1-arc.center.y
+	a := dx*dx + dy*dy
+	if a <= netPathGeomEps*netPathGeomEps {
+		return nil, fmt.Errorf("degenerate track centerline")
+	}
+	b := 2 * (fx*dx + fy*dy)
+	c := fx*fx + fy*fy - arc.radius*arc.radius
+	discriminant := b*b - 4*a*c
+	if discriminant < -netPathGeomEps {
+		return nil, nil
+	}
+	discriminant = math.Max(0, discriminant)
+	roots := []float64{(-b - math.Sqrt(discriminant)) / (2 * a)}
+	if discriminant > netPathGeomEps {
+		roots = append(roots, (-b+math.Sqrt(discriminant))/(2*a))
+	}
+	var out []netPathPoint
+	for _, t := range roots {
+		if t < -netPathGeomEps || t > 1+netPathGeomEps {
+			continue
+		}
+		t = math.Max(0, math.Min(1, t))
+		point := netPathPoint{x: track.x1 + t*dx, y: track.y1 + t*dy}
+		if _, err := netPathArcParamAtPoint(arc, point); err == nil {
+			out = netPathAppendDistinctPoint(out, point)
+		}
+	}
+	return out, nil
+}
+
+func netPathArcArcIntersections(aNode, bNode pcbNetPathNode) ([]netPathPoint, error) {
+	a, err := netPathArcCenterlineForNode(aNode)
+	if err != nil {
+		return nil, err
+	}
+	b, err := netPathArcCenterlineForNode(bNode)
+	if err != nil {
+		return nil, err
+	}
+	dx, dy := b.center.x-a.center.x, b.center.y-a.center.y
+	d := math.Hypot(dx, dy)
+	if d <= netPathGeomEps && math.Abs(a.radius-b.radius) <= netPathGeomEps {
+		return nil, nil // endpoint candidates below distinguish one join from overlap
+	}
+	if d <= netPathGeomEps || d > a.radius+b.radius+netPathGeomEps || d < math.Abs(a.radius-b.radius)-netPathGeomEps {
+		return nil, nil
+	}
+	x := (a.radius*a.radius - b.radius*b.radius + d*d) / (2 * d)
+	hSq := a.radius*a.radius - x*x
+	if hSq < -netPathGeomEps {
+		return nil, nil
+	}
+	h := math.Sqrt(math.Max(0, hSq))
+	base := netPathPoint{x: a.center.x + x*dx/d, y: a.center.y + x*dy/d}
+	points := []netPathPoint{{x: base.x - h*dy/d, y: base.y + h*dx/d}}
+	if h > netPathGeomEps {
+		points = append(points, netPathPoint{x: base.x + h*dy/d, y: base.y - h*dx/d})
+	}
+	var out []netPathPoint
+	for _, point := range points {
+		if _, err := netPathArcParamAtPoint(a, point); err != nil {
+			continue
+		}
+		if _, err := netPathArcParamAtPoint(b, point); err != nil {
+			continue
+		}
+		out = netPathAppendDistinctPoint(out, point)
+	}
+	return out, nil
+}
+
+func netPathAppendDistinctPoint(points []netPathPoint, point netPathPoint) []netPathPoint {
+	for _, existing := range points {
+		if math.Hypot(point.x-existing.x, point.y-existing.y) <= 4*netPathGeomEps {
+			return points
+		}
+	}
+	return append(points, point)
+}
+
 func renderPcbNetPath(rep pcbNetPathReport, out io.Writer) {
 	status := "PASS"
 	if !rep.Connected {
@@ -1418,14 +1953,14 @@ func renderPcbNetPath(rep pcbNetPathReport, out io.Writer) {
 		fmt.Fprintf(out, "requested layer: %s (physical vias excluded)\n", formatNetPathLayers([]int{*rep.RequestedLayer}))
 	}
 	if rep.Connected {
-		fmt.Fprintf(out, "layers: %s; sequence: %s; widths: %s; vias: %d; copper primitives: %d\n", formatNetPathLayers(rep.Layers), formatNetPathLayers(rep.LayerSequence), formatNetPathWidths(rep.WidthsMil), rep.ViaCount, rep.Primitives)
+		fmt.Fprintf(out, "layers: %s; sequence: %s; widths: %s; vias: %d; copper primitives: %d; length: %.4fmil; turns: %d\n", formatNetPathLayers(rep.Layers), formatNetPathLayers(rep.LayerSequence), formatNetPathWidths(rep.WidthsMil), rep.ViaCount, rep.Primitives, rep.LengthMil, rep.TurnCount)
 	}
 	for i, leg := range rep.Legs {
 		if !leg.Connected {
 			fmt.Fprintf(out, "leg %d FAIL  %s -> %s: %s\n", i+1, leg.From, leg.To, leg.Reason)
 			continue
 		}
-		fmt.Fprintf(out, "leg %d PASS  %s -> %s  layers=%s widths=%s vias=%d\n", i+1, leg.From, leg.To, formatNetPathLayers(leg.Layers), formatNetPathWidths(leg.WidthsMil), leg.ViaCount)
+		fmt.Fprintf(out, "leg %d PASS  %s -> %s  layers=%s widths=%s vias=%d length=%.4fmil turns=%d\n", i+1, leg.From, leg.To, formatNetPathLayers(leg.Layers), formatNetPathWidths(leg.WidthsMil), leg.ViaCount, leg.LengthMil, leg.TurnCount)
 		for _, s := range leg.Path {
 			switch s.Kind {
 			case "pad":

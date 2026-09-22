@@ -37,7 +37,7 @@ func newDocCmd(cfg *appConfig, stdout, stderr io.Writer) *cobra.Command {
 			"  easyeda doc open <name|uuid> --project <name>        open a document (schematic page or PCB)\n" +
 			"  easyeda doc switch <name|uuid> --project <name>      switch to a document (same as open)\n" +
 			"  easyeda doc reload [name|uuid] --project <name>      save, close, and reopen a document\n\n" +
-			"Context is read live (not the connect-time snapshot), so the active marker\nand `daemon health` reflect the real foreground document.",
+			"Context is read live (not the connect-time snapshot), so the active marker\nand `daemon health` reflect the real foreground document. If the project has\nno active editor tab, `doc ls` still uses project inventories and `doc open`\ncan recover by UUID, then confirms the new active document with a fresh read.",
 	}
 	doc.PersistentFlags().StringVar(&window, "window", "", "EasyEDA window ID (usually prefer --project)")
 
@@ -269,10 +269,10 @@ func discoverDocs(cfg *appConfig, window string) (docs []openableDoc, activeUUID
 	}
 
 	cur, err := requestAction(cfg, "document.current", resolvedWindow, nil)
-	if err != nil {
+	if err != nil && !isNoActiveDocument(cur) {
 		return nil, "", "", err
 	}
-	if cur.Context != nil {
+	if err == nil && cur.Context != nil {
 		activeUUID = cur.Context.DocumentUUID
 	}
 
@@ -343,6 +343,24 @@ func discoverDocs(cfg *appConfig, window string) (docs []openableDoc, activeUUID
 		return docs[i].Name < docs[j].Name
 	})
 	return docs, activeUUID, resolvedWindow, nil
+}
+
+// isNoActiveDocument recognizes the connector's explicit "the project is open,
+// but no editor tab is active" result. That state is recoverable: the
+// project-scoped schematic/PCB inventories remain readable and document.open
+// can activate an inventory UUID. Keep the exception narrow so transport,
+// project-context, and arbitrary document.current failures still fail closed.
+//
+// The current connector reports this condition with the generic
+// EDA_CALL_FAILED code, so the stable message is also checked. A future
+// dedicated error code can be added here without changing the CLI flow.
+func isNoActiveDocument(res *actionResult) bool {
+	if res == nil || res.errorCode != "EDA_CALL_FAILED" {
+		return false
+	}
+	message := strings.TrimSpace(res.errorMsg)
+	message = strings.TrimSuffix(message, ".")
+	return strings.EqualFold(message, "No active document")
 }
 
 // resolveDoc maps a user-supplied name or uuid to exactly one openable doc.
@@ -457,24 +475,20 @@ func reloadDocumentByUUID(cfg *appConfig, win, target string) (string, error) {
 	if _, err := requestAction(cfg, saveAction, win, nil); err != nil {
 		return docType, fmt.Errorf("save before reload failed: %w", err)
 	}
-	// Preserve the TARGET tab's split before closing it. Looking the split up
-	// after close is racy: Web EasyEDA 3.2.203 can expose a transient blank tab
-	// (or a tab from another split), and opening into that inferred destination
-	// leaves the editor on an endless loading animation.
-	closeJS := fmt.Sprintf(`let splitScreenId;
-try { splitScreenId = await eda.dmt_EditorControl.getSplitScreenIdByTabId(%q); } catch (_) {}
-const closed = await eda.dmt_EditorControl.closeDocument(%q);
-return { closed, splitScreenId: typeof splitScreenId === 'string' ? splitScreenId : '' };`, cur.Context.TabID, cur.Context.TabID)
-	closeRes, err := requestAction(cfg, "debug.exec_js", win, map[string]any{"code": closeJS})
+	// The typed close action verifies BOTH live identities and captures the
+	// target split before closing. Looking the split up after close is racy: the
+	// host can expose a transient blank tab or a tab from another split.
+	closeRes, err := requestAction(cfg, "document.close", win, map[string]any{
+		"uuid": target, "tabId": cur.Context.TabID,
+	})
 	if err != nil {
 		return docType, fmt.Errorf("close document failed: %w", err)
 	}
-	closeValue, _ := closeRes.Result["value"].(map[string]any)
-	closed, _ := closeValue["closed"].(bool)
+	closed, _ := closeRes.Result["closed"].(bool)
 	if !closed {
 		return docType, fmt.Errorf("close document returned no success for %s; reopen was not attempted", target)
 	}
-	splitScreenID, _ := closeValue["splitScreenId"].(string)
+	splitScreenID, _ := closeRes.Result["splitScreenId"].(string)
 	splitScreenID = strings.TrimSpace(splitScreenID)
 
 	// closeDocument's promise can resolve before the editor has removed the old
@@ -484,7 +498,7 @@ return { closed, splitScreenId: typeof splitScreenId === 'string' ? splitScreenI
 	closeDeadline := time.Now().Add(10 * time.Second)
 	for {
 		cur, err = requestActionTimed(cfg, "document.current", win, nil, 3*time.Second)
-		noActiveDocument := cur != nil && strings.Contains(cur.errorMsg, "No active document")
+		noActiveDocument := isNoActiveDocument(cur)
 		if noActiveDocument || (err == nil && (cur.Context == nil || cur.Context.DocumentUUID != target)) {
 			break
 		}

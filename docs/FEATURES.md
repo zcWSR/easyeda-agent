@@ -22,9 +22,21 @@
 - 单页组合：`sch compose` 以完整 IR 和实测 Lib 几何生成同页位置及严格 Apply 队列；校验实际 bbox、全部 pin/net/NC、导线路径和标记方向。跨页位号须唯一，不自动删除源页。[组合契约](schematic-page-composition.md)。
 - 位号：`sch designators allocate/plan/verify` 按官方库前缀修复非标准名称，保留合法编号与稳定 ID；原地队列核对位置、引脚/网络/NC、导线与全工程位号。[使用合同](../.agents/skills/easyeda-agent/references/schematic-data.md)。
 - PCB：`layout-lint`、`layout-score`、`pcb check` 与 DRC 分别报告布局、质量、制造和电气事实；它们不授权或拒绝普通 action。
+- PCB 独立求解内核：公开 Go 包 `pkg/pcbrouting` 被晶振规划和 `pcb route solve/check` 共用，
+  无额外 CLI 安装；当前为单层零过孔、直线/45°有界寻路与独立路径校验（离线能力）。
+  快照适配层处理真实几何/规则，未知数据、圆弧铜及有限搜索失败保持 incomplete；
+  每次运行同时生成整板 SVG，覆盖目标层焊盘、铜、开槽、禁线区、搜索边界、候选线宽/净距
+  和失败原因。多网整板协调、换层与现场写入尚不属于此命令。
+  [输入与边界](../.agents/skills/easyeda-agent/references/pcb-routing.md#离线单层寻路与独立复验)。
 - PCB 模块候选：`pcb layout-plan` 纯本地读取 `pcb dump` 与显式模块/pad 所有权，有限枚举
-  `edge`、`pin-satellites`、`rigid` 候选，输出事实、SVG 和 typed Apply；不访问编辑器、
-  不合成总分。LED/MCU/LDO 的 260919 样例已离线复算，现场状态见对应样例。
+  `edge`、`pin-satellites`、`rigid` 及 schema-v2 `crystal-guard` 候选，输出事实、局部/整板/
+  前后对比 SVG 和 typed Apply；不访问编辑器、不合成总分。带铜候选用
+  `pcb dump --include-copper` 的语义哈希绑定 fresh 基线，执行后以 `pcb module-check` 对账
+  journal、器件、铜、双层禁铺区、实际铺铜和非目标差异；`affectedBaselinePours` 显式限定
+  pour-rebuild 可在参数化影响包络内修改的既有材料化铺铜，包络外和未声明对象严格保持。
+  晶振验收逐个检查 fence/anchor via 的 TOP/BOTTOM 实际 GND 同岛连接，并证明 OSC ordered
+  path、fresh pad geometry、实际长度/转折、capture PID 与 polygon/holes/ARC。LED/MCU/LDO 的 260919 样例已离线复算，
+  晶振策略已自动测试、尚待本轮现场保存重载后升级为 live-verified。
 - PCB Layout 复核图：`pcb snapshot/stage-snapshot --fit-mode board` 用公开板框适配加视口 PNG，记录实际 fit API、降级和 `objectLevelExport:false`；右键菜单的对象级 PNG/SVG 导出尚无公开 `eda.*`，未接入内部 message bus。[能力边界](pcb-image-export.md)。
 - 样例驱动：Agent 选择相近样例，理解理由并替换参数，执行后根据实际回读修正。260919 AT32F415 考试资料已整理为 69 个器件、233 个端子、13 处明确 NC、46 个网络、15 个功能区和 36 个技术点；代表性原理图、机械、LDO 与模块 Layout 已有 `live-verified` 证据，其余项目继续保留 `source-only` / `offline-verified` 边界，不能外推成整板完成。
 - typed actions 的精确清单始终以 `make actions` 为准，不单独维护数量。
@@ -45,6 +57,9 @@
 | 字体 | `pcb.silk.create/modify` / `pcb silk-add/set --font-family` | 写入后回读实际字体；modify 静默失败会被识别。 |
 | 封装区域 | `footprint.region.create` / `lib footprint region` | 在已可写封装中创建区域并核对 layer、rule、线宽、锁定和 polygon；宿主忽略可选 name 时保留已验证区域并报警，材料差异或保存失败才回滚。系统库封装无损复制到**当前工程库**后再写 region 的组合路径在 EasyEDA 4.1.60 两次现场调用均失败，当前标 `unsupported`；个人库试验不能外推为当前工程 U3 已完成。 |
 | 模块候选布局 | `pcb layout-plan --from --board --module --candidates --out` | footprint anchor 为写坐标；bbox/pads/板框中心线用于变换、避让与事实测量；报告最小间隙及对应对象对，输出目录整体替换，候选绑定原始输入 SHA256。 |
+| 铜完整快照 | `pcb dump --include-copper` | 串行采集 tracks/arcs、vias、pour 边界、实际 poured fills、regions、静态 fills；每类保留 available/unknown，并生成忽略采集时间的语义 SHA256。 |
+| 实际铺铜读取 | `pcb.poured.list` / `pcb poured-list` | 将宿主材料化 fill 的 0.1mil 坐标/线宽归一化为 mil，保留 nested contours 与 degree ARC sweep；`fill:false` 标为带线宽的 thermal-spoke path。只有完整 inventory 的真实 `[]` 是 known-empty，fill/boundary/net/layer/polygon 任一缺测均为 unknown/error。 |
+| 带铜模块验收 | `pcb module-check --candidate --before --after --journal` | 核对 fresh 语义基线、OSC track/arc replacement 精确全集、严格 PID journal、成员与 pad 几何、ordered path、含实际 signal-main stroke 的双层 no-pours、逐段 guard 到 anchor 的列出铜路径、逐个 GND via 的双层实际铜同岛连接及所有非目标差异；`affectedBaselinePours` 只放行影响包络内的声明铺铜重算，缺测返回 incomplete/fail。 |
 
 执行许可已从版本、workflow stage、布局 tier 和 stale-read 状态中移除。旧接口继续返回
 `compatibilityOnly` 或 `staleRisk` 供诊断；权威批次使用 save → reload → readback。
@@ -85,13 +100,14 @@ a gap — **no `pcb.save` + PCB not covered by autosave** — now fixed (`pcb.sa
 `saveActionForDocType` maps `pcb`→`pcb.save`, so PCB edits autosave like schematic edits).
 No one-call PCB autorouter exists on this build (A4 blocked — see survey §6).
 
-### Read context (7 actions)
+### Read context and typed document navigation (8 actions)
 
 | Action | What |
 |---|---|
 | `system.health` | Daemon + connector availability, connected/active windows. Daemon-answered. |
 | `project.current` | Current project uuid / name / team context. |
 | `document.current` | Active editor document + schematic page context. |
+| `document.close` | Close the fresh UUID + tabId matched active document through the official editor API and return its pre-close split ID for typed reload; mismatch fails before close. |
 | `schematic.pages.list` | Schematic documents and pages in the project. |
 | `schematic.page.open` | Open/activate a page by uuid. |
 | `schematic.components.list` | Read components with optional pins/bbox/wires. Replay requires `includeDeviceIdentity:true` to resolve real 32-character library UUIDs; the default placed-instance UUID is not a library identity. `allPages:true, tagPages:true` loads all existing pages and rejects incomplete inventories or a failed return to the original page. |

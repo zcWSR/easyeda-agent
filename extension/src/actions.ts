@@ -7613,6 +7613,48 @@ const documentOpen: Handler = async (payload) => {
 	return { result: { tabId, ready } };
 };
 
+/**
+ * Close one explicitly identified active document through the official editor
+ * API. Requiring both identities prevents a stale reload plan from closing the
+ * tab the user switched to after the CLI's earlier read. Capture the split
+ * before close so document.open can restore the same editor pane.
+ */
+const documentClose: Handler = async (payload) => {
+	const uuid = requireString(payload, 'uuid');
+	const tabId = requireString(payload, 'tabId');
+	let current;
+	try {
+		current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+	}
+	catch (err) {
+		throw edaError(err, 'Failed to verify the active document before close.');
+	}
+	if (!current || current.uuid !== uuid || current.tabId !== tabId) {
+		throw new ActionError(ErrorCodes.INVALID_STATE,
+			`Refusing to close document: expected active uuid/tabId ${uuid}/${tabId}, got ${current?.uuid ?? '<none>'}/${current?.tabId ?? '<none>'}.`);
+	}
+
+	let splitScreenId: string | null = null;
+	try {
+		const split = await eda.dmt_EditorControl.getSplitScreenIdByTabId(tabId);
+		if (typeof split === 'string' && split.trim()) splitScreenId = split.trim();
+	}
+	catch { /* split metadata is optional; the explicit tab identity remains authoritative */ }
+
+	let closed;
+	try {
+		closed = await eda.dmt_EditorControl.closeDocument(tabId);
+	}
+	catch (err) {
+		throw edaError(err, `Failed to close document "${uuid}".`);
+	}
+	if (closed !== true) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			`Closing document "${uuid}" returned no success.`);
+	}
+	return { result: { closed: true, uuid, tabId, splitScreenId } };
+};
+
 // ─── PCB (Phase 2 — read-only skeleton) ──────────────────────────────
 
 /**
@@ -11825,17 +11867,292 @@ const pcbPourList: Handler = async (payload) => {
 	catch (err) {
 		throw edaError(err, 'Failed to list copper pours.');
 	}
-	const list = (pours ?? []).map(p => ({
-		primitiveId: p.getState_PrimitiveId(),
-		net: p.getState_Net(),
-		layer: p.getState_Layer(),
-		pourName: p.getState_PourName(),
-		fillMethod: p.getState_PourFillMethod(),
-		priority: p.getState_PourPriority(),
-		lineWidth: p.getState_LineWidth(),
-		locked: p.getState_PrimitiveLock(),
-	}));
+	const list = (pours ?? []).map(p => {
+		let source: unknown = null;
+		let geometryAvailable = false;
+		try {
+			source = p.getState_ComplexPolygon().getSource();
+			geometryAvailable = Array.isArray(source);
+		}
+		catch { /* retain the boundary facts and mark geometry unknown */ }
+		return {
+			primitiveId: p.getState_PrimitiveId(),
+			net: p.getState_Net(),
+			layer: p.getState_Layer(),
+			pourName: p.getState_PourName(),
+			fillMethod: p.getState_PourFillMethod(),
+			priority: p.getState_PourPriority(),
+			lineWidth: p.getState_LineWidth(),
+			locked: p.getState_PrimitiveLock(),
+			geometryAvailable,
+			source,
+		};
+	});
 	return { result: { pours: list, count: list.length } };
+};
+
+// Materialized pour fills are the one PCB geometry surface whose SDK values use
+// the host's 0.1mil coordinate/line-width unit. Boundaries, tracks and vias are
+// already mil. Normalize this surface at the typed boundary so every downstream
+// consumer compares one unit system. Polygon command fields are role-sensitive:
+// ARC/CARC sweeps and R rotation are angles and must never be scaled.
+const POURED_NATIVE_TO_MIL = 10;
+
+function pouredFinite(value: unknown, label: string): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			`Materialized poured polygon ${label} is not a finite number.`);
+	}
+	return value;
+}
+
+function normalizePouredFlatSource(raw: unknown[]): unknown[] {
+	if (raw.length === 0) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Materialized poured polygon contour is empty.');
+	}
+	// Compact whole-shape modes have angle fields interleaved with coordinates.
+	if (typeof raw[0] === 'string') {
+		if (raw[0] === 'R') {
+			if (raw.length !== 7) {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Materialized poured R contour must contain x, y, width, height, rotation and round.');
+			}
+			const n = raw.slice(1).map((v, i) => pouredFinite(v, `R[${i}]`));
+			return ['R', n[0] * POURED_NATIVE_TO_MIL, n[1] * POURED_NATIVE_TO_MIL,
+				n[2] * POURED_NATIVE_TO_MIL, n[3] * POURED_NATIVE_TO_MIL,
+				n[4], n[5] * POURED_NATIVE_TO_MIL];
+		}
+		if (raw[0] === 'CIRCLE') {
+			if (raw.length !== 4) {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Materialized poured CIRCLE contour must contain cx, cy and radius.');
+			}
+			return ['CIRCLE',
+				pouredFinite(raw[1], 'CIRCLE.cx') * POURED_NATIVE_TO_MIL,
+				pouredFinite(raw[2], 'CIRCLE.cy') * POURED_NATIVE_TO_MIL,
+				pouredFinite(raw[3], 'CIRCLE.radius') * POURED_NATIVE_TO_MIL];
+		}
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			`Materialized poured polygon starts with unsupported command ${raw[0]}.`);
+	}
+	if (raw.length < 5) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Materialized poured polygon contour is too short.');
+	}
+	const out: unknown[] = [
+		pouredFinite(raw[0], 'start.x') * POURED_NATIVE_TO_MIL,
+		pouredFinite(raw[1], 'start.y') * POURED_NATIVE_TO_MIL,
+	];
+	for (let i = 2; i < raw.length;) {
+		const command = raw[i];
+		if (typeof command !== 'string') {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Materialized poured polygon command at index ${i} is invalid.`);
+		}
+		out.push(command);
+		i++;
+		switch (command) {
+			case 'L':
+			case 'C': {
+				const first = i;
+				while (i < raw.length && typeof raw[i] !== 'string') {
+					out.push(pouredFinite(raw[i], `${command}[${i - first}]`) * POURED_NATIVE_TO_MIL);
+					i++;
+				}
+				const count = i - first;
+				const valid = command === 'L'
+					? count >= 2 && count % 2 === 0
+					: count >= 6 && count % 6 === 0;
+				if (!valid) {
+					throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+						`Materialized poured ${command} command has an invalid coordinate count (${count}).`);
+				}
+				break;
+			}
+			case 'ARC':
+			case 'CARC': {
+				if (i + 2 >= raw.length) {
+					throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+						`Materialized poured ${command} command is incomplete.`);
+				}
+				// The sweep is degrees; only the endpoint uses the 0.1mil unit.
+				out.push(
+					pouredFinite(raw[i], `${command}.sweep`),
+					pouredFinite(raw[i + 1], `${command}.endX`) * POURED_NATIVE_TO_MIL,
+					pouredFinite(raw[i + 2], `${command}.endY`) * POURED_NATIVE_TO_MIL,
+				);
+				i += 3;
+				break;
+			}
+			default:
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized poured polygon command ${command} is unsupported.`);
+		}
+	}
+	return out;
+}
+
+function normalizePouredStrictComplexSource(raw: unknown): unknown[] {
+	if (!Array.isArray(raw) || raw.length === 0) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			'Materialized poured polygon source must be a non-empty array.');
+	}
+	const hasNested = raw.some(Array.isArray);
+	if (!hasNested) return normalizePouredFlatSource(raw);
+	if (!raw.every(Array.isArray)) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			'Materialized poured polygon source mixes contour arrays with flat tokens.');
+	}
+	return raw.map(contour => normalizePouredStrictComplexSource(contour));
+}
+
+// Read the materialized copper produced by pour-rebuild. pcb_PrimitivePour is
+// only the editable boundary; pcb_PrimitivePoured carries the actual islands,
+// holes and stroked thermal spokes after obstacle/keepout processing.
+const pcbPouredList: Handler = async (payload) => {
+	const net = optionalString(payload, 'net');
+	let poured;
+	let pours;
+	try {
+		poured = await eda.pcb_PrimitivePoured.getAll();
+		// Read the complete boundary inventory even when filtering by net.  The
+		// materialized inventory is global, so a filtered boundary query would
+		// make every other-net object look orphaned and tempt callers to skip it.
+		pours = await eda.pcb_PrimitivePour.getAll();
+	}
+	catch (err) {
+		throw edaError(err, 'Failed to read materialized poured copper.');
+	}
+	// The official SDK uses undefined when an inventory cannot be read.  Only a
+	// real [] proves known-empty; null/undefined must propagate as unavailable.
+	if (!Array.isArray(poured)) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			'Materialized poured copper inventory is unavailable (expected an array, including [] for known-empty).');
+	}
+	if (!Array.isArray(pours)) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+			'Copper pour boundary inventory is unavailable (expected an array, including [] for known-empty).');
+	}
+	const boundary = new Map<string, { net: string; layer: number }>();
+	for (let i = 0; i < pours.length; i++) {
+		const p = pours[i];
+		let primitiveId: unknown;
+		let boundaryNet: unknown;
+		let boundaryLayer: unknown;
+		try {
+			primitiveId = p.getState_PrimitiveId();
+			boundaryNet = p.getState_Net();
+			boundaryLayer = p.getState_Layer();
+		}
+		catch (err) {
+			throw edaError(err, `Copper pour boundary[${i}] attribution is unreadable.`);
+		}
+		if (typeof primitiveId !== 'string' || primitiveId.trim() === '') {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `Copper pour boundary[${i}] has no readable primitiveId.`);
+		}
+		if (typeof boundaryNet !== 'string' || boundaryNet.trim() === '') {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `Copper pour boundary ${primitiveId} has no readable net.`);
+		}
+		if (typeof boundaryLayer !== 'number' || !Number.isFinite(boundaryLayer)
+			|| !Number.isInteger(boundaryLayer)
+			|| !(boundaryLayer === 1 || boundaryLayer === 2 || (boundaryLayer >= 15 && boundaryLayer <= 44))) {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Copper pour boundary ${primitiveId} has no readable copper layer.`);
+		}
+		if (boundary.has(primitiveId)) {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Copper pour boundary attribution is ambiguous: duplicate primitiveId ${primitiveId}.`);
+		}
+		boundary.set(primitiveId, { net: boundaryNet, layer: boundaryLayer });
+	}
+	const list: Array<Record<string, unknown>> = [];
+	for (let i = 0; i < poured.length; i++) {
+		const p = poured[i];
+		let primitiveId: unknown;
+		let pourPrimitiveId: unknown;
+		let rawFills: unknown;
+		try {
+			primitiveId = p.getState_PrimitiveId();
+			pourPrimitiveId = p.getState_PourPrimitiveId();
+			rawFills = p.getState_PourFills();
+		}
+		catch (err) {
+			throw edaError(err, `Materialized poured object[${i}] attribution or fills are unreadable.`);
+		}
+		if (typeof primitiveId !== 'string' || primitiveId.trim() === '') {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `Materialized poured object[${i}] has no readable primitiveId.`);
+		}
+		if (typeof pourPrimitiveId !== 'string' || pourPrimitiveId.trim() === '') {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Materialized poured object ${primitiveId} has no readable pourPrimitiveId.`);
+		}
+		const meta = boundary.get(pourPrimitiveId);
+		if (!meta) {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Materialized poured object ${primitiveId} references missing boundary ${pourPrimitiveId}; net/layer attribution is unavailable.`);
+		}
+		if (!Array.isArray(rawFills)) {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+				`Materialized pour ${pourPrimitiveId} fills are unavailable (expected an array, including [] for known-empty).`);
+		}
+		const fills: Array<Record<string, unknown>> = [];
+		for (let fillIndex = 0; fillIndex < rawFills.length; fillIndex++) {
+			const f = rawFills[fillIndex];
+			if (!f || typeof f !== 'object') {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill[${fillIndex}] is unreadable.`);
+			}
+			if (typeof f.id !== 'string' || f.id.trim() === '') {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill[${fillIndex}] has no readable id.`);
+			}
+			if (!f.path || typeof f.path.getSourceStrictComplex !== 'function') {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill ${f.id} has no readable polygon path.`);
+			}
+			let rawSource;
+			try {
+				rawSource = f.path.getSourceStrictComplex();
+			}
+			catch (err) {
+				throw edaError(err, `Materialized pour ${pourPrimitiveId} fill ${f.id} has unreadable polygon geometry.`);
+			}
+			if (!Array.isArray(rawSource) || rawSource.length === 0) {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill ${f.id} returned no polygon source.`);
+			}
+			if (typeof f.fill !== 'boolean') {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill ${f.id} has no readable fill flag.`);
+			}
+			const nativeLineWidth = pouredFinite(f.lineWidth, `fill ${f.id} lineWidth`);
+			if (nativeLineWidth < 0) {
+				throw new ActionError(ErrorCodes.EDA_CALL_FAILED,
+					`Materialized pour ${pourPrimitiveId} fill ${f.id} has a negative lineWidth.`);
+			}
+			const source = normalizePouredStrictComplexSource(rawSource);
+			fills.push({
+				id: f.id,
+				lineWidth: nativeLineWidth * POURED_NATIVE_TO_MIL,
+				fill: f.fill,
+				source,
+				sourceUnits: 'mil',
+				lineWidthUnits: 'mil',
+				arcSweepUnits: 'degree',
+				nativeSourceUnits: '0.1mil',
+				nativeLineWidthUnits: '0.1mil',
+				geometryKind: f.fill ? 'filled-complex-polygon' : 'stroked-thermal-spoke-path',
+			});
+		}
+		// Filter only after every object has complete attribution and exact fill
+		// geometry. A requested net must not hide an unreadable/orphaned object.
+		if (net && meta.net !== net) continue;
+		list.push({
+			primitiveId,
+			pourPrimitiveId,
+			net: meta.net,
+			layer: meta.layer,
+			fills,
+		});
+	}
+	return { result: { available: true, poured: list, count: list.length } };
 };
 
 const pcbPourDelete: Handler = async (payload) => {
@@ -12042,6 +12359,14 @@ const pcbRegionList: Handler = async (payload) => {
 			ruleType: rules,
 			ruleTypeNames: rules.map(v => REGION_RULE_NAME[v] ?? String(v)),
 			regionName: r.getState_RegionName() ?? null,
+			geometryAvailable: (() => {
+				try { return Array.isArray(r.getState_ComplexPolygon().getSource()); }
+				catch { return false; }
+			})(),
+			source: (() => {
+				try { return r.getState_ComplexPolygon().getSource(); }
+				catch { return null; }
+			})(),
 			bbox,
 			lineWidth: r.getState_LineWidth(),
 			locked: r.getState_PrimitiveLock(),
@@ -12141,6 +12466,14 @@ const pcbFillList: Handler = async (payload) => {
 			lineWidth: f.getState_LineWidth(),
 			locked: f.getState_PrimitiveLock(),
 		};
+		try {
+			item.source = f.getState_ComplexPolygon().getSource();
+			item.geometryAvailable = Array.isArray(item.source);
+		}
+		catch {
+			item.source = null;
+			item.geometryAvailable = false;
+		}
 		if (includeBBox) {
 			// Per-fill rendered extent — feeds `pcb check` via-bond (is this
 			// junction covered by a bond fill?). Best-effort: null on failure.
@@ -13394,6 +13727,7 @@ const HANDLERS: Record<string, Handler> = {
 	'project.create': projectCreate,
 	'document.current': documentCurrent,
 	'document.open': documentOpen,
+	'document.close': documentClose,
 	'view.fit': viewFit,
 	'view.fit_selection': viewFitSelection,
 	'view.zoom': viewZoom,
@@ -13518,6 +13852,7 @@ const HANDLERS: Record<string, Handler> = {
 	'pcb.clear_routing': pcbClearRouting,
 	'pcb.pour.create': pcbPourCreate,
 	'pcb.pour.list': pcbPourList,
+	'pcb.poured.list': pcbPouredList,
 	'pcb.pour.delete': pcbPourDelete,
 	'pcb.pour.rebuild': pcbPourRebuild,
 	'pcb.beautify': pcbBeautify,

@@ -27,6 +27,8 @@ type pcbLayoutPlanInput struct {
 	Apply              pcbLayoutApplyMeta    `json:"apply,omitempty"`
 	Keepouts           []pcbLayoutKeepout    `json:"keepouts,omitempty"`
 	Modules            []pcbLayoutModuleSpec `json:"modules"`
+	Routing            *pcbRoutingIntent     `json:"routing,omitempty"`
+	Reflow             *pcbReflowSpec        `json:"reflow,omitempty"`
 }
 
 type pcbLayoutApplyMeta struct {
@@ -47,14 +49,59 @@ type pcbLayoutKeepout struct {
 }
 
 type pcbLayoutModuleSpec struct {
-	ID             string                   `json:"id"`
-	Strategy       string                   `json:"strategy"`               // rigid | edge | pin-satellites
-	CopperPolicy   string                   `json:"copperPolicy,omitempty"` // ignore | require-board-empty
-	AnchorRef      string                   `json:"anchorRef"`
-	Members        []pcbLayoutMemberSpec    `json:"members"`
-	Search         pcbLayoutSearchSpec      `json:"search"`
-	PinAssignments []pcbLayoutPinAssignment `json:"pinAssignments,omitempty"`
-	Relations      []pcbLayoutRelation      `json:"relations,omitempty"`
+	ExistingObjects []pcbModuleOwnedObject   `json:"existingObjects,omitempty"`
+	ID              string                   `json:"id"`
+	Strategy        string                   `json:"strategy"`               // rigid | edge | pin-satellites
+	CopperPolicy    string                   `json:"copperPolicy,omitempty"` // ignore | require-board-empty
+	AnchorRef       string                   `json:"anchorRef"`
+	Members         []pcbLayoutMemberSpec    `json:"members"`
+	Search          pcbLayoutSearchSpec      `json:"search"`
+	PinAssignments  []pcbLayoutPinAssignment `json:"pinAssignments,omitempty"`
+	Relations       []pcbLayoutRelation      `json:"relations,omitempty"`
+	CrystalGuard    *pcbCrystalGuardSpec     `json:"crystalGuard,omitempty"`
+}
+
+type pcbCrystalProtectionSearch struct {
+	GuardOffsetsMil []float64 `json:"guardOffsetsMil,omitempty"`
+	StepMil         float64   `json:"stepMil"`
+	MaxDetourMil    float64   `json:"maxDetourMil"`
+}
+
+type pcbCrystalGuardSpec struct {
+	ReuseGroundAnchorViaIDs []string                    `json:"reuseGroundAnchorViaIds,omitempty"`
+	GroundImplementation    string                      `json:"groundImplementation,omitempty"`
+	ProtectionSearch        *pcbCrystalProtectionSearch `json:"protectionSearch,omitempty"`
+	CrystalRef              string                      `json:"crystalRef"`
+	OwnerRef                string                      `json:"ownerRef"`
+	OwnerSide               string                      `json:"ownerSide"` // bottom (v2)
+	Ports                   []pcbCrystalGuardPort       `json:"ports"`
+	GroundNet               string                      `json:"groundNet"`
+	CrystalGroundPads       []string                    `json:"crystalGroundPads"`
+	GroundAnchors           []string                    `json:"groundAnchors"`
+	SignalLayer             int                         `json:"signalLayer"`
+	SignalWidthMil          float64                     `json:"signalWidthMil"`
+	ComponentGapMil         float64                     `json:"componentGapMil"`
+	GuardLayer              int                         `json:"guardLayer"`
+	GuardWidthMil           float64                     `json:"guardWidthMil"`
+	GuardGapMil             float64                     `json:"guardGapMil"`
+	KeepoutMarginMil        float64                     `json:"keepoutMarginMil"`
+	FencePitchMil           float64                     `json:"fencePitchMil"`
+	FenceMarginMil          float64                     `json:"fenceMarginMil"`
+	ViaHoleMil              float64                     `json:"viaHoleMil,omitempty"`
+	ViaDiameterMil          float64                     `json:"viaDiameterMil,omitempty"`
+	LocalPourMarginMil      float64                     `json:"localPourMarginMil"`
+	ReplacePrimitiveIDs     []string                    `json:"replacePrimitiveIds"`
+}
+
+type pcbCrystalGuardPort struct {
+	Net                  string  `json:"net"`
+	OwnerPad             string  `json:"ownerPad"`
+	CrystalPad           string  `json:"crystalPad"`
+	CapacitorRef         string  `json:"capacitorRef"`
+	CapacitorSignalPad   string  `json:"capacitorSignalPad"`
+	CapacitorGroundPad   string  `json:"capacitorGroundPad"`
+	CapacitorSide        string  `json:"capacitorSide"` // left | right
+	CapacitorRotationDeg float64 `json:"capacitorRotationDeg"`
 }
 
 type pcbLayoutMemberSpec struct {
@@ -79,6 +126,14 @@ type pcbLayoutSearchSpec struct {
 	// pin-satellites: one complete candidate per explicit gap. Each satellite
 	// still uses its own exact owner/self pad pair from PinAssignments.
 	GapsMil []float64 `json:"gapsMil,omitempty"`
+	// crystal-guard: bounded offsets relative to owner-pad alignment; away is -Y.
+	CrystalOffsets *pcbCrystalOffsetSearch `json:"crystalOffsets,omitempty"`
+}
+
+type pcbCrystalOffsetSearch struct {
+	MaxXMil    float64 `json:"maxXMil"`
+	MaxAwayMil float64 `json:"maxAwayMil"`
+	StepMil    float64 `json:"stepMil"`
 }
 
 type pcbLayoutOffset struct {
@@ -109,22 +164,23 @@ type pcbLayoutRelation struct {
 }
 
 type pcbLayoutPlanReport struct {
-	SchemaVersion      int                  `json:"schemaVersion"`
-	Units              string               `json:"units"`
-	CoordinateSemantic string               `json:"coordinateSemantic"`
-	Module             string               `json:"module"`
-	Strategy           string               `json:"strategy"`
-	BoardOutlineSource string               `json:"boardOutlineSource"`
-	BoardOutlineFormat string               `json:"boardOutlineFormat,omitempty"`
-	EdgeDistanceMethod string               `json:"edgeDistanceMethod"`
-	InputHashSemantic  string               `json:"inputHashSemantic,omitempty"`
-	LayoutSHA256       string               `json:"layoutSha256,omitempty"`
-	BoardSHA256        string               `json:"boardSha256,omitempty"`
-	Candidates         []pcbLayoutCandidate `json:"candidates"`
-	Rejected           []pcbLayoutRejected  `json:"rejected,omitempty"`
-	MissingGeometry    []string             `json:"missingGeometry,omitempty"`
-	Limitations        []string             `json:"limitations,omitempty"`
-	Summary            string               `json:"summary"`
+	SchemaVersion       int                  `json:"schemaVersion"`
+	Units               string               `json:"units"`
+	CoordinateSemantic  string               `json:"coordinateSemantic"`
+	Module              string               `json:"module"`
+	Strategy            string               `json:"strategy"`
+	BoardOutlineSource  string               `json:"boardOutlineSource"`
+	BoardOutlineFormat  string               `json:"boardOutlineFormat,omitempty"`
+	EdgeDistanceMethod  string               `json:"edgeDistanceMethod"`
+	InputHashSemantic   string               `json:"inputHashSemantic,omitempty"`
+	LayoutSHA256        string               `json:"layoutSha256,omitempty"`
+	BoardSHA256         string               `json:"boardSha256,omitempty"`
+	BoardSemanticSHA256 string               `json:"boardSemanticSha256,omitempty"`
+	Candidates          []pcbLayoutCandidate `json:"candidates"`
+	Rejected            []pcbLayoutRejected  `json:"rejected,omitempty"`
+	MissingGeometry     []string             `json:"missingGeometry,omitempty"`
+	Limitations         []string             `json:"limitations,omitempty"`
+	Summary             string               `json:"summary"`
 }
 
 type pcbLayoutRejected struct {
@@ -135,15 +191,95 @@ type pcbLayoutRejected struct {
 }
 
 type pcbLayoutCandidate struct {
-	ID           string                 `json:"id"`
-	Variant      string                 `json:"variant"`
-	Module       string                 `json:"module"`
-	Strategy     string                 `json:"strategy"`
-	Placements   []pcbLayoutPlacement   `json:"placements"`
-	Measurements pcbLayoutMeasurements  `json:"measurements"`
-	Actions      []pcbLayoutTypedAction `json:"actions"`
-	Apply        playbook               `json:"apply"`
-	Files        map[string]string      `json:"files,omitempty"`
+	SchemaVersion             int                    `json:"schemaVersion,omitempty"`
+	RoutingRequirementsSHA256 string                 `json:"routingRequirementsSha256,omitempty"`
+	Escape                    *pcbEscapeReport       `json:"escape,omitempty"`
+	Reflow                    *pcbReflowCandidate    `json:"reflow,omitempty"`
+	ID                        string                 `json:"id"`
+	Variant                   string                 `json:"variant"`
+	Module                    string                 `json:"module"`
+	Strategy                  string                 `json:"strategy"`
+	Placements                []pcbLayoutPlacement   `json:"placements"`
+	Measurements              pcbLayoutMeasurements  `json:"measurements"`
+	Actions                   []pcbLayoutTypedAction `json:"actions"`
+	Apply                     playbook               `json:"apply"`
+	ApplySHA256               string                 `json:"applySha256,omitempty"`
+	BoardSemanticSHA256       string                 `json:"boardSemanticSha256,omitempty"`
+	Bundle                    *pcbLayoutModuleBundle `json:"bundle,omitempty"`
+	Files                     map[string]string      `json:"files,omitempty"`
+}
+
+type pcbLayoutModuleBundle struct {
+	GroundImplementation  string                  `json:"groundImplementation,omitempty"`
+	ReplacedObjects       []pcbModuleOwnedObject  `json:"replacedObjects,omitempty"`
+	UnreservedPours       []pcbModulePour         `json:"unreservedPours,omitempty"`
+	ReflowRoutes          []pcbModuleRoute        `json:"reflowRoutes,omitempty"`
+	ReflowVias            []pcbModuleVia          `json:"reflowVias,omitempty"`
+	ReflowReplaceIDs      []string                `json:"reflowReplacePrimitiveIds,omitempty"`
+	GuardContour          [][2]float64            `json:"guardContour,omitempty"`
+	FenceContour          [][2]float64            `json:"fenceContour,omitempty"`
+	FencePitchMil         float64                 `json:"fencePitchMil,omitempty"`
+	Kind                  string                  `json:"kind"`
+	OwnedRefs             []string                `json:"ownedRefs"`
+	ReplacePrimitiveIDs   []string                `json:"replacePrimitiveIds,omitempty"`
+	SignalRoutes          []pcbModuleRoute        `json:"signalRoutes,omitempty"`
+	GroundRoutes          []pcbModuleRoute        `json:"groundRoutes,omitempty"`
+	Regions               []pcbModuleRegion       `json:"regions,omitempty"`
+	Vias                  []pcbModuleVia          `json:"vias,omitempty"`
+	Pours                 []pcbModulePour         `json:"pours,omitempty"`
+	AffectedBaselinePours []pcbModuleAffectedPour `json:"affectedBaselinePours,omitempty"`
+	GroundAnchors         []string                `json:"groundAnchors,omitempty"`
+	Envelope              *layoutBBox             `json:"envelope,omitempty"`
+	Metrics               map[string]float64      `json:"metrics,omitempty"`
+}
+
+// pcbModuleAffectedPour is an explicit, snapshot-bound exception for a
+// pre-existing pour whose materialized copper can be recomputed by this module.
+// The editable boundary remains immutable. Only materialized geometry inside
+// ImpactEnvelope may differ after rebuild; outside geometry and holes must match.
+type pcbModuleAffectedPour struct {
+	BoundaryPrimitiveID     string     `json:"boundaryPrimitiveId"`
+	MaterializedPrimitiveID string     `json:"materializedPrimitiveId"`
+	Net                     string     `json:"net"`
+	Layer                   int        `json:"layer"`
+	ImpactEnvelope          layoutBBox `json:"impactEnvelope"`
+}
+
+type pcbModuleRoute struct {
+	ID       string       `json:"id"`
+	Net      string       `json:"net"`
+	Layer    int          `json:"layer"`
+	WidthMil float64      `json:"widthMil"`
+	Points   [][2]float64 `json:"points"`
+	Role     string       `json:"role"`
+	From     string       `json:"from,omitempty"`
+	Through  []string     `json:"through,omitempty"`
+	To       string       `json:"to,omitempty"`
+}
+
+type pcbModuleRegion struct {
+	ID        string       `json:"id"`
+	Layer     int          `json:"layer"`
+	RuleTypes []string     `json:"ruleTypes"`
+	Points    [][2]float64 `json:"points"`
+}
+
+type pcbModuleVia struct {
+	ExistingPrimitiveID string  `json:"existingPrimitiveId,omitempty"`
+	ID                  string  `json:"id"`
+	Net                 string  `json:"net"`
+	X                   float64 `json:"x"`
+	Y                   float64 `json:"y"`
+	HoleMil             float64 `json:"holeMil"`
+	DiameterMil         float64 `json:"diameterMil"`
+	Role                string  `json:"role"`
+}
+
+type pcbModulePour struct {
+	ID     string       `json:"id"`
+	Net    string       `json:"net"`
+	Layer  int          `json:"layer"`
+	Points [][2]float64 `json:"points"`
 }
 
 type pcbLayoutPlacement struct {
@@ -239,8 +375,14 @@ func decodePCBLayoutPlanInput(raw []byte) (pcbLayoutPlanInput, error) {
 		}
 		return in, fmt.Errorf("parse layout input trailing data: %w", err)
 	}
-	if in.SchemaVersion != 1 {
-		return in, fmt.Errorf("unsupported schemaVersion %d (want 1)", in.SchemaVersion)
+	if in.SchemaVersion != 1 && in.SchemaVersion != 2 && in.SchemaVersion != 3 {
+		return in, fmt.Errorf("unsupported schemaVersion %d (want 1, 2 or 3)", in.SchemaVersion)
+	}
+	if in.SchemaVersion < 3 && (in.Routing != nil || in.Reflow != nil) {
+		return in, fmt.Errorf("routing/reflow require schemaVersion 3")
+	}
+	if in.SchemaVersion == 3 && in.Routing == nil {
+		return in, fmt.Errorf("schemaVersion 3 requires independent routing demands")
 	}
 	if in.Units != "mil" {
 		return in, fmt.Errorf("units must be %q", "mil")
@@ -276,6 +418,9 @@ func decodePCBLayoutPlanInput(raw []byte) (pcbLayoutPlanInput, error) {
 			return in, fmt.Errorf("duplicate module id %q", mod.ID)
 		}
 		seenModules[mod.ID] = true
+		if in.SchemaVersion == 3 && mod.CrystalGuard != nil && mod.CrystalGuard.GroundImplementation != "tracks-vias" {
+			return in, fmt.Errorf("schemaVersion 3 crystal-guard requires groundImplementation=tracks-vias")
+		}
 		if err := validatePCBLayoutInputNumbers(mod); err != nil {
 			return in, err
 		}
@@ -284,9 +429,20 @@ func decodePCBLayoutPlanInput(raw []byte) (pcbLayoutPlanInput, error) {
 }
 
 func validatePCBLayoutInputNumbers(mod pcbLayoutModuleSpec) error {
+	if s := mod.Search.CrystalOffsets; s != nil {
+		if mod.Strategy != "crystal-guard" || !allFinite(s.MaxXMil, s.MaxAwayMil, s.StepMil) || s.MaxXMil < 0 || s.MaxAwayMil < 0 || s.StepMil <= 0 {
+			return fmt.Errorf("module %q crystalOffsets requires crystal-guard, finite non-negative maxXMil/maxAwayMil and positive stepMil", mod.ID)
+		}
+		if (2*math.Ceil(s.MaxXMil/s.StepMil)+3)*(math.Ceil(s.MaxAwayMil/s.StepMil)+2) > 4096 {
+			return fmt.Errorf("module %q crystalOffsets grid exceeds 4096 offset limit", mod.ID)
+		}
+	}
 	for i, off := range mod.Search.OffsetsMil {
 		if !allFinite(off.XMil, off.YMil) {
 			return fmt.Errorf("module %q search.offsetsMil[%d] must be finite", mod.ID, i)
+		}
+		if mod.Strategy == "crystal-guard" && off.YMil > 0 {
+			return fmt.Errorf("module %q crystal-guard offsetsMil yMil must be <= 0 (away from bottom owner)", mod.ID)
 		}
 	}
 	for i, d := range mod.Search.RotationDeltasDeg {
@@ -327,18 +483,33 @@ func validatePCBLayoutInputNumbers(mod pcbLayoutModuleSpec) error {
 			return fmt.Errorf("module %q relations[%d] requires from and to", mod.ID, i)
 		}
 	}
+	if mod.CrystalGuard != nil {
+		g := mod.CrystalGuard
+		if g.GroundImplementation != "" && g.GroundImplementation != "tracks-vias" && g.GroundImplementation != "legacy-local-pours" {
+			return fmt.Errorf("module %q crystalGuard.groundImplementation must be tracks-vias", mod.ID)
+		}
+		if !allFinite(g.SignalWidthMil, g.ComponentGapMil, g.GuardWidthMil, g.GuardGapMil, g.KeepoutMarginMil, g.FencePitchMil, g.FenceMarginMil, g.ViaHoleMil, g.ViaDiameterMil, g.LocalPourMarginMil) {
+			return fmt.Errorf("module %q crystalGuard numeric fields must be finite", mod.ID)
+		}
+		for i, p := range g.Ports {
+			if !isQuarterTurn(p.CapacitorRotationDeg) {
+				return fmt.Errorf("module %q crystalGuard ports[%d].capacitorRotationDeg must be a quarter turn", mod.ID, i)
+			}
+		}
+	}
 	return nil
 }
 
 func planPCBLayoutModule(in pcbLayoutPlanInput, snap *boardSnapshot, moduleID string, limit int) (pcbLayoutPlanReport, error) {
-	rep := pcbLayoutPlanReport{SchemaVersion: 1, Units: "mil", CoordinateSemantic: "footprint-anchor", Module: moduleID}
+	rep := pcbLayoutPlanReport{SchemaVersion: in.SchemaVersion, Units: "mil", CoordinateSemantic: "footprint-anchor", Module: moduleID}
 	if snap == nil || snap.Outline == nil {
 		return rep, fmt.Errorf("board snapshot requires an outline")
 	}
 	rep.BoardOutlineSource = snap.Outline.Source
 	rep.BoardOutlineFormat = snap.Outline.Format
 	rep.EdgeDistanceMethod = outlineDistanceMethod(snap.Outline)
-	rep.InputHashSemantic = "sha256(raw-file-bytes)"
+	rep.InputHashSemantic = "raw SHA256 for provenance; semantic SHA256 excludes capture timestamp"
+	rep.BoardSemanticSHA256 = snap.SemanticSHA256
 	rep.Limitations = append(rep.Limitations, snap.Partial...)
 	if limit < 1 {
 		return rep, fmt.Errorf("candidate limit must be at least 1")
@@ -352,6 +523,14 @@ func planPCBLayoutModule(in pcbLayoutPlanInput, snap *boardSnapshot, moduleID st
 	}
 	if mod == nil {
 		return rep, fmt.Errorf("module %q not found", moduleID)
+	}
+	originalSnapshot := snap
+	if len(mod.ExistingObjects) > 0 {
+		var filterErr error
+		snap, filterErr = removePCBModuleOwnedObjects(snap, mod.ExistingObjects)
+		if filterErr != nil {
+			return rep, filterErr
+		}
 	}
 	rep.Strategy = mod.Strategy
 	if mod.CopperPolicy == "ignore" {
@@ -392,6 +571,8 @@ func planPCBLayoutModule(in pcbLayoutPlanInput, snap *boardSnapshot, moduleID st
 		variants, err = generateEdgeVariants(*mod, members, base, snap.Outline)
 	case "pin-satellites":
 		variants, err = generatePinSatelliteVariants(*mod, members)
+	case "crystal-guard":
+		variants, err = generateCrystalGuardVariants(*mod, members, base, snap)
 	default:
 		err = fmt.Errorf("module %q has unsupported strategy %q", mod.ID, mod.Strategy)
 	}
@@ -410,8 +591,57 @@ func planPCBLayoutModule(in pcbLayoutPlanInput, snap *boardSnapshot, moduleID st
 		minGap = snap.Rules.ClearanceMil
 	}
 	seen := map[string]bool{}
+	reflowByVariant := map[string]*pcbReflowCandidate{}
+	if in.Reflow != nil {
+		var expanded []pcbLayoutVariant
+		remainingStates := in.Reflow.MaxStates
+		for _, seed := range variants {
+			if remainingStates <= 0 {
+				rep.Limitations = append(rep.Limitations, "reflow total search budget exhausted; remaining seeds not examined")
+				break
+			}
+			spec := *in.Reflow
+			spec.MaxStates = remainingStates
+			vv, rr, err := resolvePCBReflow(spec, seed, snap, minGap)
+			remainingStates -= rr.States
+			if rr.Exhausted {
+				rep.Limitations = append(rep.Limitations, "reflow search incomplete: bounded search exhausted")
+			}
+			if len(vv) == 0 {
+				rep.Rejected = append(rep.Rejected, pcbLayoutRejected{Variant: seed.label, Reasons: rr.Rejected})
+			}
+			if err != nil {
+				rep.Rejected = append(rep.Rejected, pcbLayoutRejected{Variant: seed.label, Reasons: append([]string{err.Error()}, rr.Rejected...)})
+				if rr.Exhausted {
+					rep.Limitations = append(rep.Limitations, "reflow search budget exhausted; no global impossibility claim")
+				}
+				continue
+			}
+			for i := range rr.Candidates {
+				value := rr.Candidates[i]
+				reflowByVariant[value.Variant] = &value
+			}
+			expanded = append(expanded, vv...)
+		}
+		variants = expanded
+	}
 	for _, v := range variants {
-		reasons := validatePCBLayoutVariant(v, members, memberSpec, memberSet, base, snap, in.Keepouts, minGap, mod.CopperPolicy)
+		currentSet := map[string]bool{}
+		currentSpecs := map[string]pcbLayoutMemberSpec{}
+		for ref := range v.comps {
+			currentSet[ref] = true
+			currentSpecs[ref] = memberSpec[ref]
+		}
+		if in.Reflow != nil {
+			for _, g := range in.Reflow.Groups {
+				for _, ref := range g.Refs {
+					if currentSet[ref] && !memberSet[ref] {
+						currentSpecs[ref] = pcbLayoutMemberSpec{Ref: ref, FixedAxes: g.FixedAxes, AllowedRotationsDeg: g.AllowedRotationsDeg}
+					}
+				}
+			}
+		}
+		reasons := validatePCBLayoutVariant(v, base, currentSpecs, currentSet, base, snap, in.Keepouts, minGap, mod.CopperPolicy)
 		if len(reasons) > 0 {
 			observed := buildPCBLayoutCandidate(in, *mod, v, base, snap, memberSet)
 			rep.Rejected = append(rep.Rejected, pcbLayoutRejected{Variant: v.label, Reasons: reasons, Placements: observed.Placements, Measurements: observed.Measurements})
@@ -422,7 +652,20 @@ func planPCBLayoutModule(in pcbLayoutPlanInput, snap *boardSnapshot, moduleID st
 			continue
 		}
 		seen[sig] = true
-		candidate := buildPCBLayoutCandidate(in, *mod, v, base, snap, memberSet)
+		candidate := buildPCBLayoutCandidate(in, *mod, v, base, snap, currentSet)
+		candidate.BoardSemanticSHA256 = originalSnapshot.SemanticSHA256
+		candidate.Reflow = reflowByVariant[v.label]
+		if in.Routing != nil {
+			if err := attachPCBLayoutRouting(&candidate, in, *mod, v, base, originalSnapshot); err != nil {
+				rep.Rejected = append(rep.Rejected, pcbLayoutRejected{Variant: v.label, Reasons: []string{err.Error()}, Placements: candidate.Placements, Measurements: candidate.Measurements})
+				continue
+			}
+		} else if mod.Strategy == "crystal-guard" {
+			if err := attachCrystalGuardBundle(&candidate, *mod, v, base, snap); err != nil {
+				rep.Rejected = append(rep.Rejected, pcbLayoutRejected{Variant: v.label, Reasons: []string{err.Error()}, Placements: candidate.Placements, Measurements: candidate.Measurements})
+				continue
+			}
+		}
 		candidate.ID = fmt.Sprintf("candidate-%02d", len(rep.Candidates)+1)
 		candidate.Apply.Meta.Name = mod.ID + " " + candidate.ID
 		rep.Candidates = append(rep.Candidates, candidate)
@@ -461,8 +704,8 @@ func validatePCBLayoutModule(mod pcbLayoutModuleSpec, all map[string]boardComp) 
 	if strings.TrimSpace(mod.ID) == "" || strings.TrimSpace(mod.AnchorRef) == "" {
 		return nil, fmt.Errorf("module requires id and anchorRef")
 	}
-	if mod.CopperPolicy != "ignore" && mod.CopperPolicy != "require-board-empty" {
-		return nil, fmt.Errorf("module %q requires explicit copperPolicy ignore|require-board-empty", mod.ID)
+	if mod.CopperPolicy != "ignore" && mod.CopperPolicy != "require-board-empty" && mod.CopperPolicy != "module-owned" {
+		return nil, fmt.Errorf("module %q requires explicit copperPolicy ignore|require-board-empty|module-owned", mod.ID)
 	}
 	if len(mod.Members) == 0 {
 		return nil, fmt.Errorf("module %q has no members", mod.ID)
@@ -1002,6 +1245,9 @@ func boardCompHasThroughHolePad(c boardComp) bool {
 
 func buildPCBLayoutCandidate(in pcbLayoutPlanInput, mod pcbLayoutModuleSpec, v pcbLayoutVariant, base map[string]boardComp, snap *boardSnapshot, memberSet map[string]bool) pcbLayoutCandidate {
 	c := pcbLayoutCandidate{Variant: v.label, Module: mod.ID, Strategy: mod.Strategy}
+	if in.SchemaVersion >= 3 {
+		c.SchemaVersion = in.SchemaVersion
+	}
 	for _, ref := range sortedBoardCompKeys(v.comps) {
 		p := v.comps[ref]
 		c.Placements = append(c.Placements, pcbLayoutPlacement{Ref: ref, PrimitiveID: p.ID, XMil: p.X, YMil: p.Y, RotationDeg: p.Rotation, Layer: p.Layer, BBox: p.BBox, Pads: p.Pads})
@@ -1180,6 +1426,7 @@ func renderPCBLayoutCandidateSVG(w io.Writer, snap *boardSnapshot, cand pcbLayou
 	xp := func(x float64) float64 { return pad + (x-bb.MinX)*s }
 	yp := func(y float64) float64 { return height - pad - (y-bb.MinY)*s }
 	fmt.Fprintf(w, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.0f\" height=\"%.0f\" viewBox=\"0 0 %.0f %.0f\">\n", width, height, width, height)
+	fmt.Fprintln(w, "<defs><pattern id=\"keepout-hatch\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#dc2626\" stroke-width=\"2\"/></pattern></defs>")
 	fmt.Fprintln(w, "<rect width=\"100%\" height=\"100%\" fill=\"#fbfbfc\"/>")
 	if len(snap.Outline.Points) >= 3 {
 		fmt.Fprint(w, "<polygon points=\"")
@@ -1215,9 +1462,168 @@ func renderPCBLayoutCandidateSVG(w io.Writer, snap *boardSnapshot, cand pcbLayou
 		cx, cy := (p.BBox.MinX+p.BBox.MaxX)/2, (p.BBox.MinY+p.BBox.MaxY)/2
 		fmt.Fprintf(w, "<text x=\"%.2f\" y=\"%.2f\" font-family=\"Arial,sans-serif\" font-size=\"11\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"#1e3a8a\">%s</text>\n", xp(cx), yp(cy), html.EscapeString(p.Ref))
 	}
+	if cand.Bundle != nil {
+		renderPCBLayoutBundleSVG(w, *cand.Bundle, xp, yp, s)
+	}
+	renderPCBLayoutReservationsSVG(w, cand, xp, yp, s)
 	fmt.Fprintf(w, "<text x=\"35\" y=\"22\" font-family=\"Arial,sans-serif\" font-size=\"14\" fill=\"#111827\">%s · %s</text>\n", html.EscapeString(cand.Module), html.EscapeString(cand.Variant))
 	_, err := fmt.Fprintln(w, "</svg>")
 	return err
+}
+
+// renderPCBLayoutModuleSVG uses the same candidate.Bundle geometry that feeds
+// the apply playbook.  local focuses on the assembled module; compare overlays
+// the original member poses and the planned poses over the complete board.
+func renderPCBLayoutModuleSVG(w io.Writer, snap *boardSnapshot, cand pcbLayoutCandidate, mode string) error {
+	if snap == nil || snap.Outline == nil || cand.Bundle == nil {
+		return fmt.Errorf("module preview requires board outline and a schema-v2 bundle")
+	}
+	view := snap.Outline.BBox
+	if mode == "local" {
+		if cand.Bundle.Envelope == nil {
+			return fmt.Errorf("local module preview requires a measured envelope")
+		}
+		view = expandLayoutBBox(*cand.Bundle.Envelope, 35)
+		routes := pcbBundleAllRoutes(cand.Bundle)
+		if cand.Escape != nil {
+			routes = append(routes, cand.Escape.Routes...)
+		}
+		for _, p := range cand.Placements {
+			if p.BBox != nil {
+				view = *unionLayoutBBox(&view, p.BBox)
+			}
+		}
+		for _, route := range routes {
+			for _, p := range route.Points {
+				view.MinX, view.MinY = math.Min(view.MinX, p[0]-20), math.Min(view.MinY, p[1]-20)
+				view.MaxX, view.MaxY = math.Max(view.MaxX, p[0]+20), math.Max(view.MaxY, p[1]+20)
+			}
+		}
+	}
+	if view.MaxX <= view.MinX || view.MaxY <= view.MinY {
+		return fmt.Errorf("module preview has an invalid view envelope")
+	}
+	width, height, pad := 960.0, 640.0, 42.0
+	s := math.Min((width-2*pad)/(view.MaxX-view.MinX), (height-2*pad)/(view.MaxY-view.MinY))
+	xp := func(x float64) float64 { return pad + (x-view.MinX)*s }
+	yp := func(y float64) float64 { return height - pad - (y-view.MinY)*s }
+	fmt.Fprintf(w, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.0f\" height=\"%.0f\" viewBox=\"0 0 %.0f %.0f\">\n", width, height, width, height)
+	fmt.Fprintln(w, "<defs><pattern id=\"keepout-hatch\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#dc2626\" stroke-width=\"2\"/></pattern></defs>")
+	fmt.Fprintln(w, "<rect width=\"100%\" height=\"100%\" fill=\"#f8fafc\"/>")
+	if mode == "compare" {
+		if len(snap.Outline.Points) >= 3 {
+			renderPCBPolygonSVG(w, snap.Outline.Points, xp, yp, "white", "#111827", 2, 1)
+		} else {
+			fmt.Fprintf(w, "<rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"white\" stroke=\"#111827\" stroke-width=\"2\"/>\n", xp(view.MinX), yp(view.MaxY), (view.MaxX-view.MinX)*s, (view.MaxY-view.MinY)*s)
+		}
+	}
+	owned := map[string]bool{}
+	for _, p := range cand.Placements {
+		owned[p.Ref] = true
+	}
+	// Existing nearby components show the real available channel.  Original
+	// module poses are red/dashed in compare mode and omitted from local mode.
+	ordered := append([]boardComp(nil), snap.Components...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Designator < ordered[j].Designator })
+	for _, c := range ordered {
+		if c.BBox == nil || (!layoutBBoxesIntersect(*c.BBox, view) && mode == "local") {
+			continue
+		}
+		if owned[c.Designator] {
+			if mode == "compare" {
+				fmt.Fprintf(w, "<rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"none\" stroke=\"#dc2626\" stroke-width=\"1.5\" stroke-dasharray=\"6 4\"/>\n", xp(c.BBox.MinX), yp(c.BBox.MaxY), (c.BBox.MaxX-c.BBox.MinX)*s, (c.BBox.MaxY-c.BBox.MinY)*s)
+			}
+			continue
+		}
+		fill, stroke := "#e5e7eb", "#9ca3af"
+		if mode == "local" {
+			fill, stroke = "#f1f5f9", "#94a3b8"
+		}
+		fmt.Fprintf(w, "<rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"%s\" stroke=\"%s\" stroke-width=\".8\"/>\n", xp(c.BBox.MinX), yp(c.BBox.MaxY), (c.BBox.MaxX-c.BBox.MinX)*s, (c.BBox.MaxY-c.BBox.MinY)*s, fill, stroke)
+	}
+	for _, p := range cand.Placements {
+		if p.BBox == nil {
+			continue
+		}
+		fmt.Fprintf(w, "<rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"3\" fill=\"#bfdbfe\" fill-opacity=\".85\" stroke=\"#2563eb\" stroke-width=\"2\"/>\n", xp(p.BBox.MinX), yp(p.BBox.MaxY), (p.BBox.MaxX-p.BBox.MinX)*s, (p.BBox.MaxY-p.BBox.MinY)*s)
+		fmt.Fprintf(w, "<text x=\"%.2f\" y=\"%.2f\" font-family=\"Arial,sans-serif\" font-size=\"12\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"#1e3a8a\">%s</text>\n", xp((p.BBox.MinX+p.BBox.MaxX)/2), yp((p.BBox.MinY+p.BBox.MaxY)/2), html.EscapeString(p.Ref))
+	}
+	renderPCBLayoutBundleSVG(w, *cand.Bundle, xp, yp, s)
+	renderPCBLayoutReservationsSVG(w, cand, xp, yp, s)
+	title := cand.Module + " · " + cand.Variant + " · " + mode
+	fmt.Fprintf(w, "<rect x=\"20\" y=\"12\" width=\"%.0f\" height=\"28\" rx=\"5\" fill=\"white\" fill-opacity=\".9\"/>\n", math.Min(width-40, float64(len(title))*8+32))
+	fmt.Fprintf(w, "<text x=\"30\" y=\"31\" font-family=\"Arial,sans-serif\" font-size=\"14\" fill=\"#111827\">%s</text>\n", html.EscapeString(title))
+	_, err := fmt.Fprintln(w, "</svg>")
+	return err
+}
+
+func renderPCBLayoutBundleSVG(w io.Writer, bundle pcbLayoutModuleBundle, xp, yp func(float64) float64, scale float64) {
+	for _, route := range bundle.ReflowRoutes {
+		renderPCBPolylineSVG(w, route.Points, xp, yp, "#db2777", math.Max(1.4, route.WidthMil*scale), .85)
+	}
+	for _, pour := range bundle.Pours {
+		fill := "#bbf7d0"
+		if pour.Layer == 2 {
+			fill = "#bae6fd"
+		}
+		renderPCBPolygonSVG(w, pour.Points, xp, yp, fill, "#0284c7", 1, .16)
+	}
+	for _, region := range bundle.Regions {
+		renderPCBPolygonSVG(w, region.Points, xp, yp, "url(#keepout-hatch)", "#dc2626", 1.2, .28)
+	}
+	for _, route := range bundle.GroundRoutes {
+		renderPCBPolylineSVG(w, route.Points, xp, yp, "#16a34a", math.Max(1.4, route.WidthMil*scale), .82)
+	}
+	for _, route := range bundle.SignalRoutes {
+		color := "#f97316"
+		if strings.Contains(strings.ToUpper(route.Net), "OUT") {
+			color = "#7c3aed"
+		}
+		renderPCBPolylineSVG(w, route.Points, xp, yp, color, math.Max(1.6, route.WidthMil*scale), .95)
+	}
+	for _, via := range bundle.Vias {
+		r := math.Max(2.3, via.DiameterMil*scale/2)
+		fmt.Fprintf(w, "<circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"#22c55e\" stroke=\"#166534\" stroke-width=\"1.2\"/><circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"#f8fafc\"/>\n", xp(via.X), yp(via.Y), r, xp(via.X), yp(via.Y), math.Max(.9, via.HoleMil*scale/2))
+	}
+}
+
+func renderPCBLayoutReservationsSVG(w io.Writer, c pcbLayoutCandidate, xp, yp func(float64) float64, scale float64) {
+	if c.Escape == nil {
+		return
+	}
+	fmt.Fprintln(w, "<g stroke-dasharray=\"5 3\"><title>Reserved escape paths: planning geometry, not editor copper</title>")
+	for _, r := range c.Escape.Routes {
+		fmt.Fprintf(w, "<g><title>%s %s → %s (layer %d)</title>", html.EscapeString(r.Net), html.EscapeString(r.From), html.EscapeString(r.To), r.Layer)
+		renderPCBPolylineSVG(w, r.Points, xp, yp, "#0891b2", math.Max(1.3, r.WidthMil*scale), .85)
+		fmt.Fprintln(w, "</g>")
+	}
+	fmt.Fprintln(w, "</g>")
+}
+
+func renderPCBPolygonSVG(w io.Writer, points [][2]float64, xp, yp func(float64) float64, fill, stroke string, strokeWidth, opacity float64) {
+	if len(points) < 3 {
+		return
+	}
+	fmt.Fprint(w, "<polygon points=\"")
+	for _, p := range points {
+		fmt.Fprintf(w, "%.2f,%.2f ", xp(p[0]), yp(p[1]))
+	}
+	fmt.Fprintf(w, "\" fill=\"%s\" fill-opacity=\"%.2f\" stroke=\"%s\" stroke-width=\"%.2f\"/>\n", fill, opacity, stroke, strokeWidth)
+}
+
+func renderPCBPolylineSVG(w io.Writer, points [][2]float64, xp, yp func(float64) float64, stroke string, width, opacity float64) {
+	if len(points) < 2 {
+		return
+	}
+	fmt.Fprint(w, "<polyline points=\"")
+	for _, p := range points {
+		fmt.Fprintf(w, "%.2f,%.2f ", xp(p[0]), yp(p[1]))
+	}
+	fmt.Fprintf(w, "\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"%.2f\"/>\n", stroke, width, opacity)
+}
+
+func layoutBBoxesIntersect(a, b layoutBBox) bool {
+	return a.MaxX >= b.MinX && b.MaxX >= a.MinX && a.MaxY >= b.MinY && b.MaxY >= a.MinY
 }
 
 func boardCompToAP(c boardComp) apComp {

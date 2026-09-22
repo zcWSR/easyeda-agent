@@ -263,32 +263,3 @@ bbox 关系；个人库副本 region 的实证也不能外推成当前 U3 实例
 这批实证完成的是外围坐标、角度、逐脚归属和持久化；R12/D1 的当前位置/方向也通过零位移
 刚体候选收敛。CAN 有序主路径的实际铜、LCD 封装实例绑定和各模块实际铜路仍属于后续步骤；
 不引入 CAN 长度比、段数比或综合评分门槛。
-
-## 本 Demo 的 Layout 确认状态
-
-当前八组模块候选及两批共 19 件外围写入已经完成并 `live-verified`，这证明候选算法、坐标/
-角度执行和持久化链路可用。它**不等于考试整板 Layout 已完成或已获用户确认**：LCD/U3 的
-source footprint 位于不可写系统库，当前实例尚无经过现场验证的禁放 region。因此本样例的
-`layoutReview.status` 仍为 `not-ready`，不得进入新的整板布线写入。U3 原理图/PCB identity
-已经对账；本次没有运行 PCB `import-changes`。现存 LDO 15 段铜属于上文的局部电源模块例外，
-不代表布线阶段已经开始。
-
-当前已经通过 typed `pcb stage-snapshot` 生成一张整板预检查图，保存于
-`docs/reviews/260919-layout-integrated-precheck-20260921.png`：画面非空、内容占比 96.22%，
-CLI 在旧连接器未返回哈希时从落盘 PNG 补算出 SHA256
-`a5ba5090e63cceb6c9d5a3af62fcaa7b02cf0a1cc1e94e37ab598e20ceec2dd1`；第二次抓取相同字节时
-正确识别为 `stale`。由于 U3 禁放区仍未完成，且当前部署连接器还不能 typed 控制元件属性显隐，
-该图只算 precheck，不计入正式两轮；`layoutReview.consecutivePasses=0`。此前的候选 SVG、局部图、
-保存重载与浏览器重开证据继续有效，但不能替代“整板图 + 连续两轮无修正”的 Layout 完成证据。
-
-上述缺口关闭后，复核包至少列出：最新 board dump SHA256、69 件器件、90×50mm/R3 板框、
-固定件与 CN1 单轴约束、U3 禁放区、0 overlap/off-board/禁区违规、关键模块关系、现存 15 段
-LDO 铜及预留通道、整板图，以及两轮 review manifest。第 1 轮图用于空间/模块关系/视觉异常；
-第 2 轮必须来自 save → reload 后的 fresh dump 与 fresh `pcb stage-snapshot`。两轮都没有待修的
-明显布局/视觉 finding，也没有执行修复后，展示第 2 轮整板预览并等待用户：
-
-- 用户提出调整：修改关系/参数并重新生成候选，连续通过数清零后再次执行两轮；
-- 用户自行调整并说“OK”：重新 dump，核对并固化现场 anchor/rotation，清零并重跑两轮后再记录确认；
-- 用户直接确认“OK/可以布线”：记录用户原话、时间和 board dump SHA256，随后才进入布线。
-
-这个记录是设计取舍的来源，不是 subagent 签字、综合评分或旧 stage 放行。

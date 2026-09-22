@@ -67,6 +67,80 @@ func TestAnalyzePcbNetPath_OrderedWaypointLayerWidthAndViaEvidence(t *testing.T)
 	if got := strings.Join(rep.ExcludedCopper, ","); !strings.Contains(got, "pours") || !strings.Contains(got, "PLANE") {
 		t.Fatalf("excludedCopper=%v", rep.ExcludedCopper)
 	}
+	wantLength := 82.0 + math.Hypot(40, 40) + math.Hypot(60, 60)
+	if math.Abs(rep.LengthMil-wantLength) > 1e-3 || rep.TurnCount != 1 {
+		t.Fatalf("length/turns=%.4f/%d want %.4f/1", rep.LengthMil, rep.TurnCount, wantLength)
+	}
+	if rep.Legs[0].LengthMil <= 0 || rep.Legs[1].LengthMil <= 0 {
+		t.Fatalf("leg measurements missing: %+v", rep.Legs)
+	}
+}
+
+func TestAnalyzePcbNetPath_MeasuresTrackMidpointToEndpointSubsection(t *testing.T) {
+	pads := []pcbPadP{
+		netPathRectPad("p-mid", "J1", "1", "SIG", 1, 50, 0, 2, 2),
+		netPathRectPad("p-end", "U1", "1", "SIG", 1, 100, 0, 2, 2),
+	}
+	tracks := []pcbTrack{{ID: "trunk", Net: "SIG", Layer: 1, X1: 0, Y1: 0, X2: 100, Y2: 0, Width: 2}}
+
+	rep, err := analyzePcbNetPath(pads, tracks, nil, nil, pcbNetPathOptions{From: "J1.1", To: "U1.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Connected || math.Abs(rep.LengthMil-50) > 1e-4 || rep.TurnCount != 0 {
+		t.Fatalf("midpoint→endpoint measurement=%.4fmil/%d, want 50/0: %+v", rep.LengthMil, rep.TurnCount, rep)
+	}
+}
+
+func TestAnalyzePcbNetPath_MeasuresTrackMidpointToMidpointSubsection(t *testing.T) {
+	pads := []pcbPadP{
+		netPathRectPad("p-a", "J1", "1", "SIG", 1, 25, 0, 2, 2),
+		netPathRectPad("p-b", "U1", "1", "SIG", 1, 75, 0, 2, 2),
+	}
+	tracks := []pcbTrack{{ID: "trunk", Net: "SIG", Layer: 1, X1: 0, Y1: 0, X2: 100, Y2: 0, Width: 2}}
+
+	rep, err := analyzePcbNetPath(pads, tracks, nil, nil, pcbNetPathOptions{From: "J1.1", To: "U1.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Connected || math.Abs(rep.LengthMil-50) > 1e-4 || rep.TurnCount != 0 {
+		t.Fatalf("midpoint→midpoint measurement=%.4fmil/%d, want 50/0: %+v", rep.LengthMil, rep.TurnCount, rep)
+	}
+}
+
+func TestAnalyzePcbNetPath_MeasuresArcInteriorSubarc(t *testing.T) {
+	const radius = 100.0
+	mid := radius / math.Sqrt2
+	pads := []pcbPadP{
+		netPathRectPad("p-mid", "J1", "1", "CLK", 1, mid, mid, 2, 2),
+		netPathRectPad("p-end", "U1", "1", "CLK", 1, 0, radius, 2, 2),
+	}
+	arcs := []pcbArc{{ID: "quarter", Net: "CLK", Layer: 1, X1: radius, Y1: 0, X2: 0, Y2: radius, Width: 2, ArcAngle: 90}}
+
+	rep, err := analyzePcbNetPath(pads, nil, arcs, nil, pcbNetPathOptions{From: "J1.1", To: "U1.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := radius * math.Pi / 4
+	if !rep.Connected || math.Abs(rep.LengthMil-want) > 1e-3 || rep.TurnCount != 1 {
+		t.Fatalf("arc interior subsection=%.4fmil/%d, want %.4f/1: %+v", rep.LengthMil, rep.TurnCount, want, rep)
+	}
+}
+
+func TestAnalyzePcbNetPath_AmbiguousTraversedCenterlineContactIsUnknown(t *testing.T) {
+	pads := []pcbPadP{
+		netPathRectPad("p-a", "J1", "1", "SIG", 1, 25, 8, 2, 2),
+		netPathRectPad("p-b", "U1", "1", "SIG", 1, 100, 0, 2, 2),
+	}
+	tracks := []pcbTrack{
+		{ID: "trunk", Net: "SIG", Layer: 1, X1: 0, Y1: 0, X2: 100, Y2: 0, Width: 10},
+		{ID: "parallel-overlap", Net: "SIG", Layer: 1, X1: 25, Y1: 8, X2: 75, Y2: 8, Width: 10},
+	}
+
+	_, err := analyzePcbNetPath(pads, tracks, nil, nil, pcbNetPathOptions{From: "J1.1", To: "U1.1"})
+	if err == nil || !strings.Contains(err.Error(), "measurement is unknown") || !strings.Contains(err.Error(), "distinct centerline junction") {
+		t.Fatalf("ambiguous parallel copper must not report an actual length, got %v", err)
+	}
 }
 
 func TestAnalyzePcbNetPath_OrderedWaypointRejectsBacktrackingBranch(t *testing.T) {
@@ -519,5 +593,61 @@ func TestPcbNetPathRejectsNonCopperLayerBeforeDispatch(t *testing.T) {
 	}
 	if captured.action != "" {
 		t.Fatalf("invalid layer dispatched %s", captured.action)
+	}
+}
+
+func TestNetPathMeasureShortWide45DegreeNeighbors(t *testing.T) {
+	nodes := []pcbNetPathNode{{kind: "pad", x: 0, y: 0}, {kind: "track", id: "long", x1: 0, y1: 0, x2: 0, y2: 40, width: 8}, {kind: "track", id: "short", x1: 0, y1: 40, x2: 4, y2: 44, width: 8}, {kind: "pad", x: 4, y: 44}}
+	length, turns, err := measureNetPathCenterline(nodes, []int{0, 1, 2, 3})
+	if err != nil || math.Abs(length-(40+math.Hypot(4, 4))) > 1e-4 || turns != 1 {
+		t.Fatalf("short 45-degree junction: length=%v turns=%v err=%v", length, turns, err)
+	}
+}
+func TestNetPathUniqueIntersectionPreferencePreservesRealAmbiguity(t *testing.T) {
+	a := pcbNetPathNode{kind: "track", x1: 0, y1: 0, x2: 20, y2: 0, width: 8}
+	b := pcbNetPathNode{kind: "track", x1: 10, y1: 0, x2: 30, y2: 0, width: 8}
+	if _, err := netPathJunctionPointOnRoute(a, b); err == nil || !strings.Contains(err.Error(), "overlap") {
+		t.Fatalf("positive-length overlap accepted: %v", err)
+	}
+	arc := pcbNetPathNode{kind: "arc", x1: 10, y1: 0, x2: 0, y2: -10, arcAngle: 270, width: 8}
+	line := pcbNetPathNode{kind: "track", x1: -20, y1: 5, x2: 20, y2: 5, width: 8}
+	intersections, err := netPathRouteCenterlineIntersections(line, arc)
+	if err != nil || len(intersections) != 2 {
+		t.Fatalf("invalid multiple-intersection fixture: %v %v", intersections, err)
+	}
+	if _, err := netPathJunctionPointOnRoute(line, arc); err == nil || !strings.Contains(err.Error(), "distinct centerline") {
+		t.Fatalf("multiple true crossings accepted: %v", err)
+	}
+}
+
+func TestAnalyzePcbNetPathPrefersExplicitGuardJunctionOverWidthShortcut(t *testing.T) {
+	pads := []pcbPadP{netPathRectPad("a", "J1", "1", "GND", 1, 0, 0, 2, 2), netPathRectPad("b", "J2", "1", "GND", 1, 30, 20, 2, 2)}
+	tracks := []pcbTrack{{ID: "lead", Net: "GND", Layer: 1, X1: 0, Y1: 0, X2: 0, Y2: 14, Width: 8}, {ID: "short45", Net: "GND", Layer: 1, X1: 0, Y1: 14, X2: 4, Y2: 18, Width: 8}, {ID: "explicit-landing", Net: "GND", Layer: 1, X1: 4, Y1: 18, X2: 4, Y2: 20, Width: 8}, {ID: "guard", Net: "GND", Layer: 1, X1: -30, Y1: 20, X2: 30, Y2: 20, Width: 8}}
+	rep, err := analyzePcbNetPath(pads, tracks, nil, nil, pcbNetPathOptions{From: "J1.1", To: "J2.1", Net: "GND"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Connected || rep.MeasurementPathKind != "exact-centerline" {
+		t.Fatalf("did not select strong path: %+v", rep)
+	}
+	seen := false
+	for _, p := range rep.Path {
+		if p.PrimitiveID == "explicit-landing" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("took width shortcut before the explicit landing")
+	}
+	want := 14 + math.Hypot(4, 4) + 2 + 26
+	if math.Abs(rep.LengthMil-want) > 1e-4 {
+		t.Fatalf("length=%f want %f", rep.LengthMil, want)
+	}
+	// Without the explicit landing only broad parallel copper contact remains.
+	// It must not be mislabeled as an exact-centerline proof.
+	pads = []pcbPadP{netPathRectPad("a", "J1", "1", "GND", 1, 25, 8, 2, 2), netPathRectPad("b", "J2", "1", "GND", 1, 100, 0, 2, 2)}
+	tracks = []pcbTrack{{ID: "trunk", Net: "GND", Layer: 1, X1: 0, Y1: 0, X2: 100, Y2: 0, Width: 10}, {ID: "overlap", Net: "GND", Layer: 1, X1: 25, Y1: 8, X2: 75, Y2: 8, Width: 10}}
+	if _, err := analyzePcbNetPath(pads, tracks, nil, nil, pcbNetPathOptions{From: "J1.1", To: "J2.1", Net: "GND"}); err == nil || !strings.Contains(err.Error(), "measurement is unknown") {
+		t.Fatalf("width-only ambiguity accepted: %v", err)
 	}
 }

@@ -17,6 +17,7 @@ type reloadFixture struct {
 	opened             bool
 	closed             bool
 	failReopen         bool
+	failClose          bool
 	noActiveAfterClose bool
 }
 
@@ -66,16 +67,21 @@ func (fx *reloadFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		// Successful checkpoint before close.
 	case "pcb.components.list":
 		result["count"] = 69
-	case "debug.exec_js":
-		code, _ := req.Payload["code"].(string)
-		splitRead := strings.Index(code, "getSplitScreenIdByTabId")
-		closeCall := strings.Index(code, "closeDocument")
-		if splitRead < 0 || closeCall < 0 || splitRead > closeCall {
-			fx.t.Errorf("reload must capture the target split before close: %q", code)
+	case "document.close":
+		if got := req.Payload["uuid"]; got != "pcb-target" {
+			fx.t.Errorf("close uuid=%v", got)
+		}
+		if got := req.Payload["tabId"]; got != "tab-target" {
+			fx.t.Errorf("close tabId=%v", got)
+		}
+		if fx.failClose {
+			ok = false
+			errorMessage = "host close failed"
+			break
 		}
 		fx.closed = true
 		ctx["documentUuid"], ctx["documentType"], ctx["tabId"] = "other-doc", "schematic", "tab-other"
-		result["value"] = map[string]any{"closed": true, "splitScreenId": "target-split"}
+		result = map[string]any{"closed": true, "uuid": "pcb-target", "tabId": "tab-target", "splitScreenId": "target-split"}
 	case "document.open":
 		fx.openCount++
 		fx.openTimeoutMs = req.TimeoutMs
@@ -128,9 +134,21 @@ func TestReloadDocumentPreservesTargetSplitAndWaitsForClose(t *testing.T) {
 	if fx.openTimeoutMs != 15_000 {
 		t.Fatalf("document.open timeoutMs=%d, want bounded 15000", fx.openTimeoutMs)
 	}
-	want := []string{"document.current", "pcb.save", "debug.exec_js", "document.current", "document.open", "document.current", "pcb.components.list", "pcb.components.list"}
+	want := []string{"document.current", "pcb.save", "document.close", "document.current", "document.open", "document.current", "pcb.components.list", "pcb.components.list"}
 	if strings.Join(fx.actions, ",") != strings.Join(want, ",") {
 		t.Fatalf("actions=%v, want %v", fx.actions, want)
+	}
+}
+
+func TestReloadDocumentCloseFailureDoesNotOpen(t *testing.T) {
+	fx, cfg := newReloadFixture(t, false)
+	fx.failClose = true
+	_, err := reloadDocumentByUUID(cfg, "w1", "pcb-target")
+	if err == nil || !strings.Contains(err.Error(), "close document failed") {
+		t.Fatalf("error=%v", err)
+	}
+	if fx.openCount != 0 {
+		t.Fatalf("document.open count=%d, want zero after failed close", fx.openCount)
 	}
 }
 

@@ -81,6 +81,16 @@ func AllActions() []ActionSpec {
 			Inputs:      []string{"uuid", "splitScreenId optional (preserve a known target split across close/reopen)"},
 			Outputs:     []string{"tab id"},
 		},
+		{
+			Name:        "document.close",
+			Domain:      DomainDocument,
+			Phase:       1,
+			Mutates:     false,
+			NeedsWindow: true,
+			Description: "Close the explicitly identified active document through the official editor API. Both uuid and tabId must match a fresh current-document read; returns the target split ID when the host exposes it so document.open can restore the same split.",
+			Inputs:      []string{"uuid", "tabId"},
+			Outputs:     []string{"closed", "uuid", "tabId", "splitScreenId (nullable)"},
+		},
 		// ── view (editor canvas, document-agnostic — schematic & PCB) ──────
 		// All map to eda.dmt_EditorControl.* and act on the focused canvas.
 		{
@@ -1369,7 +1379,16 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List copper pours (铺铜) on the active PCB, optionally filtered by net. Read-only.",
 			Inputs:      []string{"net optional"},
-			Outputs:     []string{"pours[].primitiveId", "pours[].net", "pours[].layer", "pours[].pourName", "pours[].priority", "pours[].lineWidth", "pours[].locked", "count"},
+			Outputs:     []string{"pours[].primitiveId", "pours[].net", "pours[].layer", "pours[].pourName", "pours[].priority", "pours[].lineWidth", "pours[].locked", "pours[].geometryAvailable", "pours[].source", "count"},
+		},
+		{
+			Name:        "pcb.poured.list",
+			Domain:      DomainPcb,
+			Phase:       2,
+			NeedsWindow: true,
+			Description: "List materialized copper produced by pour rebuild. Unlike pcb.pour.list (editable boundaries), this returns every poured fill's complex-polygon source normalized from the host's 0.1mil coordinates/lineWidth to mil, preserving nested contours and ARC/CARC sweeps in degrees. fill=false is labeled as a stroked thermal-spoke path. A successful empty array means no materialized poured object; API or polygon failures return an error so callers cannot treat unknown as empty.",
+			Inputs:      []string{"net optional"},
+			Outputs:     []string{"available", "poured[].primitiveId", "poured[].pourPrimitiveId", "poured[].net", "poured[].layer", "poured[].fills[].{id,lineWidth,fill,source,sourceUnits,lineWidthUnits,arcSweepUnits,nativeSourceUnits,nativeLineWidthUnits,geometryKind}", "count"},
 		},
 		{
 			Name:         "pcb.pour.delete",
@@ -1426,7 +1445,7 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List keep-out / rule regions (禁止区域) on the active PCB, optionally filtered by layer. Read-only.",
 			Inputs:      []string{"layer optional"},
-			Outputs:     []string{"regions[].primitiveId", "regions[].layer", "regions[].ruleType", "regions[].ruleTypeNames", "regions[].regionName", "regions[].lineWidth", "regions[].locked", "count"},
+			Outputs:     []string{"regions[].primitiveId", "regions[].layer", "regions[].ruleType", "regions[].ruleTypeNames", "regions[].regionName", "regions[].lineWidth", "regions[].locked", "regions[].geometryAvailable", "regions[].source", "count"},
 		},
 		{
 			Name:         "pcb.region.delete",
@@ -1462,7 +1481,7 @@ func AllActions() []ActionSpec {
 			NeedsWindow: true,
 			Description: "List net-bound filled regions (填充区域) on the active PCB, optionally filtered by layer and/or net. includeBBox adds each fill's rendered extent (per-fill getPrimitivesBBox; null on failure) — feeds the `pcb check` via-bond rule (is this track↔via junction covered by a bond fill?). Read-only.",
 			Inputs:      []string{"layer optional", "net optional", "includeBBox optional (default false)"},
-			Outputs:     []string{"fills[].primitiveId", "fills[].net", "fills[].layer", "fills[].fillMode", "fills[].lineWidth", "fills[].locked", "fills[].bbox (includeBBox)", "count"},
+			Outputs:     []string{"fills[].primitiveId", "fills[].net", "fills[].layer", "fills[].fillMode", "fills[].lineWidth", "fills[].locked", "fills[].geometryAvailable", "fills[].source", "fills[].bbox (includeBBox)", "count"},
 		},
 		{
 			Name:         "pcb.fill.delete",

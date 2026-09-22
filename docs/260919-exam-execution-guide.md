@@ -75,8 +75,7 @@
 | CN1 | (自由 x,42) | 180° | 题目不要求锁定；x 留给 CAN 通道优化 |
 
 本次样例按 footprint anchor 执行。原题没有写 anchor/bbox-center 的定义，迁移时要保存语义
-依据，不能把渲染 bbox 中心当成器件坐标。CN1 约 0.03mm 的 bbox 越界先查轮廓中心线、线宽和
-真实本体；证据不足就记录冲突，不擅自移动题定 y、改料或修改真实机械外形。
+依据，不能把渲染 bbox 中心当成器件坐标。
 
 USB1、H1、LED1、按键和光敏都要在板边，其中 USB1 朝板外；LED1 还要靠 USB1，光敏还要远离
 LED1。因此“靠 USB”不能代替“在板边”，“按键等距”不能代替“板边方便按压”。
@@ -148,29 +147,6 @@ SWD 的实际顺序是 H1.1=GND、H1.2=PA14/CLK、H1.3=PA13/DIO、H1.4=+3V3。�
 焊盘末端出线还需要实际铜段证明：不能在电阻、电容、电感焊盘中间横穿；窄焊盘局部缩颈，
 线宽不大于焊盘宽度且本题信号不小于 8mil。普通转折避免直角/锐角。只有 U6 EP 可以使用
 焊盘内散热孔，其他焊盘不使用 via-in-pad。
-
-## 目前真正完成到哪里
-
-以下是已有记录的范围；LDO 与模块 Layout 行包含本轮在 Web EDA 的真实写入、保存、typed reload
-和回读：
-
-| 项目 | 已有证据 | 还欠什么 |
-|---|---|---|
-| 原理图 | 69 件、233 端子、220 连接、13 NC、46 网；端点差异 0、官方 DRC 0 | 15 区图面表达、属性/功能文字及 marker 重叠仍须分别核查 |
-| 板框和固定件 | 真圆弧、中心线尺寸、原点、固定 anchor/角度/锁定历史回读 | CN1 外形与描边语义需要更细的几何证据 |
-| 配置接口 | 最新 `pcb-config.md` 已记录 typed 写入、保存重载、幂等重放与恢复；69 件/46 网保持 | 只证明配置持久化，不证明路径、电源或整板完成 |
-| 模块 Layout | LED/U6去耦已按候选闭环；CAN C12/C13、SD C18/C19、CH340N C9/C10、LCD C7/R6/Q1/R4/R5 第二批共11件已保存重载；R12/D1当前位置方向由零位移刚体候选接受。69件、板框和15段LDO铜保持，0 overlap/off-board/tight@6mil；用户两次重开浏览器后的typed只读复核都一致 | CAN有序主路径、蜂鸣器实际铜；LCD 工程库封装复制/当前实例 region 为 `unsupported` 并已跳过，只用实测外形避让；55个ratsnest crossing只作通道观察 |
-| 晶振/CAN初始迭代 | 晶振 X1 转0°并将C20/C21换侧后已保存重开，U6未动且仍锁，两条U6↔X1直连由相交变为不相交；CAN 的 D1/CN1 两条保护支路由约217/295mil改为约169/169mil | 最短飞线仍有两处H/L相交，只作为布线负例；R12/D1当前位置方向已由模块候选接受，晶振/CAN铜仍未创建，不引入长度比、段数比门槛 |
-| 关键布线 | 有晶振/CAN 离线绕行反例；CAN第一轮现场迭代又证明简单对齐R12会造成异网共线穿越；LDO 第二轮布局与15段TOP/20mil局部铜已保存、typed reload并回读，0 via、0 dangling；原始 pads/tracks/vias 重建证明输入/输出/四条地回流目标路径 | 输入源和输出负载主干、晶振/CAN实际铜与整板布通仍待做；CAN 联合寻路仅留作历史待研究方向，本轮 Layout 不继续扩张专用检查器；shape-aware `pcb net-path` 在旧连接器缺 `arcsAvailable`/pad shape 时正确拒绝，加载新版连接器后复跑 |
-| LCD / 泪滴 | LCD个人库副本region已保存；U3 sch↔PCB identity 已恢复为 `gge60`；工程库封装复制重复失败，当前实例 region 标 `unsupported` 并跳过；泪滴无已验证创建接口 | 两项均保留未满足，不靠GUI补齐；宿主能力变化后再恢复工程库复制、绑定保持与保存回读验证 |
-| ESP32 兼容回归 | 后续记录已经运行，四层、31 件等部分事实存在 | 仍有 53 个唯一 DRC 违规、内层 PLANE 重载回退；总状态 incomplete |
-
-旧目录中的“新配置入口仅离线验证”已过时；`live-validation.json` 已补入本轮 LDO、模块候选、
-浏览器重开复核和 U3 恢复事实。
-一次重载成功也不能证明所有宿主加载故障已根治。来源见
-[PCB 配置样例](../.agents/skills/easyeda-agent/references/pcb-config.md)、
-[现场摘要](../.agents/skills/easyeda-agent/references/examples/260919-at32f415/live-validation.json)、
-[布局独立核查](reviews/2026-09-20-260919-placement-independent.md)。
 
 ## 接下来按小样例推进
 

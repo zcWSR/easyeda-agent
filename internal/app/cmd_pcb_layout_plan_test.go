@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,73 @@ func TestPcbLayoutPlanCommandRunsFullyOfflineAndWritesBundle(t *testing.T) {
 	patch := pb.Steps[0].Payload["patch"].(map[string]any)
 	if patch["x"] != float64(220) || patch["y"] != float64(200) {
 		t.Fatalf("patch=%#v", patch)
+	}
+}
+
+func TestPcbLayoutPlanCrystalGuardWritesAllDeclaredSVGPreviews(t *testing.T) {
+	tmp := t.TempDir()
+	boardPath := filepath.Join(tmp, "board.json")
+	layoutPath := filepath.Join(tmp, "layout.json")
+	outDir := filepath.Join(tmp, "out")
+	in, snap := crystalGuardFixture()
+	boardRaw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutRaw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(boardPath, boardRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(layoutPath, layoutRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := newPcbLayoutPlanCmd(&stdout, &stderr)
+	cmd.SetArgs([]string{"--from", layoutPath, "--board", boardPath, "--module", "crystal-guard", "--candidates", "1", "--out", outDir})
+	if err = cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, stderr.String())
+	}
+
+	manifestRaw, err := os.ReadFile(filepath.Join(outDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest pcbLayoutPlanReport
+	if err = json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Candidates) != 1 || manifest.Candidates[0].Bundle == nil {
+		t.Fatalf("manifest has no crystal-guard candidate bundle: %+v", manifest.Candidates)
+	}
+	candidate := manifest.Candidates[0]
+	candidateRaw, err := os.ReadFile(filepath.Join(outDir, candidate.Files["candidate"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved pcbLayoutCandidate
+	if err = json.Unmarshal(candidateRaw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	for key, suffix := range map[string]string{
+		"preview":           ".svg",
+		"localPreview":      ".local.svg",
+		"comparisonPreview": ".compare.svg",
+	} {
+		declared := candidate.Files[key]
+		if declared == "" || saved.Files[key] != declared || !strings.HasSuffix(declared, suffix) {
+			t.Fatalf("%s declaration differs between manifest and candidate: manifest=%q candidate=%q", key, declared, saved.Files[key])
+		}
+		raw, readErr := os.ReadFile(filepath.Join(outDir, declared))
+		if readErr != nil {
+			t.Fatalf("read declared %s %q: %v", key, declared, readErr)
+		}
+		if len(raw) < 100 || !bytes.Contains(raw, []byte("<svg")) || !bytes.Contains(raw, []byte("</svg>")) {
+			t.Fatalf("declared %s %q is not a non-empty SVG (%d bytes)", key, declared, len(raw))
+		}
 	}
 }
 

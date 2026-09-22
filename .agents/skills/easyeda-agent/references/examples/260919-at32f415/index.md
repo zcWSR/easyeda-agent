@@ -12,7 +12,10 @@
 [crystal-placement-live.json](crystal-placement-live.json)，CAN 第一轮现场负例见
 [can-placement-iteration-live.json](can-placement-iteration-live.json)，晶振实际 TOP/8mil/0via 有序铜路见
 [crystal-route-live.json](crystal-route-live.json)；该铜路事实仍有效，但用户复核后不再接受为最终晶振区，
-替代验收要求见 [晶振护环模块要求](crystal-guard-requirement.json)。CAN 实际主路径与保护支路见
+替代验收要求见 [晶振护环模块要求](crystal-guard-requirement.json)，schema-v2 历史拒绝及
+schema-v3 共同逃线候选见
+[晶振模块离线搜索](crystal-guard-plan.md)；[完整候选记录](crystal-protection-search-positive.json)
+仅为 `offline-verified`，现场保护对象和两轮验收仍待完成。CAN 实际主路径与保护支路见
 [can-route-live.json](can-route-live.json)，USB-C 四个重复数据焊盘与 U4 的实际 TOP/8mil/0via 铜路见
 [usb-route-live.json](usb-route-live.json)，LDO 第二轮可执行参数见
 [LDO 布局候选](ldo-layout-candidate.json)，保存重开后的局部铜见
@@ -132,8 +135,12 @@
 7. 围绕明确所属引脚生成 MCU 去耦、晶振、LDO、CAN、蜂鸣器和 SD 模块候选，同时预留
    电源主干和顶层回流；同网多个供电脚必须在输入中逐脚绑定。LDO/DCDC 的输入/输出电容、
    局部 GND 回流及必要 EP/地过孔可作为参数化整体先完成并回读，移动模块时一起重算。
-   晶振候选必须把 X1/C20/C21、两条 OSC 铜、TOP GND 护环、TOP/BOTTOM no-pours regions 与
-   护环外侧 GND 过孔围栏作为一个 `crystal-guard` 模块，不得只优化两条信号线。
+   晶振候选必须使用 `pcb dump --include-copper` 和 schemaVersion 3，把 X1/C20/C21、两条
+   OSC 铜、TOP GND 护环与显式 GND 导线、TOP/BOTTOM no-pours regions、护环外侧 GND
+   过孔围栏作为一个 `crystal-guard` 模块，不得只优化两条信号线。模块内部铜随局部几何
+   变换；U6 固定，U6.2/U6.3 到模块入口的外部引线按每个候选重新求解，并与 U6 其它需连接
+   焊盘的逃线需求同时占用通道。U6 EP 已有地孔用 `existingViasOnly` 按 PID、网络和焊盘归属
+   复用，不能为通过检查虚构新孔或 GND 路径。
 8. 全部 Layout 要求落实后用 typed `pcb stage-snapshot` 或等价 export 生成整板集成图，并连续
    自检两轮：第 1 轮检查空间、模块关系和视觉异常；无修正后第 2 轮执行 `save → reload → fresh
    dump → fresh render`。任一轮发现并修复就把连续计数清零，重新从第 1 轮开始。若属性文字妨碍

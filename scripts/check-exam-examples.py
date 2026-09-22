@@ -280,7 +280,7 @@ def main() -> None:
         "ownerPads": ["U6.2", "U6.3"],
         "signalNets": ["OSC_IN", "OSC_OUT"],
         "guardNet": "GND",
-        "movePolicy": "器件、信号铜、GND 护环、no-pours regions 与外围 GND 过孔作为一个参数化模块共同重算；不能只移动器件",
+        "movePolicy": "先在局部坐标计算X1/C20/C21、OSC、GND护环/导线、no-pours与过孔，再整体平移到板内；旧模块对象精确清理，不能只移动器件",
     }
     assert crystal_guard["signalRouting"]["topology"] == {
         "OSC_IN": ["C21.1", "X1.1", "U6.2"],
@@ -297,11 +297,26 @@ def main() -> None:
         "geometry": "覆盖 X1、C20、C21 与 OSC_IN/OSC_OUT 敏感铜的参数化包络；不靠截图猜范围",
         "requirements": [
             "TOP 与 BOTTOM 分别创建并回读 no-pours region；两层板不以 no-inner-electrical 代替外层 region",
+            "敏感包络联合 X1/C20/C21 实测 bbox 与最终两条 signal-main 的 stroke bbox；stroke 外扩量为实际线宽一半加 live 铜净距，再叠加 keepout margin，不能只框器件",
+            "护环 owner 侧为两条 OSC 保留合并入口，入口之间不得留下没有真实 GND 路径的孤立护环段",
             "no-pours 只禁止自动铺铜进入；显式 OSC 信号与 GND 护环仍按设计写入",
             "铺铜重建后确认禁铺区内没有 pour/fill 铜残留",
         ],
     }
     assert crystal_guard["groundViaFence"]["generator"].startswith("pcb via-fence ")
+    assert crystal_guard["toolContract"]["status"] == "offline-verified"
+    assert crystal_guard["toolContract"]["layoutSchemaVersion"] == 3
+    assert crystal_guard["groundImplementation"] == {
+        "mode": "tracks-vias",
+        "allowLocalPours": False,
+        "requirements": [
+            "晶振敏感区和护环区域不创建局部或环形GND铺铜",
+            "GND回流使用显式TOP/BOTTOM导线与接地过孔",
+            "U6.33 通过 existingViasOnly 复用声明的既有 EP 地孔；逐孔核对 PID、GND 网络和 U6.33 焊盘归属，不创建新孔",
+            "候选pours/unreservedPours/affectedBaselinePours为空，apply不含pour.create或pour.rebuild",
+            "旧晶振局部铺铜按fresh对象身份和旧journal证明归属后删除",
+        ],
+    }
     assert crystal_guard["currentBoardDisposition"]["finalDesignAccepted"] is False
     assert can_route["status"] == "live-verified"
     assert can_route["contract"]["orderedMainPaths"] == {

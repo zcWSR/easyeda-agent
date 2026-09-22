@@ -299,7 +299,7 @@ func analyzePcbCheckFull(pads []pcbPadP, tracks []pcbTrack, vias []pcbViaP, arcs
 	tracks = real
 
 	rep.Findings = append(rep.Findings, findDanglingEnds(tracks, vias, pads, arcs)...)
-	rep.Findings = append(rep.Findings, findAcuteAngles(tracks)...)
+	rep.Findings = append(rep.Findings, findAcuteAngles(tracks, pads)...)
 	rep.Findings = append(rep.Findings, findNonOrthogonal(tracks)...)
 	rep.Findings = append(rep.Findings, findTrackOverPad(tracks, pads)...)
 	rep.Findings = append(rep.Findings, findViaIssues(tracks, vias)...)
@@ -518,7 +518,9 @@ func netPathEllipsePointDistance(x, y, a, b float64) float64 {
 // ── R2: acute-angle (acid-trap) corner ──────────────────────────────────────
 // Where two same-net, same-layer segments meet at a shared vertex, the interior
 // angle between them in (pcbAcuteMinDeg, 90°) forms a sharp spike where etchant
-// collects. 90° and 45° (135° interior) corners are fine; ≤5° is collinear overlap
+// collects. A branch/terminal vertex inside exact same-net pad copper is exempt:
+// the pad already fills the wedge, so there is no etched acute pocket. 90° and
+// 45° (135° interior) corners are fine; ≤5° is collinear overlap
 // (duplicate-segment), not a corner.
 //
 // Known scope limits (deliberate — low value / false-positive risk, tracked by the
@@ -526,7 +528,7 @@ func netPathEllipsePointDistance(x, y, a, b float64) float64 {
 // teeing off mid-trunk (T-junction) and two endpoints coincident within pcbCoincEps
 // but not exactly are not evaluated. Routed copper meets at exact vertices, so this
 // covers the real cases.
-func findAcuteAngles(tracks []pcbTrack) []pcbCheckFinding {
+func findAcuteAngles(tracks []pcbTrack, pads []pcbPadP) []pcbCheckFinding {
 	type inc struct {
 		dx, dy float64
 		id     string
@@ -570,6 +572,9 @@ func findAcuteAngles(tracks []pcbTrack) []pcbCheckFinding {
 		if len(v.segs) < 2 {
 			continue
 		}
+		if acuteVertexInsideSameNetPad(v.x, v.y, v.net, v.layer, pads) {
+			continue
+		}
 		minAng := 999.0
 		var ids []string
 		for a := 0; a < len(v.segs); a++ {
@@ -593,6 +598,29 @@ func findAcuteAngles(tracks []pcbTrack) []pcbCheckFinding {
 		}
 	}
 	return out
+}
+
+// acuteVertexInsideSameNetPad uses only source-backed pad geometry. An unknown
+// shape, a legacy width/height approximation, or a point merely inside a rotated
+// pad's axis-aligned bbox cannot suppress a DFM finding.
+func acuteVertexInsideSameNetPad(x, y float64, net string, layer int, pads []pcbPadP) bool {
+	if strings.TrimSpace(net) == "" {
+		return false
+	}
+	for _, p := range pads {
+		if !p.ShapeOK || p.Net != net || !padLayerMatches(p.Layer, layer) {
+			continue
+		}
+		pad := pcbNetPathNode{
+			kind: "pad", net: p.Net, layer: p.Layer, x: p.X, y: p.Y,
+			w: p.ShapeW, h: p.ShapeH, rotation: p.Rotation, shape: p.Shape,
+			shapeRound: p.ShapeRound, shapeSides: p.ShapeSides,
+		}
+		if pointTouchesPad(x, y, pad, 0) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── R3: non-orthogonal (free-angle) trace ───────────────────────────────────

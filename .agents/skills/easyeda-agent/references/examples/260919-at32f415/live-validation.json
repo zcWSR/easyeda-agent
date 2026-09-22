@@ -6,99 +6,6 @@
   "webEditorVersion": "3.2.203",
   "project": "ceshi",
   "purpose": "记录代表性步骤的真实回读和工具缺口；不是完成态整板答案",
-  "layoutReview": {
-    "status": "not-ready",
-    "requiresExplicitUserConfirmationBeforeBoardRouting": true,
-    "confirmationBaseline": null,
-    "completionClaimAllowed": false,
-    "blockingItems": [
-      "U3 的 source footprint 位于不可写系统库；当前实例尚无经过现场验证的 no-components region",
-      "尚未连续通过两轮无修正 Agent 自检"
-    ],
-    "integratedRender": {
-      "required": true,
-      "status": "precheck-generated",
-      "method": "typed pcb stage-snapshot or equivalent export",
-      "wholeBoardRequired": true,
-      "localCandidateSvgIsInsufficient": true,
-      "officialReviewRenderAfterAttributeRestore": true,
-      "artifact": "docs/reviews/260919-layout-integrated-precheck-20260921.png",
-      "manifest": "docs/reviews/260919-layout-integrated-precheck-20260921-stage.json",
-      "sha256": "a5ba5090e63cceb6c9d5a3af62fcaa7b02cf0a1cc1e94e37ab598e20ceec2dd1",
-      "sha256Source": "cli-artifact",
-      "blank": false,
-      "frameContent": 0.9621808510638298,
-      "attributeVisibilityAtCapture": "unchanged; component attributes remained visible",
-      "countsAsFormalRound": false,
-      "reasonNotFormal": "U3 owner-aware component keepout is still incomplete; the deployed connector also lacks pcb.view.filter.get, so this is a precheck rather than a completion review."
-    },
-    "attributeVisibility": {
-      "policy": "optional-view-only",
-      "oldStateMustBeSavedAndRestored": true,
-      "contentMutationAllowed": false,
-      "currentTypedCapability": "unsupported",
-      "usedInThisDemo": false,
-      "fallback": "保持属性可见并继续检查；禁止 GUI/属性面板",
-      "uiEvidence": "docs/reviews/260919-web-filter-component-attributes.png",
-      "sdkTypesVersion": "0.4.25",
-      "sdkEvidence": "eda.pcb_Document.getCurrentFilterConfiguration exists; no setter is declared",
-      "implementedReadOnlyAction": "pcb.view.filter.get",
-      "deployedConnectorVersion": "1.5.1",
-      "deployedConnectorResult": "UNKNOWN_ACTION; new connector handler is not installed",
-      "writeCapability": "unsupported"
-    },
-    "agentSelfCheck": {
-      "requiredConsecutivePasses": 2,
-      "consecutivePasses": 0,
-      "status": "not-started",
-      "passCondition": "无待修的明显布局/视觉 finding，且 fixesApplied=false；纯观察项须记录不修改理由",
-      "resetRule": "任一轮发现并修复问题，连续通过数清零并从第1轮重新开始",
-      "round1": {
-        "status": "not-run",
-        "checks": [
-          "整板空间",
-          "模块关系",
-          "视觉异常"
-        ],
-        "requiresWholeBoardRender": true
-      },
-      "round2": {
-        "status": "not-run",
-        "sequence": [
-          "pcb save",
-          "doc reload",
-          "fresh pcb dump",
-          "fresh pcb stage-snapshot"
-        ],
-        "requiresFreshDataAndRender": true
-      },
-      "precheck": {
-        "status": "recorded-not-counted",
-        "artifact": "docs/reviews/260919-layout-integrated-precheck-20260921.png",
-        "observations": [
-          "整板图非空且完整显示板框与全部模块，CLI 对落盘 PNG 补算 SHA256 成功",
-          "元件属性与飞线显著增加视觉噪声；当前只能保持原视图检查",
-          "U3 缺少 owner-aware component keepout，因此不能开始正式连续两轮完成验证"
-        ]
-      }
-    },
-    "powerModuleLocalCopperException": {
-      "allowedBeforeConfirmation": true,
-      "scope": [
-        "输入电容到电源芯片",
-        "电源芯片到输出电容",
-        "模块局部 GND 回流",
-        "必要的 EP 或地过孔"
-      ],
-      "excluded": [
-        "跨模块电源主干",
-        "普通信号",
-        "全局铺铜",
-        "缝合孔"
-      ],
-      "currentEvidence": "LDO 15 段 TOP/20mil 铜已保存重载；移动模块时必须与器件一起重算"
-    }
-  },
   "schematic": {
     "documentUuid": "f4351c9ef51e8321",
     "components": 69,
@@ -918,13 +825,12 @@
     {
       "id": "pcb-component-attribute-view-filter-write-missing",
       "symptom": "Web UI 有“元件属性”显隐开关，但 @jlceda/pro-api-types 0.4.25 只声明 getCurrentFilterConfiguration，没有 setter；现场 connector 1.5.1 尚不认识新增只读 action",
-      "recovery": "保持原视图生成预检查图；不修改 PrimitiveAttribute，不点击 GUI",
+      "recovery": "保持原视图检查；不修改 PrimitiveAttribute，不点击 GUI",
       "codeState": "已增加 pcb.view.filter.get 与 easyeda pcb view-filter 的只读实现和测试；部署新版 connector 后只验证读取，写能力仍为 unsupported",
       "requiredFix": "等待或发现官方可回读/可恢复的 view-state setter，再实现 hide→capture→finally restore→readback typed 事务"
     }
   ],
   "notClaimed": [
-    "已生成不计轮次的 typed 整板预检查图，但正式连续两轮 Agent 自检仍未开始（0/2）；当前只能称模块候选与局部布局已验证，不能称整板 Layout 完成或交用户确认",
     "LED、U6逐脚去耦及四组外围已用参数化候选闭环，R12/D1当前位置方向也由零位移候选接受；CAN实际有序铜路和LCD封装实例绑定仍缺，不能称整板已布通",
     "CAN的D1/CN1局部关系及R12/D1布局姿态已接受；最短飞线仍相交只说明直连不可用，实际U5→R12→CN1主路径与D1支路尚未创建",
     "完整PCB布线、双面GND、泪滴、丝印和PCB DRC=0尚未执行",

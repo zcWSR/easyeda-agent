@@ -60,6 +60,9 @@ func checkPcbStackupResponse(data []byte) error {
 // step that can leave one oversized tail gap.  Positive margin expands outward;
 // callers can therefore pass the crystal/RF keepout envelope directly.
 func rectViaFencePoints(x0, y0, x1, y1, pitch, margin float64) ([][2]float64, error) {
+	if !allFinite(x0, y0, x1, y1, pitch, margin) {
+		return nil, fmt.Errorf("rect, pitch, and margin must be finite numbers")
+	}
 	if pitch <= 0 {
 		return nil, fmt.Errorf("pitch must be > 0")
 	}
@@ -100,7 +103,238 @@ func rectViaFencePoints(x0, y0, x1, y1, pitch, margin float64) ([][2]float64, er
 	addEdge(x1, y0, x1, y1)
 	addEdge(x1, y1, x0, y1)
 	addEdge(x0, y1, x0, y0)
+	const maxViaFencePoints = 4096
+	if len(points) > maxViaFencePoints {
+		return nil, fmt.Errorf("via fence needs %d points (limit %d); increase --pitch or reduce the rectangle", len(points), maxViaFencePoints)
+	}
 	return points, nil
+}
+
+type viaFencePreflight struct {
+	Create   [][2]float64 `json:"create"`
+	Existing [][2]float64 `json:"existing"`
+	Problems []string     `json:"problems,omitempty"`
+}
+
+// pcbCopperArea is materialized copper with exact compound-polygon geometry.
+// Pour boundaries and no-pours regions are deliberately excluded: neither is
+// copper.  A same-net area may bond to a route/via; a different-net area is an
+// obstacle on its copper layer (and on every layer for a through via).
+type pcbCopperArea struct {
+	ID       string
+	Kind     string
+	Net      string
+	Layer    int
+	Contours [][][2]float64
+}
+
+func preflightViaFence(points [][2]float64, net string, hole, diameter, clearance, edgeClearance float64, outline *boardOutline, pads []pcbPadP, tracks []pcbTrack, arcs []pcbArc, vias []pcbViaP, areas []pcbCopperArea) viaFencePreflight {
+	var out viaFencePreflight
+	// An imprecise pad envelope cannot prove a via is clear.  Reject the whole
+	// batch rather than falling back to the old nominal 12 mil estimate.
+	for _, pad := range pads {
+		if pad.ShapeOK {
+			continue
+		}
+		reason := strings.TrimSpace(pad.ShapeIssue)
+		if reason == "" {
+			reason = "exact pad geometry is unavailable"
+		}
+		out.Problems = append(out.Problems, fmt.Sprintf("pad %s.%s geometry is unknown/unsupported: %s", pad.Designator, pad.Number, reason))
+		return out
+	}
+	radius := diameter / 2
+	for _, p := range points {
+		if outline == nil || !outline.containsPoint(p[0], p[1]) || viaFenceOutlineDistance(outline, p[0], p[1]) < radius+edgeClearance-netPathGeomEps {
+			out.Problems = append(out.Problems, fmt.Sprintf("(%.3f,%.3f) violates board-edge clearance", p[0], p[1]))
+			continue
+		}
+		blocked := ""
+		for _, pad := range pads {
+			// Fence vias are never via-in-pad, including same-net pads.
+			padDistance, geometryErr := pcbExactPadSegmentGap(pad, p, p)
+			if geometryErr != nil {
+				blocked = geometryErr.Error()
+				break
+			}
+
+			if padDistance < radius+clearance-netPathGeomEps {
+				blocked = fmt.Sprintf("pad %s.%s", pad.Designator, pad.Number)
+				break
+			}
+		}
+		if blocked == "" {
+			for _, t := range tracks {
+				if t.Net != net && segPtDist(p[0], p[1], t.X1, t.Y1, t.X2, t.Y2) < radius+t.Width/2+clearance-netPathGeomEps {
+					blocked = fmt.Sprintf("other-net track %s (%s)", t.ID, t.Net)
+					break
+				}
+			}
+		}
+		if blocked == "" {
+			for _, a := range arcs {
+				if a.Net == net {
+					continue
+				}
+				curve, _, err := flattenNetPathArc(a)
+				if err != nil {
+					blocked = fmt.Sprintf("arc %s geometry is unknown", a.ID)
+					break
+				}
+				for i := 0; i+1 < len(curve); i++ {
+					if segPtDist(p[0], p[1], curve[i].x, curve[i].y, curve[i+1].x, curve[i+1].y) < radius+a.Width/2+clearance-netPathGeomEps {
+						blocked = fmt.Sprintf("other-net arc %s (%s)", a.ID, a.Net)
+						break
+					}
+				}
+				if blocked != "" {
+					break
+				}
+			}
+		}
+		existing := false
+		if blocked == "" {
+			for _, v := range vias {
+				d := math.Hypot(p[0]-v.X, p[1]-v.Y)
+				if v.Net == net && d <= netPathGeomEps {
+					if math.Abs(v.Hole-hole) > netPathGeomEps || math.Abs(v.Dia-diameter) > netPathGeomEps {
+						blocked = fmt.Sprintf("same-net via %s has %.3f/%.3fmil hole/diameter, want %.3f/%.3fmil", v.ID, v.Hole, v.Dia, hole, diameter)
+					} else {
+						existing = true
+					}
+					break
+				}
+				if d < radius+v.Dia/2+clearance-netPathGeomEps {
+					blocked = fmt.Sprintf("via %s (%s)", v.ID, v.Net)
+					break
+				}
+			}
+		}
+		if blocked == "" {
+			for _, area := range areas {
+				if area.Net == net {
+					continue
+				}
+				if copperAreaPointDistance(area, p) < radius+clearance-netPathGeomEps {
+					blocked = fmt.Sprintf("other-net %s %s (%s) on layer %d", area.Kind, area.ID, area.Net, area.Layer)
+					break
+				}
+			}
+		}
+		if blocked != "" {
+			out.Problems = append(out.Problems, fmt.Sprintf("(%.3f,%.3f) conflicts with %s", p[0], p[1], blocked))
+		} else if existing {
+			out.Existing = append(out.Existing, p)
+		} else {
+			out.Create = append(out.Create, p)
+		}
+	}
+	return out
+}
+
+func copperAreaPointDistance(area pcbCopperArea, point [2]float64) float64 {
+	if compoundWinding(area.Contours, point) != 0 {
+		return 0
+	}
+	best := math.Inf(1)
+	for _, contour := range area.Contours {
+		for i, a := range contour {
+			b := contour[(i+1)%len(contour)]
+			best = math.Min(best, segPtDist(point[0], point[1], a[0], a[1], b[0], b[1]))
+		}
+	}
+	return best
+}
+
+func parseCopperAreaObstacles(fillsRaw, pouredRaw []any) ([]pcbCopperArea, error) {
+	var out []pcbCopperArea
+	for i, raw := range fillsRaw {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("static fills[%d] is not an object", i)
+		}
+		layerN, ok := asFloatOK(m["layer"])
+		if !ok || layerN != math.Trunc(layerN) {
+			return nil, fmt.Errorf("static fill %d layer is unknown", i)
+		}
+		layer := int(layerN)
+		if !netPathCopperLayer(layer) {
+			continue
+		}
+		id := strings.TrimSpace(asString(m["primitiveId"]))
+		if id == "" {
+			return nil, fmt.Errorf("static fill %d primitiveId is unknown", i)
+		}
+		if m["geometryAvailable"] != true {
+			return nil, fmt.Errorf("static fill %s geometry is unknown", id)
+		}
+		contours, err := polygonSourceContours(m["source"])
+		if err != nil {
+			return nil, fmt.Errorf("static fill %s geometry is unknown: %w", id, err)
+		}
+		out = append(out, pcbCopperArea{ID: id, Kind: "static fill", Net: asString(m["net"]), Layer: layer, Contours: contours})
+	}
+	for i, raw := range pouredRaw {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("materialized poured[%d] is not an object", i)
+		}
+		id := strings.TrimSpace(asString(m["primitiveId"]))
+		if id == "" {
+			return nil, fmt.Errorf("materialized poured[%d] primitiveId is unknown", i)
+		}
+		layerN, ok := asFloatOK(m["layer"])
+		if !ok || layerN != math.Trunc(layerN) || !netPathCopperLayer(int(layerN)) {
+			return nil, fmt.Errorf("materialized poured %s layer is unknown/unsupported", id)
+		}
+		fills, ok := m["fills"].([]any)
+		if !ok {
+			return nil, fmt.Errorf("materialized poured %s fills are unknown", id)
+		}
+		net := strings.TrimSpace(asString(m["net"]))
+		if net == "" {
+			return nil, fmt.Errorf("materialized poured %s net is unknown", id)
+		}
+		for j, rawFill := range fills {
+			fill, ok := rawFill.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("materialized poured %s fill[%d] is not an object", id, j)
+			}
+			fillID := strings.TrimSpace(asString(fill["id"]))
+			if fillID == "" {
+				fillID = fmt.Sprintf("%s:%d", id, j)
+			}
+			contours, err := polygonSourceContours(fill["source"])
+			if err != nil {
+				return nil, fmt.Errorf("materialized poured %s fill %s geometry is unknown: %w", id, fillID, err)
+			}
+			out = append(out, pcbCopperArea{ID: fillID, Kind: "poured copper", Net: net, Layer: int(layerN), Contours: contours})
+		}
+	}
+	return out, nil
+}
+
+func parseViaFenceRouting(result map[string]any) ([]pcbTrack, []pcbArc, error) {
+	tracks, arcs, err := parseNetPathLines(result)
+	if err != nil {
+		return nil, nil, fmt.Errorf("complete line/arc geometry is required: %w", err)
+	}
+	return tracks, arcs, nil
+}
+
+func viaFenceOutlineDistance(outline *boardOutline, x, y float64) float64 {
+	if outline == nil {
+		return math.Inf(-1)
+	}
+	if len(outline.Points) < 3 {
+		return math.Min(math.Min(x-outline.BBox.MinX, outline.BBox.MaxX-x), math.Min(y-outline.BBox.MinY, outline.BBox.MaxY-y))
+	}
+	best := math.Inf(1)
+	for i, p := range outline.Points {
+		q := outline.Points[(i+1)%len(outline.Points)]
+		best = math.Min(best, segPtDist(x, y, p[0], p[1], q[0], q[1]))
+	}
+	return best
 }
 
 // pcbClearScopes is the canonical set of `pcb clear --only` values, mirrored in
@@ -215,6 +449,7 @@ func newPcbCmd(cfg *appConfig, stdout, stderr io.Writer) *cobra.Command {
 	pcb.PersistentFlags().StringVar(&window, "window", "", "EasyEDA window ID")
 	pcb.AddCommand(newPcbConfigCmd(cfg, &window, stdout, stderr))
 	pcb.AddCommand(newPcbNetPathCmd(cfg, &window, stdout, stderr))
+	pcb.AddCommand(newPcbRouteCmd(stdout, stderr))
 
 	// ── drc ───────────────────────────────────────────────────────────────
 	// pcb.drc.check — the PCB counterpart to `sch drc`. Routing is automatic:
@@ -1796,6 +2031,30 @@ plane. fill = solid (default) | grid | grid45.`,
 		pcb.AddCommand(c)
 	}
 	{
+		var net string
+		c := &cobra.Command{
+			Use:   "poured-list",
+			Short: "List materialized copper after pour rebuild (exact polygon sources)",
+			Long: `Read the actual copper islands produced by the pour engine. This differs
+from pour-list, which only returns editable pour boundaries. Each result retains
+the complex polygon source, including holes and arc commands. A successful empty
+array proves there is no materialized poured object; unavailable geometry fails
+instead of being reported as empty.`,
+			Args: cobra.NoArgs,
+			Example: `  easyeda pcb pour-rebuild --net GND
+  easyeda pcb poured-list --net GND`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				payload := map[string]any{}
+				if net != "" {
+					payload["net"] = net
+				}
+				return dispatch(cfg, "pcb.poured.list", window, payload, stdout, stderr)
+			},
+		}
+		c.Flags().StringVar(&net, "net", "", "filter by pour net name")
+		pcb.AddCommand(c)
+	}
+	{
 		var idsRaw string
 		c := &cobra.Command{
 			Use:   "pour-delete",
@@ -2305,21 +2564,6 @@ read back the vias and run pcb pour-rebuild plus the official DRC.`,
 					y0, y1 = y1, y0
 				}
 				effectiveRect := [4]float64{x0 - margin, y0 - margin, x1 + margin, y1 + margin}
-				if dryRun {
-					enc := json.NewEncoder(stdout)
-					enc.SetIndent("", "  ")
-					return enc.Encode(map[string]any{
-						"dryRun":        true,
-						"shape":         "perimeter",
-						"net":           net,
-						"count":         len(points),
-						"maxPitchMil":   pitch,
-						"marginMil":     margin,
-						"effectiveRect": effectiveRect,
-						"points":        points,
-					})
-				}
-
 				vfRules := fetchPcbRules(cfg, window)
 				vHole, vDia := hole, diameter
 				if vHole == 0 {
@@ -2328,9 +2572,90 @@ read back the vias and run pcb pour-rebuild plus the official DRC.`,
 				if vDia == 0 {
 					vDia = vfRules.viaDiameterMil
 				}
-				placed := make([][2]float64, 0, len(points))
+				if !allFinite(vHole, vDia) || vHole <= 0 || vDia <= vHole {
+					return fmt.Errorf("via dimensions must be finite and diameter (%.3fmil) must exceed hole (%.3fmil)", vDia, vHole)
+				}
+				pads, err := fetchPcbPads(cfg, window)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight pads: %w", err)
+				}
+				lineRes, err := requestAction(cfg, "pcb.line.list", window, nil)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight routing: %w", err)
+				}
+				if lineRes == nil {
+					return fmt.Errorf("via-fence preflight routing is unavailable")
+				}
+				tracks, arcs, err := parseViaFenceRouting(lineRes.Result)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight routing: %w", err)
+				}
+				vias, err := fetchPcbVias(cfg, window)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight vias: %w", err)
+				}
+				fillRes, err := requestAction(cfg, "pcb.fill.list", window, nil)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight static fills: %w", err)
+				}
+				if fillRes == nil {
+					return fmt.Errorf("via-fence preflight static fills are unavailable")
+				}
+				fillsRaw, ok := fillRes.Result["fills"].([]any)
+				if !ok {
+					return fmt.Errorf("via-fence preflight static fills: result.fills is unavailable")
+				}
+				pouredRes, err := requestAction(cfg, "pcb.poured.list", window, nil)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight materialized copper: %w", err)
+				}
+				if pouredRes == nil {
+					return fmt.Errorf("via-fence preflight materialized copper is unavailable")
+				}
+				pouredRaw, ok := pouredRes.Result["poured"].([]any)
+				if !ok || pouredRes.Result["available"] != true {
+					return fmt.Errorf("via-fence preflight materialized copper is unavailable")
+				}
+				areas, err := parseCopperAreaObstacles(fillsRaw, pouredRaw)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight area copper: %w", err)
+				}
+				outlineRes, err := requestAction(cfg, "pcb.outline.get", window, nil)
+				if err != nil {
+					return fmt.Errorf("via-fence preflight board outline is unavailable: %w", err)
+				}
+				if outlineRes == nil {
+					return fmt.Errorf("via-fence preflight board outline is unavailable")
+				}
+				outline := parseBoardOutline(outlineRes.Result)
+				if outline == nil {
+					return fmt.Errorf("via-fence preflight board outline has no usable geometry")
+				}
+				preflight := preflightViaFence(points, net, vHole, vDia, vfRules.clearanceMil, vfRules.copperToEdgeMil, outline, pads, tracks, arcs, vias, areas)
+				if len(preflight.Problems) > 0 {
+					return fmt.Errorf("via-fence preflight rejected %d/%d point(s): %s", len(preflight.Problems), len(points), strings.Join(preflight.Problems, "; "))
+				}
+				if dryRun {
+					enc := json.NewEncoder(stdout)
+					enc.SetIndent("", "  ")
+					return enc.Encode(map[string]any{
+						"dryRun":        true,
+						"shape":         "perimeter",
+						"net":           net,
+						"count":         len(points),
+						"create":        len(preflight.Create),
+						"existing":      len(preflight.Existing),
+						"maxPitchMil":   pitch,
+						"marginMil":     margin,
+						"effectiveRect": effectiveRect,
+						"points":        points,
+					})
+				}
+
+				placed := make([][2]float64, 0, len(preflight.Create))
+				placedIDs := make([]string, 0, len(preflight.Create))
 				failed := make([][2]float64, 0)
-				for _, point := range points {
+				for _, point := range preflight.Create {
 					payload := map[string]any{"x": point[0], "y": point[1], "net": net}
 					if vHole > 0 {
 						payload["holeDiameter"] = vHole
@@ -2338,11 +2663,32 @@ read back the vias and run pcb pour-rebuild plus the official DRC.`,
 					if vDia > 0 {
 						payload["diameter"] = vDia
 					}
-					if _, err := requestAction(cfg, "pcb.via.create", window, payload); err != nil {
+					res, err := requestAction(cfg, "pcb.via.create", window, payload)
+					if err != nil {
 						failed = append(failed, point)
 						continue
 					}
 					placed = append(placed, point)
+					if id := strings.TrimSpace(asString(mnav(res.Result, "primitiveId"))); id != "" {
+						placedIDs = append(placedIDs, id)
+					}
+				}
+				freshVias, readErr := fetchPcbVias(cfg, window)
+				verified := readErr == nil
+				if verified {
+					for _, p := range preflight.Create {
+						found := false
+						for _, v := range freshVias {
+							if v.Net == net && math.Hypot(v.X-p[0], v.Y-p[1]) <= netPathGeomEps && math.Abs(v.Hole-vHole) <= netPathGeomEps && math.Abs(v.Dia-vDia) <= netPathGeomEps {
+								found = true
+								break
+							}
+						}
+						if !found {
+							verified = false
+							failed = append(failed, p)
+						}
+					}
 				}
 				enc := json.NewEncoder(stdout)
 				enc.SetIndent("", "  ")
@@ -2352,6 +2698,9 @@ read back the vias and run pcb pour-rebuild plus the official DRC.`,
 					"net":           net,
 					"requested":     len(points),
 					"placed":        len(placed),
+					"existing":      len(preflight.Existing),
+					"primitiveIds":  placedIDs,
+					"verified":      verified,
 					"failed":        len(failed),
 					"failedPoints":  failed,
 					"maxPitchMil":   pitch,
@@ -2362,8 +2711,8 @@ read back the vias and run pcb pour-rebuild plus the official DRC.`,
 				}); err != nil {
 					return err
 				}
-				if len(failed) > 0 {
-					return fmt.Errorf("via-fence placed %d/%d vias; read back the actual net before retrying", len(placed), len(points))
+				if len(failed) > 0 || !verified {
+					return fmt.Errorf("via-fence placed %d/%d new vias but readback was incomplete; inspect primitiveIds before retrying", len(placed), len(preflight.Create))
 				}
 				return nil
 			},
@@ -2506,6 +2855,10 @@ external router (Freerouting) would route under the antenna. The result reports
 	pcb.AddCommand(newPcbFloorplanCmd(cfg, &window, stdout, stderr))
 	// ── layout-plan: 按模块生成参数化布局候选（纯离线，不写 EDA）─────────────
 	pcb.AddCommand(newPcbLayoutPlanCmd(stdout, stderr))
+	pcb.AddCommand(newPcbEscapePlanCmd(stdout, stderr))
+	// ── module-check: schema-v2 routed-module persistence/integrity gate ─────
+	pcb.AddCommand(newPcbModuleCheckCmd(stdout, stderr))
+	pcb.AddCommand(newPcbModuleOwnedCmd(stdout, stderr))
 	// ── refine: 打分驱动的精修环（默认 dry-run，按步回滚）──────────────────────
 	pcb.AddCommand(newPcbRefineCmd(cfg, &window, stdout, stderr))
 	// ── autoroute: one-command Freerouting round-trip ────────────────────────
@@ -3646,7 +3999,7 @@ so it needs no extra setup and never mutates the board.
 
 Rules:
   • dangling-end      — a track end anchored to no pad/via/track  → WARN
-  • acute-angle       — two same-net segments bend <90° (acid trap) → WARN
+  • acute-angle       — two same-net segments bend <90° outside exact same-net pad copper (acid trap) → WARN
   • overlapping-via   — two vias stacked on the same spot          → WARN
   • single-layer-via  — a signal via that changes no layer         → WARN
   • width-mismatch    — a 2-pin part with asymmetric neck-down     → INFO

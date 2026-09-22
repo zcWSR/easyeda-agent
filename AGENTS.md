@@ -129,6 +129,23 @@ Web 项目已打开不代表 connector 已连接；`easyeda health` 的 `windows
 
 reply as chiense! reply as chiense! reply as chiense!
 
+## 2026-09-23 晶振 schema-v3 现场状态
+
+- AT32F415 目标 PCB：project `475cc0f773ed4a6fb7a02336c8a6a67f`，doc
+  `2e719e9419653c72`。connector `1.5.3-dev.6`、EasyEDA Pro `4.1.60`。
+- 晶振区禁止铺铜；只允许显式 TOP/BOTTOM GND 导线、护环、接地孔和双层 `no-pours`。
+- 首个 schema-v3 共同逃线候选虽 90/90 写入成功，第一轮 fresh `pcb module-check` 仍失败：
+  护环 create PID 被宿主替换且恢复器不接受单段同几何替换；OSC_OUT 的 4mil 短斜段造成
+  8mil 铜非端点面积重叠；U6.3 逃线终点与独立需求不一致；候选与 requirements 的旧对象
+  替换声明不一致。该候选是 `candidate-rejected`，不得重放或称为现场通过。
+- 失败候选已经 typed 精确回退并保存重载：69 components、62 tracks、2 个 U6.33 EP vias、
+  0 pours/poured/regions/fills；fresh `semanticSha256` 恢复为
+  `338e12ac849c99771067a4a628fb8855a8a0b2bba609e4b64e198452f989c913`。
+- Layout 求解器负责模块位置、旋转和移动组；每个候选投影成临时板状态后，由 PCB Router
+  公共内核验证固定几何下的路径和共同通道。不要在晶振策略中再写一套通用 Router。
+- 后续若恢复此工作，先修复上述四项并补负例，再从该干净基线重新规划。完成
+  save → reload → fresh readback → DRC → module-check 的连续两轮和独立验收前，不进入下一模块。
+
 **Branch policy:** use `dev` as the default branch for ongoing local development
 and integration. Commit and push verified day-to-day work directly to `dev`; do
 not create per-task feature branches unless the user explicitly asks for one.
@@ -301,10 +318,13 @@ reaches the daemon.
   so a marketplace connector can be **older** than
   your CLI and flag `connectorVersionOk:false`. Pure CLI/daemon changes do not require a connector re-import;
   manifest or handler changes require a rebuild. Missing design capabilities must
-  not be bypassed with `debug.exec_js`. **And re-importing
-  does NOT reload already-open EasyEDA windows** — an open window keeps running the
-  OLD connector code and fights the freshly-imported one over the daemon socket;
-  **fully quit and relaunch EasyEDA** to load new connector code.
+  not be bypassed with `debug.exec_js`.
+  **Web EDA 更新扩展后，已打开页面仍可能运行旧 connector。** 2026-09-22 实测：
+  用户导入 `1.5.3-dev.6` 后建立了新连接，但 `health` 仍报 `dev.5`；用户刷新当前 Web EDA
+  页面后，目标 PCB 上报 `dev.6` 才确认生效。先卸载旧版再导入新包（同 UUID 去重规则仍适用），
+  由用户在扩展更新后刷新当前 Web 页面，再通过 `easyeda health` 的目标 project/doc 和
+  `connectorVersion` 验证，不能以“导入成功”或新 windowId 判断加载完成。涉及未保存工程时
+  先 typed save。此记录不授权 Agent 用 GUI 刷新来恢复卡死工程，也不要求启动桌面版。
 - **EasyEDA schematic coords are y-UP** (+y renders upward). The orientation table
   in `.agents/skills/easyeda-agent/references/orientation.json` is the **stored-rotation** truth (the
   value `getState_Rotation` reads back for a correctly-oriented flag), validated

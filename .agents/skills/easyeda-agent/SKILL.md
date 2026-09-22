@@ -4,7 +4,7 @@ description: "通过本地 easyeda CLI、daemon 和连接器操作嘉立创EDA�
 license: MIT
 metadata:
   author: zhoushoujianwork
-  version: "1.5.3-dev.3"
+  version: "1.5.3-dev.6"
   homepage: "https://github.com/zhoushoujianwork/easyeda-agent"
 ---
 
@@ -107,13 +107,21 @@ metadata:
   实例/工程 region 未经现场验证时标 `incomplete`。若“系统封装无损复制到当前工程库”已在
   目标宿主重复实测失败，则将这条组合能力标 `unsupported` 并跳过该写入；可用实测封装外形
   继续参数化布局避让，但必须保留未满足考点，不得把几何代理写成已有封装禁放区。
-- PCB 模块布局先 `pcb dump --out board.json`，再运行 `pcb layout-plan --from layout.json
+- PCB 模块布局先 `pcb dump --include-copper --out board.json`，再运行 `pcb layout-plan --from layout.json
   --board board.json --module <id> --candidates 3 --out <dir>`。输入明确成员、固定轴、允许角度及
   `member pad → owner pad`；同网去耦不得按最近焊盘重新分配。候选报告位置、板边、距离和
   最近的内部/外部/keepout 对象对，不给总分；AI 写明理由后执行 `.apply.json`，都不合适就
-  改关系或搜索参数重算，禁止现场试摆。每个模块声明 `copperPolicy`；`ignore` 仍须另读
-  `track-list` 证明目标模块无铜。执行前核对输入哈希，之后 save → 有界 reload → 新 dump
-  对账。完整做法见 [模块候选 Layout](references/examples/260919-at32f415/layout-candidates.md)。
+  改关系或搜索参数重算，禁止现场试摆。带铜模块使用 schemaVersion 2，声明器件、内部铜、
+  外部端口、旧铜替换清单和验收要求；模块内部对象可刚体变换，连接固定 owner 的外部引线
+  必须在候选位置重新求解。`pcb module-check` 只在新鲜铜快照、journal 和候选一致时验收；
+  bundle 的 `affectedBaselinePours` 必须把可被重建的既有材料化铺铜绑定到 boundary/materialized
+  ID 与参数化 `impactEnvelope`：只允许声明对象在包络内变化，包络外及未声明铜严格保持。
+  晶振模块逐个证明每个 fence/anchor via 在 TOP/BOTTOM 实际 GND 铜中与 anchor 同岛，并核对
+  OSC ordered path、fresh pad geometry、实际长度/转折、capture PID 与 polygon/holes/ARC。
+  `pcb poured-list` 读取重建后的实际铺铜；只有完整 inventory 返回真实 `[]` 才是 known-empty，
+  fill/boundary/net/layer/polygon 任一缺测均为 unknown/error。执行前核对语义哈希，
+  之后 save → 有界 reload → 新 dump → pour rebuild → module-check 对账。完整做法见
+  [PCB 布线](references/pcb-routing.md) 和 [模块候选 Layout](references/examples/260919-at32f415/layout-candidates.md)。
 
 ## 样例与能力状态
 
