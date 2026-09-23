@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.4] — 2026-09-23 (local schematic acceptance candidate)
+
+- Guard whole-page schematic replacement with the complete native state of every page primitive, and recheck that state inside the typed clear action before deletion. This closes a pre-Apply blind-review finding where unchanged parts could mask a new wire or edited network marker.
+- Use bounded, source-owned peripheral relocation for a measured schematic naming island when an ordinary layout candidate has no safe naming lead. Preserve real terminal failures in budget reports and keep the measured Designator collision rule strict. Offline planning is not live Apply acceptance.
+
 ## [1.6.0-dev.3] — 2026-09-23 (local schematic acceptance candidate)
 
 - Make real Designator text bboxes closed wire obstacles in the schematic checker, including edge overlap, endpoint contact and corner tangency. Keep zero-length records excluded and component-body pin-contact rules unchanged. This corrects a blind-review finding before the next live acceptance run.

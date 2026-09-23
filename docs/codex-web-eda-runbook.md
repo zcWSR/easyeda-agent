@@ -54,7 +54,7 @@ easyeda update --local-dir "$PWD/dist/local-vX.Y.Z-dev.N" --check --exit-code
 
 ## 3. 让无历史上下文的 Codex 执行与独立验收
 
-给**新上下文**执行 subagent 只提供下列任务 prompt 和
+给**新上下文**执行 subagent（`fork_turns: none`）只提供下列任务 prompt 和
 [`esp32MiniRequire.md`「一、客户原始需求」](../esp32MiniRequire.md#一客户原始需求)。不提供
 历史报告、加工后的 BOM/UUID/网表、预制布局或答案图；它自行选型和规划。
 
@@ -62,15 +62,35 @@ easyeda update --local-dir "$PWD/dist/local-vX.Y.Z-dev.N" --check --exit-code
 > 在已核对版本及工程/页 UUID 的专用 Web EDA 测试工程中，从原始快照构建参数化连接与
 > 核心/外围归属，逐件测量唯一可见位号的官方 bbox，完成区内布局、整页布局、固定转换、
 > 受保护 Apply。图签文本进入逐页源。对器件、物理引脚到网/NC、真实直连、位号、框和
-> 导线逐对象回读；通过严格检查后显式保存、真实重载、新鲜回读。随后只从保留源做一次
+> 导线逐对象回读；对“插上 USB 就能烧录”记录是否支持免手按键进入下载模式，
+> 区分原理图可证明的控制路径与必须由实板证明的烧录行为。通过严格检查后显式保存、
+> 真实重载、新鲜回读。随后只从保留源做一次
 > 核心及专属外围的局部移动，并证明范围外对象不变；再测写前拒绝与重算幂等。保存所有
 > 输入、哈希、计划、journal、错误和 readback。任何连接/加载/保存/回读失败立即停写，
 > 不用 GUI 或任意 JS 补工程。逐项报告 pass、fail、blocked、not-run，不沿用旧结论。
 
 主 Agent 只协调该窗口；其他 subagent 可并行做离线源审查。需要独立验收时另开**新上下文**
-评审 subagent，只给冻结的输入、journal 与 fresh 证据，不给执行员的自评结论；在主 Agent
-暂停访问窗口时才允许只读现场核查。具体场景 M1/F1/F2/L1/L2/N1/R1 和判据见
+评审 subagent（同样 `fork_turns: none`），只给冻结的输入、journal 与 fresh 证据，
+不给执行员的自评结论；在主 Agent
+暂停访问窗口时才允许只读现场核查。具体场景 M1/F1/F2/E1/L1/L2/N1/R1 和判据见
 [1.6.0 原理图测试报告](reviews/2026-09-23-v1.6.0-schematic-acceptance.md)。
+
+目标页尚未放置的器件若需官方位号 bbox，可用**专用临时原理图页**测量：先冻结目标页
+fresh 对象快照，typed 创建临时页并保存返回 UUID，只放与源一致的 device/变体/旋转，
+用 `sch designator-geometry` 和 fresh `sch list --include-pins` 逐件对齐位号、parent 与页身份。
+按原始创建 UUID typed 删除临时页，再读页列表与原目标页完整对象并比较；保留创建/删除
+请求和回包。即时相等只证明内存状态，未经过 save→reload→fresh readback 时，清理的
+持久化仍标 `incomplete`。运行期间其他 Agent 不访问同一窗口。
+
+逐件只允许一条 attachment 表达所属外围的主依附关系；同一器件分别用两个真实引脚
+再声明一次，哪怕端点同网，也应在 `sch zone-review` / `sch layout-plan --zones` 被拒绝。
+新增正式页面后先重新读取**所有目标页**的 fresh `sch list`，再编 guarded playbook：
+图框的派生 `@Page Count` 会随页面数变化，使建页前的快照过期。逐页对比对象时可单独
+报告这个派生字段，不能因此忽略器件、引脚、导线或实例身份的实际差异。
+使用 `--replace` 清理已有页面时，队列必须在 `sch clear` **之前**核对该页全部将被删除的
+图元清单及内容，至少覆盖器件、导线、网络标记和图形/图框；仅检查器件数量或执行清页后的
+`--expect-empty` 不足以保护现场。对相同器件但额外一条导线的快照做负例 dry-run，确认
+写前拒绝；独立评审通过后才执行。重编队列须以最终版本连接器的新鲜页快照为输入。
 
 ## 4. 判定与收尾
 
