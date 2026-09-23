@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.7] — 2026-09-24 (local schematic acceptance diagnostic)
+
+- Add a read-only exact project lookup over the official team-root UUID inventory and per-project details. A failed `project.create` that returned no UUID can now be reconciled before any retry; missing, empty or partial inventories never count as proof of absence.
+
 ## [1.6.0-dev.6] — 2026-09-24 (local schematic acceptance diagnostic)
 
 - Add a read-only typed schematic attribute diagnostic that compares the exact `KeyVisible` and `ValueVisible` values from full enumeration, direct lookup and the official async reset path. It reports unreadable fields and document drift without changing the design or relaxing the guarded snapshot.
