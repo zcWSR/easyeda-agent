@@ -8,30 +8,48 @@
 
 ## 1. 准备可识别的本地版本
 
+`make dev` 只热重建 Go CLI/daemon。连接器也有**开发专用热更新**：对已安装且授权外部交互
+的同一 UUID，按 [开发环境 §5](dev-environment.md#5-hot-reload-the-connector-skip-uninstall--re-import)
+核对旧/新 bundle 哈希后，经本地 WebSocket 原子替换 IndexedDB 中的连接器文件与版本，
+再重载网页；这省去卸载和重新导入。它不是运行中 JavaScript 的即时替换，也不是普通
+用户升级渠道。新安装、旧扩展已卸载或校验不通过时才走下方 `.eext` 导入流程；
+两条路径都须以运行中的 `connectorVersion`、工程/文档身份和 fresh 对象回读验收。
+
 1. 从源码选择新的 `vX.Y.Z-dev.N`，同步连接器、npm、Skill 元数据和 changelog；**每次源码改变
    递增 N**，不以同版不同内容充当独立验收候选。
 2. 运行与改动相应的测试、`make skill-check` 和 `git diff --check`，审查并提交属于本轮的源码。
-3. 构建可信本地包，安装包里的 CLI 和 Skill，再用安装后的 CLI 重启 daemon。命令里的版本和
-   `darwin_arm64` 按当前候选及本机平台替换；daemon 命令在单独终端保持运行。
+3. 构建可信本地包。命令里的版本和 `darwin_arm64` 按当前候选及本机平台替换。
 
 ```bash
 make local-build VERSION=vX.Y.Z-dev.N DIST="$PWD/dist/local-vX.Y.Z-dev.N"
+```
+
+4. **切换运行时之前**，在旧 CLI/daemon/connector 精确同版的窗口里对每个已打开的测试页运行
+   `easyeda sch save --project <project> --doc <page>`，逐页保留 `saved:true` 回包。版本不符
+   或窗口未连接时停止，不能用 GUI 保存兜底。
+5. 安装包里的 CLI 和 Skill，再用安装后的 CLI 重启 daemon；daemon 命令在单独终端保持运行。
+
+```bash
 dist/local-vX.Y.Z-dev.N/easyeda_darwin_arm64 update \
   --local-dir "$PWD/dist/local-vX.Y.Z-dev.N" \
   --binary "$(command -v easyeda)"
 make local-daemon-restart LOCAL_EASYEDA="$(command -v easyeda)"
 ```
 
-4. 更新连接器前，在旧 CLI/daemon/connector 精确同版的窗口里对每个已打开的测试页运行
-   `easyeda sch save --project <project> --doc <page>`，逐页保留 `saved:true` 回包。版本不符
-   或窗口未连接时停止，不能用 GUI 保存兜底。
-5. 在用户的内置浏览器 Web EDA 中进入 **高级 → 扩展管理器 → 已安装**。辨认目标侧载项的
-   版本和 UUID；市场版保持禁用，同 UUID 的旧侧载项先卸载。从上述 `dist` 导入
-   `easyeda-agent-connector.eext`，接受安装提示后在该扩展的 **配置** 中启用
-   **允许外部交互**。该权限允许连接本机 WebSocket 并调用宿主的文件/联网接口；首次启用
-   按浏览器权限规则取得用户确认。扩展列表显示新版本仍不证明当前网页运行新代码。
-6. 更新后**请用户刷新或重开当前 Web 页面**，Agent 不用 GUI 刷新来恢复工程或代替 typed
-   验证。即使 `health` 在刷新前自行上报了新版本，也继续等待刷新后的新鲜连接与对象回读。
+6. 已安装同 UUID 侧载连接器且仍启用外部交互时，**优先执行**
+   [有界热更新](dev-environment.md#5-hot-reload-the-connector-skip-uninstall--re-import)：
+   记录 team UUID、连接器 UUID/旧版本、已安装 bundle 哈希与新 bundle 哈希；保存当前文档，
+   启动仓库自带 WS 文件服务器，通过正常 `debug exec` 运行已审阅的专用注入脚本。
+   脚本只更新该连接器的两个 IndexedDB 记录，不改权限、工程对象或站点数据；身份、权限、
+   哈希或原子写入校验失败就停止，不以任意 JS 兜底。脚本安排的网页重载完成后再核对运行态。
+7. 首次安装、旧项已卸载或热更新前置校验不成立时，在内置浏览器进入 **高级 → 扩展管理器
+   → 已安装**。核对目标侧载项版本和 UUID；市场版保持禁用，同 UUID 旧侧载项先卸载。
+   从上述 `dist` 导入 `easyeda-agent-connector.eext`，接受安装提示，在该扩展的 **配置**
+   中启用 **允许外部交互**。首次启用该权限按浏览器权限规则取得用户确认；
+   扩展列表显示新版本仍不证明当前网页运行新代码。
+8. 导入更新后**请用户刷新或重开当前 Web 页面**；热更新则等待专用脚本安排的重载。
+   Agent 不用 GUI 刷新来恢复卡死工程或代替 typed 验证。即使 `health` 在重载前自行上报了
+   新版本，也继续等待刷新后的新鲜连接与对象回读。
 
 ## 2. 核对实际运行时与测试工程
 
