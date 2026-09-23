@@ -17,7 +17,7 @@ easyeda <domain> <action> [flags]
 | `easyeda pcb config` | 当前 PCB 配置：get / clearance / track / via / bind；局部参数修改、单位换算、dry-run 和真实回读 |
 | `easyeda bom` | BOM 导出与补全 |
 | `easyeda lib` | 器件库搜索、符号/封装/Device 资产创建与选型 |
-| `easyeda daemon` | 守护进程管理（start / health） |
+| `easyeda daemon` | 守护进程管理（start / stop / restart / health；restart 与 start 同为前台阻塞） |
 | `easyeda audit` | 操作日志查看 |
 | `easyeda update` | 自更新（别名 `upgrade`）：CLI 二进制 + skill 目录 → latest；连接器只报不改 |
 | `easyeda skill` | skill 目录单独管理（status / sync；`update` 已含其能力） |
