@@ -8,6 +8,8 @@ uninstall→re-import dance entirely.
 Companion docs: [connector-contract.md](connector-contract.md) (the wire
 protocol & runtime constraints) and [protocol.md](protocol.md) (message
 envelopes). This file is the operational "how do I run it" guide.
+For Codex Desktop's in-app browser and a versioned local test, follow the
+[Codex Web EDA runbook](codex-web-eda-runbook.md).
 
 ## The AI-agent automation testing loop (what this whole setup is for)
 
