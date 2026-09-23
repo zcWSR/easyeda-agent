@@ -23,6 +23,9 @@ skill ──▶ Go CLI/daemon ──WebSocket──▶ connector .eext ──▶
 ## 官方插件库调研参考
 文章：docs/ecosystem-survey.md，遇到什么不确认的情况可以来这里参考分析，并更新认知到相应文档；
 
+PCB Layout/Router 算法选型、最优性判断、KiCad/开源 AI MCP/Skill 对照及二层测试设计，按需读
+[调研与验证计划](docs/pcb-layout-solver-research.md)。其中未执行的计划不代表已实现或已验收能力。
+
 ## 核心概念拉通认知
 [`docs/concepts.md`](docs/concepts.md) = 布局/布线域的**共享词汇表**(网 / 网感知 vs 几何 /
 布局分档 T1–T4 / edge 语义 / 块数据模型 / 可信判据)。**引入或讨论新概念对象先落这里再引用**,

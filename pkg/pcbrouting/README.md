@@ -15,6 +15,10 @@ result, err := pcbrouting.Solve(ctx, request, segmentClear)
 err = pcbrouting.Check(ctx, request, result.Points, segmentClear)
 ```
 
+板级多网络使用 `SolveJoint`。候选工厂必须依据已经选中的全部路径生成备选，公共内核采用
+MRV 和有限回溯；`CheckJoint` 独立确认每个 demand 恰好一个候选，并按同一顺序重验共同
+占用。联合层只管理候选、共享状态预算和回溯，层/过孔/板几何仍由宿主 checker 明确提供。
+
 `Solve` 找到路径后会调用同包的 `Optimize45`，在逐段重新检查净距的前提下，先减少真实转折，
 再缩短中心线。调用方已有合法路径时也可单独调用该函数；输入超过 4096 点时只做确定性压缩
 和复验，避免可见性优化产生无界计算。
@@ -36,7 +40,8 @@ err = pcbrouting.Check(ctx, request, result.Points, segmentClear)
 `found` 证明一条可行路径，不承诺最优。其余可行性搜索结果为 `incomplete`，原因包括
 `endpoint-blocked`、`no-path-within-bounds`、`state-budget`、`grid-limit`；它们都不证明
 物理板全局无解。非法请求与 context 取消还返回 Go error。
-多网协调、换层、差分、等长、阻抗及回流策略不属于本次提取范围。
+`Solve` 本身仍是单层零过孔。`SolveJoint` 提供多网共同选择；二层换层策略由 `pcbsolve`
+使用公共单次寻路和共同检查组合。差分、等长、阻抗及回流策略仍不属于当前实现。
 
 验证：`go test ./pkg/pcbrouting`；性能采样：
 `go test ./pkg/pcbrouting -run '^$' -bench BenchmarkSolveDetour -benchmem`。

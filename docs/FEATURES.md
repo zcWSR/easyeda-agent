@@ -26,7 +26,17 @@
   无额外 CLI 安装；当前为单层零过孔、直线/45°有界寻路与独立路径校验（离线能力）。
   快照适配层处理真实几何/规则，未知数据、圆弧铜及有限搜索失败保持 incomplete；
   每次运行同时生成整板 SVG，覆盖目标层焊盘、铜、开槽、禁线区、搜索边界、候选线宽/净距
-  和失败原因。多网整板协调、换层与现场写入尚不属于此命令。
+  和失败原因。`pkg/pcbmodel`、`pkg/pcblayout`、`pkg/pcbsolve` 进一步提供固定装配面的二层
+  布局/共同路由闭环；`pcb layout solve/check/render` 读取完整快照，依据实际阻挡让完整组
+  让位，支持 TOP/BOTTOM 与有预算的两过孔路径，并按事实向量保留最多三个候选。solve 同时
+  输出基线、各次尝试和最终候选的整板/自动聚焦局部 SVG。该能力已通过文件案例、独立复验及
+  `ceshi` fresh dump 的离线重放。后续新增 `translationSearch`，从实测冲突动态生成位置，
+  支持机械冲突递归让位并输出可复验的通道预留；自动移动要求完整外部连接图。
+  旧 ceshi 直线小案例曾通过两轮 typed 回读，但用户随后指出通道预留与块间调整仍不足，
+  该记录不作为当前方案 Layout 完成或确认依据。新双网窄口竞争案例已在合成数据离线验证，
+  并在 `ceshi/PCB1` 完成测试通道的自动让位、layout-only Apply 和连续两轮保存重载回读。
+  这不证明整板所有连接可布通；现场 DRC 仍有连接/网表错误，规划路径未写铜；四层仅建模并
+  明确拒绝联合求解。
   [输入与边界](../.agents/skills/easyeda-agent/references/pcb-routing.md#离线单层寻路与独立复验)。
 - PCB 模块候选：`pcb layout-plan` 纯本地读取 `pcb dump` 与显式模块/pad 所有权，有限枚举
   `edge`、`pin-satellites`、`rigid` 及 schema-v2 `crystal-guard` 候选，输出事实、局部/整板/
@@ -57,7 +67,8 @@
 | 字体 | `pcb.silk.create/modify` / `pcb silk-add/set --font-family` | 写入后回读实际字体；modify 静默失败会被识别。 |
 | 封装区域 | `footprint.region.create` / `lib footprint region` | 在已可写封装中创建区域并核对 layer、rule、线宽、锁定和 polygon；宿主忽略可选 name 时保留已验证区域并报警，材料差异或保存失败才回滚。系统库封装无损复制到**当前工程库**后再写 region 的组合路径在 EasyEDA 4.1.60 两次现场调用均失败，当前标 `unsupported`；个人库试验不能外推为当前工程 U3 已完成。 |
 | 模块候选布局 | `pcb layout-plan --from --board --module --candidates --out` | footprint anchor 为写坐标；bbox/pads/板框中心线用于变换、避让与事实测量；报告最小间隙及对应对象对，输出目录整体替换，候选绑定原始输入 SHA256。 |
-| 铜完整快照 | `pcb dump --include-copper` | 串行采集 tracks/arcs、vias、pour 边界、实际 poured fills、regions、静态 fills；每类保留 available/unknown，并生成忽略采集时间的语义 SHA256。 |
+| 二层布局/布线协同 | `pcb layout solve/check/render` | 纯离线读取 fresh `pcb dump --include-copper`；完整移动组与内部铜刚体投影，多网共同路径、路由反馈让位、共享状态预算和独立复验；输出基线/失败尝试/最终候选的整板与局部 SVG。四层联合求解 planned。 |
+| 铜完整快照 | `pcb dump --include-copper` | 串行采集 tracks/arcs、vias、pour 边界、实际 poured fills、regions、静态 fills；每类保留 available/unknown，并生成忽略采集时间、项目显示标签和哈希自身的语义 SHA256。 |
 | 实际铺铜读取 | `pcb.poured.list` / `pcb poured-list` | 将宿主材料化 fill 的 0.1mil 坐标/线宽归一化为 mil，保留 nested contours 与 degree ARC sweep；`fill:false` 标为带线宽的 thermal-spoke path。只有完整 inventory 的真实 `[]` 是 known-empty，fill/boundary/net/layer/polygon 任一缺测均为 unknown/error。 |
 | 带铜模块验收 | `pcb module-check --candidate --before --after --journal` | 核对 fresh 语义基线、OSC track/arc replacement 精确全集、严格 PID journal、成员与 pad 几何、ordered path、含实际 signal-main stroke 的双层 no-pours、逐段 guard 到 anchor 的列出铜路径、逐个 GND via 的双层实际铜同岛连接及所有非目标差异；`affectedBaselinePours` 只放行影响包络内的声明铺铜重算，缺测返回 incomplete/fail。 |
 

@@ -124,6 +124,10 @@ metadata:
   fill/boundary/net/layer/polygon 任一缺测均为 unknown/error。执行前核对语义哈希，
   之后 save → 有界 reload → 新 dump → pour rebuild → module-check 对账。完整做法见
   [PCB 布线](references/pcb-routing.md) 和 [模块候选 Layout](references/examples/260919-at32f415/layout-candidates.md)。
+- 跨模块通道竞争使用纯离线 `pcb layout solve --board board.json --from request.json --out report.json`；
+  `pcb layout check` 从原板和独立请求重建/复验候选，`pcb layout render` 只渲染同一候选。
+  当前仅支持完整实测的二层 TOP/BOTTOM，四层层数不得推断平面角色。离线候选 typed 写入后仍需
+  连续两轮 Layout 自检，并在进入整板布线前等待用户确认持久化回读版本。
 
 ## 样例与能力状态
 

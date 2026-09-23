@@ -1,5 +1,8 @@
 # 官方扩展生态调研 & 可吸收能力清单 — 2026-06-28（§9 KiCad 横向对比补于 2026-08-01）
 
+PCB 自动布局/布线算法、最优性、KiCad MCP/Skill 与二层协同求解的专项调研及验证计划，见
+[PCB Layout/Router 调研与验证计划](pcb-layout-solver-research.md)（2026-09-23；源码调研，算法对比实验尚未执行）。
+
 > **目的**：本项目是 skill 驱动、agent **全自主**操作 EasyEDA Pro 的自动化层。
 > 嘉立创官方在 `github.com/easyeda` 开源了一大批扩展(eext-*),它们调用的是和我们
 > **完全相同**的 `eda.*` API。本调研系统性挖掘这些扩展的源码 + 官方类型定义,目的不是

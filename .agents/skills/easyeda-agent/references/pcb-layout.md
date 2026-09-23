@@ -28,6 +28,45 @@ easyeda pcb layout-plan \
 easyeda apply candidates/candidate-01.apply.json
 ```
 
+跨模块通道竞争使用二层协同入口：
+
+```bash
+easyeda pcb dump --include-copper --out board.json
+easyeda pcb layout solve --board board.json --from solve-request.json --out solve-report.json
+easyeda pcb layout check --board board.json --from solve-request.json \
+  --candidate solve-report.candidate-01.json --out check.json
+easyeda pcb layout render --board board.json \
+  --candidate solve-report.candidate-01.json --out candidate.svg
+```
+
+该组命令没有 appConfig/window，不能写编辑器。Layout 只变换声明的完整组及其内部
+track/via/region；Router 在每个固定投影上共同检查所有 demand，失败的实际阻挡对象用于优先
+让位。布局、共同路由和单次寻路共享总状态预算；耗尽保留已通过独立复验的合法候选，同时
+标记搜索未完成。最终按移动组数、总位移、旋转、新过孔、实际线长、转折排序，不合成总分。
+
+布局完成前必须检查块间导线需要的空间。自动让位入口使用
+`layout.groups[].translationSearch: {"step": 10, "maxDistance": 80}`（mil），允许在原始位置
+附近按网格搜索；`offsets` 仍兼容旧的显式备选位置。先共同试布，记录实际被拒绝路径的
+网络、层、对象和位置，再移动完整组并重算所有声明连接。最终候选的通道预留包含路径铜宽、
+净距及过孔占用；预留只存在于计算结果，不加入 board 的既有铜，也不由 layout Apply 写入。
+只检查少数 demand 只能证明这些连接；没有完整块间连接需求时，不能称整板布局可布通。
+自动让位会拒绝缺少完整外部连接图的输入；已有焊盘与铜的接触不能因移动而断开，外部旧铜
+尚无显式替换模型时要保留该失败，不能以新路径预留替代旧铜重建。状态/网格资源耗尽不归因
+于器件阻挡。该能力已通过合成案例离线验证，初始布局前的全局通道容量估计仍为 planned。
+布局检查不得因原板已有同一对象对的问题，就豁免移动后的重叠或越界。
+
+输入要求 fresh `pcb dump --include-copper` 的精确多边形板框、live 规则、全部铜分类及匹配的
+`semanticSha256`。当前固定装配面，支持 TOP/BOTTOM、直线/45°和每网最多两个过孔；四层只在
+公共模型表达，旧 dump 的层数不能推断内层用途。输出含基线、每次失败尝试和最终候选的
+整板 SVG 与同名 `*.local.svg`；局部范围由声明端点、移动组、实际路径和过孔自动计算，仍与
+整板图消费同一候选。SVG 不证明连通。提供 `--apply-project/--apply-doc` 时，solve 为不含内部铜
+移动的候选输出绑定工程/文档的 layout-only playbook；执行前还须 fresh dump 对照候选的
+`baseSemanticHash`，绑定本身不会自动完成这项哈希检查。playbook 只写器件位置并保存，不写规划路径。移动显式内部铜
+的候选会输出 `unsupported` 说明，不能只移动器件。2026-09-23 的 `ceshi/PCB1` 双网测试
+已完成“受阻 fresh dump → 自动反馈让位 → 独立 check → layout-only typed Apply → 连续两轮预览/回读”；
+它只验证测试通道，规划铜未写入，整板 DRC 尚未通过，不升级为整板布线验收。
+无论哪种情况都必须从同一 candidate 投影生成 typed 队列，不能从 SVG 反推。
+
 `layout.json` 使用 mil、`footprint-anchor` 坐标语义，逐模块声明成员、策略、固定轴、允许的
 0/90/180/270°角度、装配面、搜索间距和显式 `copperPolicy`。去耦等外围必须写
 `member pad → owner pad`；同一电源网有多个物理供电脚时以真实 pad number/primitiveId 归属，

@@ -753,6 +753,11 @@ func boardSnapshotSemanticSHA256(s *boardSnapshot) (string, error) {
 	}
 	clone := *s
 	clone.CapturedAt = ""
+	// Project is capture provenance, not board semantics. `pcb dump` resolves
+	// and attaches the user-facing project label after fetchBoardSnapshot has
+	// collected the geometry; hashing it made every --project dump invalidate
+	// its own semanticSha256 as soon as it was written to disk.
+	clone.Project = ""
 	clone.SemanticSHA256 = ""
 	raw, err := json.Marshal(clone)
 	if err != nil {
