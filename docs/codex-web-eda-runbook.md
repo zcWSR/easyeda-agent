@@ -100,6 +100,10 @@ team UUID 下显式传 `--team` 的创建返回空 UUID，经 50 项完整清单
 > 输入、哈希、计划、journal、错误和 readback。任何连接/加载/保存/回读失败立即停写，
 > 不用 GUI 或任意 JS 补工程。逐项报告 pass、fail、blocked、not-run，不沿用旧结论。
 
+每个离线布局候选以独立文件名保存原始输入和报告，禁止覆盖旧候选输入。提交评审前逐一
+核对报告 `sourceSha256` 与其配对输入文件原始字节 SHA-256；不配对的旧报告只作为失败
+发生过的记录，不能解释当前候选或进入 compose/Apply。成功页、重算页也适用此规则。
+
 主 Agent 只协调该窗口；其他 subagent 可并行做离线源审查。需要独立验收时另开**新上下文**
 评审 subagent（同样 `fork_turns: none`），只给冻结的输入、journal 与 fresh 证据，
 不给执行员的自评结论；在主 Agent
