@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.3] — 2026-09-23 (local schematic acceptance candidate)
+
+- Make real Designator text bboxes closed wire obstacles in the schematic checker, including edge overlap, endpoint contact and corner tangency. Keep zero-length records excluded and component-body pin-contact rules unchanged. This corrects a blind-review finding before the next live acceptance run.
+
+## [1.6.0-dev.2] — 2026-09-23 (local schematic acceptance candidate)
+
+- Add a read-only typed export of every current-page Designator's official text bbox, parent and measurement source. Reject incomplete or ambiguous measurements before source-driven layout uses them. The first live `dev.1` test found four wire intersections with Designator text; live `dev.2` verification remains pending.
+
 ## [1.6.0-dev.1] — 2026-09-23 (local schematic acceptance candidate)
 
 - Prepare a local candidate for independent schematic parameterization testing: full source-driven generation, scoped core movement, pin-label repair when a real defect exists, instance preservation, and save/reload readback. This entry records the test scope, not a live pass or a published release.
