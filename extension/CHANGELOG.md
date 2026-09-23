@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.6] — 2026-09-24 (local schematic acceptance diagnostic)
+
+- Add a read-only typed schematic attribute diagnostic that compares the exact `KeyVisible` and `ValueVisible` values from full enumeration, direct lookup and the official async reset path. It reports unreadable fields and document drift without changing the design or relaxing the guarded snapshot.
+- Keep the higher full connector version for duplicate document sockets, including `-dev.N`, so a late reconnect from an older Web runtime cannot displace the newer connection. This does not itself establish that the target page data is readable.
+
 ## [1.6.0-dev.5] — 2026-09-23 (local schematic acceptance candidate)
 
 - Reread sparse schematic attribute state by exact primitive ID before accepting a guarded full-page snapshot. EasyEDA Pro 4.1.60 returned `undefined` for `KeyVisible` in the bulk attribute inventory; a second official read must produce a supported value or replacement remains blocked with no deletion. The prior `dev.4` three-page Apply is still untested.
