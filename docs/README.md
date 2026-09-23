@@ -14,6 +14,7 @@
 | 确认能做什么、不能做什么 | [FEATURES.md](FEATURES.md) | [cli/README.md](cli/README.md) |
 | 理解概念与职责 | [concepts.md](concepts.md)、[architecture.md](architecture.md) | [schematic-connectivity-model.md](schematic-connectivity-model.md) |
 | 比较 PCB Layout/Router 算法、最优性与二层验证方案 | [调研与验证计划](pcb-layout-solver-research.md) | 开源源码、MCP/Skill 对照与分层测试；计划不代表已验收 |
+| 逐项验证已有电路块的组合移动与布线空间 | [PCB 开发验证清单](pcb-layout-validation.md) | 独立场景、自动用例映射、现场证据与待办分开记录 |
 | 新增或修复工具能力 | [cli-design.md](cli-design.md)、[protocol.md](protocol.md) | [connector-contract.md](connector-contract.md)、[ecosystem-survey.md](ecosystem-survey.md) |
 | 维护 Skill 和知识 | [skill-design.md](skill-design.md)、[编写约定](../.agents/skills/README.md) | [Agent 协作设计](agent-collaboration.md) |
 | 准备已获批准的版本发布 | [release-workflow.md](release-workflow.md) | [仓库发布授权规则](../AGENTS.md) |
