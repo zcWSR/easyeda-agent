@@ -1,6 +1,7 @@
 """Offline release preparation regression; all writes stay in temporary repos."""
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -112,6 +113,36 @@ class ReleaseVersionAndAssetTests(unittest.TestCase):
     def write_json(self, path, data):
         (self.repo / path).write_text(json.dumps(data))
 
+    def set_version(self, version):
+        for file in ["extension/extension.json", "extension/package.json", "extension/package-lock.json",
+                     ".agents/skills/easyeda-agent/SKILL.md", "extension/CHANGELOG.md"]:
+            path = self.repo / file
+            path.write_text(path.read_text().replace("1.4.2", version))
+
+    def make_evidence(self, result="pass", review="pass", tracked=True):
+        directory = self.repo / "docs/releases/evidence/v1.6.0"
+        directory.mkdir(parents=True)
+        case_ids = ("M1", "F1", "F2", "E1", "L1", "L2", "N1", "R1", "E2E")
+        files = {
+            "test-report.md": ("# Test report\n## 现场回读\nFresh live objects after save/reload.\n"
+                               + "".join(f"| {case_id} | pass | Fresh readback and frozen evidence sha256 for {case_id}. |\n"
+                                         for case_id in case_ids)
+                               + "## 独立复核\nBlind agent checked object-level evidence.\n").encode(),
+            "baseline.md": b"# Baseline\nRaw input and expected thresholds.\n",
+            "test-cases.md": ("# Test cases\n"
+                              + "".join(f"| {case_id} | Raw input | Expected result |\n" for case_id in case_ids)).encode(),
+        }
+        for name, data in files.items():
+            (directory / name).write_bytes(data)
+        manifest = {"schemaVersion": 1, "version": "v1.6.0", "result": result,
+                    "independentReview": review,
+                    "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+        if tracked:
+            subprocess.check_call(["git", "init", "-q", str(self.repo)])
+            subprocess.check_call(["git", "-C", str(self.repo), "add", "docs/releases/evidence/v1.6.0"])
+        return directory
+
     def test_sources_are_checked_without_mutation(self):
         before = {p: p.read_bytes() for p in self.repo.rglob("*") if p.is_file()}
         self.assertEqual(release.check_sources(self.repo, "v1.4.2"), "1.4.2")
@@ -148,6 +179,74 @@ class ReleaseVersionAndAssetTests(unittest.TestCase):
         (dist / release.ASSETS[0]).unlink()
         with self.assertRaisesRegex(ValueError, "missing/empty"):
             release.write_checksums(dist)
+
+    def test_minor_release_requires_reviewed_tracked_evidence(self):
+        self.set_version("1.6.0")
+        with self.assertRaisesRegex(ValueError, "evidence missing"):
+            release.check_sources(self.repo, "v1.6.0")
+        directory = self.make_evidence(result="in-progress")
+        with self.assertRaisesRegex(ValueError, "pass result"):
+            release.check_sources(self.repo, "v1.6.0")
+        manifest_path = directory / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["result"] = "pass"
+        manifest_path.write_text(json.dumps(manifest))
+        self.assertEqual(release.check_sources(self.repo, "v1.6.0"), "1.6.0")
+        (directory / "test-report.md").write_text("changed after review\n")
+        with self.assertRaisesRegex(ValueError, "SHA256 differs"):
+            release.check_sources(self.repo, "v1.6.0")
+
+    def test_declared_pass_cannot_hide_failed_report_case(self):
+        self.set_version("1.6.0")
+        directory = self.make_evidence()
+        report = directory / "test-report.md"
+        report.write_text(report.read_text().replace("| F2 | pass |", "| F2 | fail |"))
+        manifest = directory / "manifest.json"
+        data = json.loads(manifest.read_text())
+        data["sha256"]["test-report.md"] = hashlib.sha256(report.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "case F2 is not pass"):
+            release.check_sources(self.repo, "v1.6.0")
+
+    def test_minor_evidence_is_packaged_and_checked_as_release_asset(self):
+        self.set_version("1.6.0")
+        directory = self.make_evidence()
+        self.assertEqual(release.check_sources(self.repo, "v1.6.0"), "1.6.0")
+        dist = self.repo / "dist"
+        dist.mkdir()
+        for name in release.ASSETS:
+            (dist / name).write_bytes(name.encode())
+        bundle = dist / release.EVIDENCE_ASSET
+        release.package_evidence(self.repo, "v1.6.0", bundle)
+        with zipfile.ZipFile(bundle) as archive:
+            self.assertEqual(archive.namelist(), ["manifest.json", *release.EVIDENCE_FILES])
+        release.write_checksums(dist, "v1.6.0")
+        self.assertIn(release.EVIDENCE_ASSET, (dist / "checksums.txt").read_text())
+        bundle.write_bytes(bundle.read_bytes() + b"tampered")
+        checksums = (dist / "checksums.txt").read_text()
+        self.assertNotEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(),
+                            next(line.split()[0] for line in checksums.splitlines()
+                                 if line.endswith(release.EVIDENCE_ASSET)))
+        release.package_evidence(self.repo, "v1.6.0", bundle)
+        release.check_evidence_archive(bundle, release.evidence_files(self.repo, "v1.6.0"))
+        (directory / "baseline.md").write_bytes(b"unreviewed baseline")
+        with self.assertRaisesRegex(ValueError, "SHA256 differs"):
+            release.check_evidence_archive(bundle, release.evidence_files(self.repo, "v1.6.0"))
+
+    def test_dev_build_removes_stale_minor_evidence_asset(self):
+        self.set_version("1.6.0-dev.1")
+        self.assertEqual(release.check_sources(self.repo, "v1.6.0-dev.1", local_dev=True), "1.6.0-dev.1")
+        dist = self.repo / "dist"
+        dist.mkdir()
+        stale = dist / release.EVIDENCE_ASSET
+        stale.write_text("old release")
+        release.package_evidence(self.repo, "v1.6.0-dev.1", stale)
+        self.assertFalse(stale.exists())
+
+    def test_historical_minor_release_is_not_retroactively_gated(self):
+        self.set_version("1.5.0")
+        self.assertEqual(release.check_sources(self.repo, "v1.5.0"), "1.5.0")
+        self.assertNotIn(release.EVIDENCE_ASSET, release.release_assets("v1.5.0"))
 
 
 if __name__ == "__main__":

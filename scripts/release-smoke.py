@@ -26,6 +26,9 @@ ASSETS = (
     "easyeda_linux_arm64", "easyeda_windows_amd64.exe",
     "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh", "install.ps1",
 )
+EVIDENCE_ASSET = "test-evidence.zip"
+EVIDENCE_FILES = ("manifest.json", "test-report.md", "baseline.md", "test-cases.md")
+REQUIRED_CASES = frozenset(("M1", "F1", "F2", "E1", "L1", "N1", "R1", "E2E"))
 # These helpers are directly executable in the public package. Other Python
 # helpers are intentionally invoked via python3 and need only read permission.
 EXECUTABLE_HELPERS = (
@@ -47,20 +50,65 @@ def digest(path):
         return checksum.hexdigest()
 
 
-def check_assets(directory):
+def evidence_case_rows(data):
+    rows = {}
+    for line in data.decode("utf-8").splitlines():
+        if not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [cell.strip() for cell in line[1:-1].split("|")]
+        if len(cells) >= 3 and cells[0] != "ID" and re.fullmatch(r"[A-Z][A-Z0-9]{1,7}", cells[0]):
+            require(cells[0] not in rows, f"duplicate acceptance case: {cells[0]}")
+            rows[cells[0]] = cells
+    return rows
+
+
+def check_assets(directory, tag=None):
+    match = re.fullmatch(r"v(\d+)\.([1-9]\d*)\.0", tag or "")
+    minor = bool(match and (int(match.group(1)), int(match.group(2))) >= (1, 6))
+    assets = (*ASSETS, EVIDENCE_ASSET) if minor else ASSETS
     expected = {}
     for line in (directory / "checksums.txt").read_text(encoding="utf-8").splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  (\S+)", line)
         require(match is not None, f"invalid checksum entry: {line!r}")
         checksum, name = match.groups()
-        require(name in ASSETS and name not in expected, f"unexpected/duplicate checksum asset: {name}")
+        require(name in assets and name not in expected, f"unexpected/duplicate checksum asset: {name}")
         expected[name] = checksum
-    require(set(expected) == set(ASSETS), f"checksums.txt must cover all {len(ASSETS)} release assets")
+    require(set(expected) == set(assets), f"checksums.txt must cover all {len(assets)} release assets")
     for name, checksum in expected.items():
         path = directory / name
         require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0, f"missing/empty asset: {name}")
         require(digest(path) == checksum, f"checksum mismatch: {name}")
-    return list(ASSETS)
+    if minor:
+        with zipfile.ZipFile(directory / EVIDENCE_ASSET) as archive:
+            require(archive.namelist() == list(EVIDENCE_FILES), "acceptance evidence archive files differ")
+            manifest = json.loads(archive.read("manifest.json"))
+            require(isinstance(manifest, dict) and manifest.get("schemaVersion") == 1
+                    and manifest.get("version") == tag and manifest.get("result") == "pass"
+                    and manifest.get("independentReview") == "pass", "acceptance evidence verdict missing")
+            require(isinstance(manifest.get("sha256"), dict)
+                    and set(manifest["sha256"]) == set(EVIDENCE_FILES[1:]),
+                    "acceptance evidence document hashes missing")
+            for name in EVIDENCE_FILES[1:]:
+                require(digest_bytes(archive.read(name)) == manifest["sha256"][name],
+                        f"acceptance evidence hash mismatch: {name}")
+            cases = evidence_case_rows(archive.read("test-cases.md"))
+            report_bytes = archive.read("test-report.md")
+            report = evidence_case_rows(report_bytes)
+            require(REQUIRED_CASES.issubset(cases) and set(cases) == set(report),
+                    "acceptance report does not cover every required case")
+            for case_id, cells in report.items():
+                status = cells[1].lower()
+                require(status == "pass" or case_id == "L2" and status == "not-applicable",
+                        f"acceptance case {case_id} is not pass")
+                require(len(cells[2]) >= 30, f"acceptance case {case_id} lacks readback/evidence")
+            require("## 现场回读" in report_bytes.decode("utf-8")
+                    and "## 独立复核" in report_bytes.decode("utf-8"),
+                    "acceptance report lacks live readback or independent review")
+    return list(assets)
+
+
+def digest_bytes(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 def check_connector(path, version):
@@ -258,7 +306,7 @@ def main():
             work = Path(temporary)
             if args.assets:
                 assets = args.assets.resolve()
-                report["assetsIntegrityVerified"] = check_assets(assets)
+                report["assetsIntegrityVerified"] = check_assets(assets, args.version)
                 report["connector"] = check_connector(assets / "easyeda-agent-connector.eext", args.version[1:])
                 skill, modes = extract_skill(assets / "skills.tar.gz", work / "archive")
                 report["packagedSkill"] = check_skill(skill, args.version[1:], modes)

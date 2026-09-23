@@ -210,35 +210,21 @@ release-assets:
 	python3 scripts/pack-skill.py --out "$(DIST)/skills.tar.gz"
 	cp install.sh $(DIST)/install.sh
 	cp install.ps1 $(DIST)/install.ps1
-	python3 scripts/release-check.py "$(VERSION)" $(LOCAL_CHECK) --write-checksums "$(DIST)" --artifacts "$(DIST)"
+	python3 scripts/release-check.py "$(VERSION)" $(LOCAL_CHECK) --package-evidence "$(DIST)/test-evidence.zip" --write-checksums "$(DIST)" --artifacts "$(DIST)"
 	@echo "✅ Local release assets ready in $(DIST)/ — nothing published"
 
 release: ## build reviewed sources, tag and publish GitHub Release (explicit publication only)
 	@test -n "$(VERSION)" || { echo "VERSION is required (vX.Y.Z)" >&2; exit 1; }
 	@git diff --quiet && git diff --cached --quiet || { echo "Commit reviewed tracked source changes before publishing; release-build is available for local preparation." >&2; exit 1; }
-	@if git show-ref --verify --quiet "refs/tags/$(VERSION)"; then echo "Tag $(VERSION) already exists; choose a new version instead of replacing published assets." >&2; exit 1; fi
 	$(MAKE) release-build VERSION="$(VERSION)" DIST="$(DIST)"
-	@echo "  creating GitHub release..."
-	git tag -a $(VERSION) -m "Release $(VERSION)"
-	git push origin $(VERSION)
 	@awk '/^## \[$(VERSION:v%=%)\]/{f=1} f&&/^## \[/&&!/^## \[$(VERSION:v%=%)\]/{exit} f' extension/CHANGELOG.md > $(DIST)/changelog-section.md
 	@{ \
 		cat $(DIST)/changelog-section.md; \
 		printf '\n---\n\nAlready installed? Upgrade in place:\n```\neasyeda update          # CLI binary (sha256-verified) + skill dirs\neasyeda update --check  # report only\n```\n\nFirst install (macOS/Linux):\n```\ncurl -fsSL https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.sh | bash\n```\n\nFirst install (native Windows, PowerShell 5.1+):\n```\nirm https://raw.githubusercontent.com/zhoushoujianwork/easyeda-agent/main/install.ps1 | iex\n```\n\nInstalls/updates:\n- easyeda CLI/daemon\n- easyeda-agent skill for Codex (~/.codex/skills), Codex Desktop shared (~/.agents/skills), and/or Claude Code (~/.claude/skills) when detected\n- prints EasyEDA connector .eext import URL\n\nThe connector .eext is never auto-updated for sideloads. Connector patch drift within the same major.minor line is compatible; re-import only when `easyeda update` reports a major/minor mismatch.\n\nSkill targets: set `EASYEDA_INSTALL_SKILLS=codex,agents,claude` to force targets, `none` to skip, or `EASYEDA_SKILL_PRESERVE=1` to keep local edits.\n\n`checksums.txt` lists sha256 for every asset above.\n'; \
+		if [ -f "$(DIST)/test-evidence.zip" ]; then printf '\nAcceptance report, baseline and test cases: test-evidence.zip (SHA256 in checksums.txt).\n'; fi; \
 	} > $(DIST)/release-notes.md
-	gh release create $(VERSION) \
-		$(DIST)/easyeda_darwin_amd64 \
-		$(DIST)/easyeda_darwin_arm64 \
-		$(DIST)/easyeda_linux_amd64 \
-		$(DIST)/easyeda_linux_arm64 \
-		$(DIST)/easyeda_windows_amd64.exe \
-		$(DIST)/easyeda-agent-connector.eext \
-		$(DIST)/skills.tar.gz \
-		$(DIST)/install.sh \
-		$(DIST)/install.ps1 \
-		$(DIST)/checksums.txt \
-		--title "easyeda-agent $(VERSION)" \
-		--notes-file $(DIST)/release-notes.md
+	python3 scripts/release-check.py "$(VERSION)" --artifacts "$(DIST)"
+	python3 scripts/publish-release.py "$(VERSION)" "$(DIST)"
 	@echo "  publishing skill to ClawHub..."
 	@$(MAKE) publish-skill VERSION=$(VERSION) \
 		|| echo "  ⚠️  ClawHub publish failed — retry with: clawhub login && make publish-skill VERSION=$(VERSION)"

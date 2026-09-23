@@ -157,9 +157,12 @@ checks pass. Never discard diverged local work while cleaning branches: preserve
 it on `dev`, push it, then repair local tracking pointers.
 
 **Pushing code is not a release.** Development commits, `-dev.N` manifest values,
-and pushes to `dev` or `main` do not publish a version. A signed/annotated release
-tag `vX.Y.Z` created by `make release VERSION=vX.Y.Z` is the sole source of truth
-for a published version and its release assets. Do not create or push a release
+and pushes to `dev` or `main` do not publish a version. The annotated release tag
+`vX.Y.Z` created by `make release VERSION=vX.Y.Z` is the source of truth for the
+version identity; publication completes only when the matching GitHub Release is
+non-draft and its required assets have been verified. A tag left by an interrupted
+upload is an incomplete publication and may be resumed at the same commit; never
+mistake it for an accepted release. Do not create or push a release
 tag, GitHub Release, ClawHub release, or skillhub.cn release unless the user has
 explicitly selected/approved that release version. When the user asks to submit
 fixes, update GitHub progress, or handle PRs, that authorizes committing and
@@ -167,6 +170,12 @@ pushing the related verified code without a second push confirmation, but it doe
 not by itself authorize a release tag. Close fixed issues or fully adopted PRs
 with links to the adoption commit or approved release; keep unresolved issues open
 and report remaining validation gaps accurately.
+
+**中版本发布验收材料**：从 `v1.6.0` 起，发布 `vX.Y.0`（`Y > 0`）前必须完成现场验收，
+在 `docs/releases/evidence/vX.Y.0/` 提交测试报告、基准、测试用例和通过的独立复核清单。
+`make release-check` 校验结论与文件哈希；`make release-build` 将三份材料打包并列入校验和；
+正式 GitHub Release 必须附上该包。未通过或仅离线通过的报告不能标为通过。格式与步骤见
+[`docs/release-workflow.md`](docs/release-workflow.md)。
 
 ## Layout
 

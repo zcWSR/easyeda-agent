@@ -67,6 +67,44 @@ class ReleaseSmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             smoke.check_assets(self.root)
 
+    def test_minor_release_checks_attached_evidence(self):
+        self.assets()
+        ids = ("M1", "F1", "F2", "E1", "L1", "L2", "N1", "R1", "E2E")
+        files = {
+            "test-report.md": ("# Report\n## 现场回读\nFresh saved objects.\n"
+                               + "".join(f"| {case_id} | pass | Frozen fresh readback and evidence sha256 for {case_id}. |\n"
+                                         for case_id in ids)
+                               + "## 独立复核\nBlind evidence review.\n").encode(),
+            "baseline.md": b"# Baseline\nRaw customer input.\n",
+            "test-cases.md": ("# Cases\n"
+                              + "".join(f"| {case_id} | Input | Expected |\n" for case_id in ids)).encode(),
+        }
+        manifest = {"schemaVersion": 1, "version": "v1.6.0", "result": "pass",
+                    "independentReview": "pass",
+                    "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
+        bundle = self.root / smoke.EVIDENCE_ASSET
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("manifest.json", json.dumps(manifest))
+            for name, data in files.items():
+                archive.writestr(name, data)
+        checksum = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        with (self.root / "checksums.txt").open("a") as stream:
+            stream.write(f"{checksum}  {smoke.EVIDENCE_ASSET}\n")
+        self.assertEqual(smoke.check_assets(self.root, "v1.6.0")[-1], smoke.EVIDENCE_ASSET)
+        with self.assertRaisesRegex(ValueError, "unexpected/duplicate"):
+            smoke.check_assets(self.root, "v1.6.0-dev.1")
+        manifest["result"] = "in-progress"
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("manifest.json", json.dumps(manifest))
+            for name, data in files.items():
+                archive.writestr(name, data)
+        checksum = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        rows = (self.root / "checksums.txt").read_text().splitlines()
+        rows[-1] = f"{checksum}  {smoke.EVIDENCE_ASSET}"
+        (self.root / "checksums.txt").write_text("\n".join(rows) + "\n")
+        with self.assertRaisesRegex(ValueError, "verdict missing"):
+            smoke.check_assets(self.root, "v1.6.0")
+
     def test_checksum_missing_duplicate_unknown_and_traversal(self):
         self.assets()
         path = self.root / "checksums.txt"

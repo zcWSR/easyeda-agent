@@ -16,6 +16,9 @@ ASSETS = [
     "easyeda_linux_amd64", "easyeda_linux_arm64", "easyeda_windows_amd64.exe",
     "easyeda-agent-connector.eext", "skills.tar.gz", "install.sh", "install.ps1",
 ]
+EVIDENCE_ASSET = "test-evidence.zip"
+EVIDENCE_FILES = ("test-report.md", "baseline.md", "test-cases.md")
+REQUIRED_CASES = frozenset(("M1", "F1", "F2", "E1", "L1", "N1", "R1", "E2E"))
 # Installer scripts are published verbatim; the packaged copy must match the source.
 INSTALLERS = ["install.sh", "install.ps1"]
 
@@ -25,6 +28,99 @@ def skill_version(text: str) -> str:
     if not match:
         raise ValueError("SKILL.md metadata.version missing")
     return match.group(1)
+
+
+def is_minor_release(tag: str) -> bool:
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.0", tag)
+    return bool(match and int(match.group(2)) > 0
+                and (int(match.group(1)), int(match.group(2))) >= (1, 6))
+
+
+def release_assets(tag: str) -> list[str]:
+    return ASSETS + ([EVIDENCE_ASSET] if is_minor_release(tag) else [])
+
+
+def case_rows(data: bytes) -> dict[str, list[str]]:
+    rows = {}
+    for line in data.decode("utf-8").splitlines():
+        if not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [cell.strip() for cell in line[1:-1].split("|")]
+        if len(cells) >= 3 and cells[0] != "ID" and re.fullmatch(r"[A-Z][A-Z0-9]{1,7}", cells[0]):
+            if cells[0] in rows:
+                raise ValueError(f"duplicate acceptance case row: {cells[0]}")
+            rows[cells[0]] = cells
+    return rows
+
+
+def check_case_results(contents: dict[str, bytes]) -> None:
+    cases = case_rows(contents["test-cases.md"])
+    report = case_rows(contents["test-report.md"])
+    if not REQUIRED_CASES.issubset(cases) or set(cases) != set(report):
+        raise ValueError("acceptance report must cover every test case, including the fixed end-to-end baseline")
+    for case_id, cells in report.items():
+        status = cells[1].lower()
+        if status != "pass" and not (case_id == "L2" and status == "not-applicable"):
+            raise ValueError(f"acceptance case {case_id} is not pass: {cells[1]}")
+        if len(cells[2]) < 30:
+            raise ValueError(f"acceptance case {case_id} needs a concrete readback/evidence reference")
+    text = contents["test-report.md"].decode("utf-8")
+    if "## 现场回读" not in text or "## 独立复核" not in text:
+        raise ValueError("acceptance report must include live readback and independent review sections")
+
+
+def evidence_files(repo: Path, tag: str) -> dict[str, bytes]:
+    root = Path("docs/releases/evidence") / tag
+    names = ("manifest.json", *EVIDENCE_FILES)
+    contents = {}
+    for name in names:
+        relative = root / name
+        path = repo / relative
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"minor release evidence missing or symlinked: {relative}")
+        try:
+            subprocess.check_output(["git", "-C", str(repo), "ls-files", "--error-unmatch", "--", str(relative)],
+                                    stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"minor release evidence must be Git tracked: {relative}") from error
+        contents[name] = path.read_bytes()
+        if not contents[name]:
+            raise ValueError(f"minor release evidence is empty: {relative}")
+    manifest = json.loads(contents["manifest.json"])
+    if (not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1
+            or manifest.get("version") != tag or manifest.get("result") != "pass"
+            or manifest.get("independentReview") != "pass"):
+        raise ValueError(f"{root}/manifest.json: exact version, pass result and independent review required")
+    if not isinstance(manifest.get("sha256"), dict) or set(manifest["sha256"]) != set(EVIDENCE_FILES):
+        raise ValueError(f"{root}/manifest.json: sha256 must cover report, baseline and test cases")
+    for name in EVIDENCE_FILES:
+        if hashlib.sha256(contents[name]).hexdigest() != manifest["sha256"][name]:
+            raise ValueError(f"{root}/{name}: SHA256 differs from reviewed manifest")
+    check_case_results(contents)
+    return contents
+
+
+def package_evidence(repo: Path, tag: str, output: Path) -> None:
+    if not is_minor_release(tag):
+        output.unlink(missing_ok=True)
+        return
+    contents = evidence_files(repo, tag)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in contents.items():
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, data)
+
+
+def check_evidence_archive(path: Path, contents: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(path) as archive:
+        if archive.namelist() != list(contents):
+            raise ValueError(f"{path}: unexpected or missing acceptance evidence files")
+        for name, expected in contents.items():
+            if archive.read(name) != expected:
+                raise ValueError(f"{path}: {name} differs from reviewed source")
 
 
 def check_sources(repo: Path, tag: str, local_dev: bool = False) -> str:
@@ -46,6 +142,8 @@ def check_sources(repo: Path, tag: str, local_dev: bool = False) -> str:
     changelog = (repo / "extension/CHANGELOG.md").read_text(encoding="utf-8")
     if not re.search(rf"^##\s*\[{re.escape(version)}\]", changelog, re.MULTILINE):
         raise ValueError(f"extension/CHANGELOG.md has no ## [{version}] entry")
+    if is_minor_release(tag):
+        evidence_files(repo, tag)
     return version
 
 
@@ -58,9 +156,9 @@ def check_connector(path: Path, version: str, uuid: str) -> None:
             raise ValueError(f"{path}: compiled connector entry is missing")
 
 
-def write_checksums(dist: Path) -> None:
+def write_checksums(dist: Path, tag: str = "") -> None:
     records = []
-    for name in ASSETS:
+    for name in release_assets(tag):
         path = dist / name
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"missing/empty release asset: {path}")
@@ -72,18 +170,21 @@ def write_checksums(dist: Path) -> None:
 
 
 def check_artifacts(repo: Path, dist: Path, version: str) -> None:
+    assets = release_assets(f"v{version}")
     expected = {}
     for line in (dist / "checksums.txt").read_text(encoding="utf-8").splitlines():
         digest, name = line.split()
-        if name in expected or name not in ASSETS or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        if name in expected or name not in assets or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError(f"invalid checksum asset entry: {line}")
         expected[name] = digest
-    if set(expected) != set(ASSETS):
-        raise ValueError(f"checksums.txt must name all {len(ASSETS)} release assets with bare filenames")
-    for name in ASSETS:
+    if set(expected) != set(assets):
+        raise ValueError(f"checksums.txt must name all {len(assets)} release assets with bare filenames")
+    for name in assets:
         if hashlib.sha256((dist / name).read_bytes()).hexdigest() != expected[name]:
             raise ValueError(f"checksum mismatch: {name}")
     manifest = json.loads((repo / "extension/extension.json").read_text(encoding="utf-8"))
+    if is_minor_release(f"v{version}"):
+        check_evidence_archive(dist / EVIDENCE_ASSET, evidence_files(repo, f"v{version}"))
     check_connector(dist / "easyeda-agent-connector.eext", version, manifest["uuid"])
     with tarfile.open(dist / "skills.tar.gz", "r:gz") as archive:
         item = archive.extractfile("easyeda-agent/SKILL.md")
@@ -113,6 +214,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--connector", type=Path)
     parser.add_argument("--write-checksums", type=Path)
+    parser.add_argument("--package-evidence", type=Path)
     parser.add_argument("--artifacts", type=Path)
     args = parser.parse_args()
     try:
@@ -120,8 +222,10 @@ def main() -> int:
         if args.connector:
             uuid = json.loads((args.repo / "extension/extension.json").read_text(encoding="utf-8"))["uuid"]
             check_connector(args.connector, version, uuid)
+        if args.package_evidence:
+            package_evidence(args.repo, args.version, args.package_evidence)
         if args.write_checksums:
-            write_checksums(args.write_checksums)
+            write_checksums(args.write_checksums, args.version)
         if args.artifacts:
             check_artifacts(args.repo, args.artifacts, version)
         print(f"Release check passed: {args.version}" + (f"; artifacts in {args.artifacts}" if args.artifacts else ""))
