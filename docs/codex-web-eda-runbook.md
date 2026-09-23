@@ -75,6 +75,14 @@ easyeda update --local-dir "$PWD/dist/local-vX.Y.Z-dev.N" --check --exit-code
 旧项目 `ceshi` 或其他现场工程当作临时画布。单个 Web 窗口的 typed 调用串行执行，所有写命令
 显式带 `--project` 和 `--doc`。
 
+`project.create` 返回空 UUID 时先停下：通过
+`easyeda project find --window <health-window-id> --name <完整友好名称> --team <目标团队UUID>`
+只读核对团队根目录。只有清单 `complete:true` 且 `presence:"absent"` 才能认定该范围内
+未创建；`unknown` 或同名多项不能重试。2026-09-24 本地 `dev.7` 实测：在已有工程的
+team UUID 下显式传 `--team` 的创建返回空 UUID，经 50 项完整清单确认不存在后，
+按首次成功的参数**省略 `--team`** 创建成功。不要把这一现场现象推广为所有团队的 API 规则；
+新工程仍须核对返回 UUID、团队和空白页完整对象回读。
+
 ## 3. 让无历史上下文的 Codex 执行与独立验收
 
 给**新上下文**执行 subagent（`fork_turns: none`）只提供下列任务 prompt 和
