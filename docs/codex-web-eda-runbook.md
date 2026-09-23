@@ -40,6 +40,10 @@ easyeda update --local-dir "$PWD/dist/local-vX.Y.Z-dev.N" --check --exit-code
 不作为持久身份。`update --check` 还核对安装的 Skill 与本地包内容；**导入成功、扩展列表版本、
 新 windowId 或浏览器标签已打开都不替代这一步**。若页面仍报旧 connector，停写并保留
 `health` 输出；由用户完成 Web 页面刷新/重开后再核对，不反复 Apply、清站点数据或切桌面版。
+页面切换也可能重新加载旧连接器：**首次 `health` 同版后，切到目标页再查一次**。若版本
+回退或 typed `document.open` 超时，立即停写，保存超时与新旧 `health`；请用户检查扩展管理
+只启用目标 `.eext`，并关闭当前测试标签、从工程链接新开 Web 标签。若出现未保存提示先核实
+现场状态。新标签再次精确同版、目标页 fresh 回读稳定之前，不进行测量页写入或 Apply。
 
 用户要新测试工程时，在已连接的真实窗口通过 typed
 `easyeda project create --window <health-window-id> --name ... --open` 创建（不要给尚未存在的
