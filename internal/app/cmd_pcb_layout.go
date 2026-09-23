@@ -169,7 +169,7 @@ func newPcbLayoutCheckCmd(stdout, stderr io.Writer) *cobra.Command {
 			}
 			if adapterErr == nil {
 				var svg bytes.Buffer
-				if err := renderPCBSolveSVG(&svg, board, &candidate, report.Status+": "+report.Reason); err != nil {
+				if err := renderPCBSolveRequestSVG(&svg, board, request, &candidate, report.Status+": "+report.Reason); err != nil {
 					return err
 				}
 				if err := writeAtomic(solveSVGPath(outPath), svg.Bytes()); err != nil {
@@ -195,7 +195,7 @@ func newPcbLayoutCheckCmd(stdout, stderr io.Writer) *cobra.Command {
 }
 
 func newPcbLayoutRenderCmd(stdout, stderr io.Writer) *cobra.Command {
-	var boardPath, candidatePath, candidateID, outPath string
+	var boardPath, fromPath, candidatePath, candidateID, outPath string
 	cmd := &cobra.Command{
 		Use:   "render",
 		Short: "Render a solve candidate from the same projected data used by check",
@@ -204,7 +204,11 @@ func newPcbLayoutRenderCmd(stdout, stderr io.Writer) *cobra.Command {
 			if boardPath == "" || candidatePath == "" || outPath == "" {
 				return fmt.Errorf("--board, --candidate and --out are required")
 			}
-			if err := rejectLayoutOutputAliases([]string{boardPath, candidatePath}, []string{outPath}); err != nil {
+			inputs := []string{boardPath, candidatePath}
+			if fromPath != "" {
+				inputs = append(inputs, fromPath)
+			}
+			if err := rejectLayoutOutputAliases(inputs, []string{outPath}); err != nil {
 				return err
 			}
 			if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
@@ -223,7 +227,27 @@ func newPcbLayoutRenderCmd(stdout, stderr io.Writer) *cobra.Command {
 				return err
 			}
 			var svg bytes.Buffer
-			if err := renderPCBSolveSVG(&svg, board, &candidate, strings.Join(candidate.MoveReasons, "; ")); err != nil {
+			note := strings.Join(candidate.MoveReasons, "; ")
+			if fromPath != "" {
+				raw, err := os.ReadFile(fromPath)
+				if err != nil {
+					return err
+				}
+				var request pcbsolve.Request
+				if err := decodeStrict(raw, &request); err != nil {
+					return fmt.Errorf("decode solve request: %w", err)
+				}
+				canonical, err := json.Marshal(request)
+				if err != nil {
+					return err
+				}
+				if candidate.RequestHash != sha256String(canonical) || candidate.BaseSemanticHash != board.SemanticHash {
+					return fmt.Errorf("candidate provenance does not match the render board/request")
+				}
+				if err := renderPCBSolveRequestSVG(&svg, board, request, &candidate, note); err != nil {
+					return err
+				}
+			} else if err := renderPCBSolveSVG(&svg, board, &candidate, note); err != nil {
 				return err
 			}
 			if err := writeAtomic(outPath, svg.Bytes()); err != nil {
@@ -235,6 +259,7 @@ func newPcbLayoutRenderCmd(stdout, stderr io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&boardPath, "board", "", "fresh pcb dump --include-copper JSON")
+	cmd.Flags().StringVar(&fromPath, "from", "", "optional independent solve request JSON; checks provenance and renders mechanical keepouts")
 	cmd.Flags().StringVar(&candidatePath, "candidate", "", "candidate JSON or solve report JSON")
 	cmd.Flags().StringVar(&candidateID, "candidate-id", "", "candidate id when --candidate is a multi-candidate solve report")
 	cmd.Flags().StringVar(&outPath, "out", "", "SVG output path")
@@ -333,7 +358,7 @@ func writeSolveArtifacts(outPath string, board pcbmodel.Board, request pcbsolve.
 		return err
 	}
 	var baseline bytes.Buffer
-	if err := renderPCBSolveSVG(&baseline, board, nil, "baseline before placement/routing feedback"); err != nil {
+	if err := renderPCBSolveRequestSVG(&baseline, board, request, nil, "baseline before placement/routing feedback"); err != nil {
 		return err
 	}
 	if err := writeAtomic(stem+".baseline.svg", baseline.Bytes()); err != nil {
@@ -361,7 +386,7 @@ func writeSolveArtifacts(outPath string, board pcbmodel.Board, request pcbsolve.
 		}
 		fake := pcbsolve.Candidate{ID: attempt.LayoutID, Board: attemptBoard, Routes: attempt.PartialRoutes, MoveReasons: []string{note}}
 		var svg bytes.Buffer
-		if err := renderPCBSolveSVG(&svg, board, &fake, note, attempt.Conflicts...); err != nil {
+		if err := renderPCBSolveRequestSVG(&svg, board, request, &fake, note, attempt.Conflicts...); err != nil {
 			return err
 		}
 		if err := writeAtomic(fmt.Sprintf("%s.attempt-%02d.svg", stem, i+1), svg.Bytes()); err != nil {
@@ -381,7 +406,7 @@ func writeSolveArtifacts(outPath string, board pcbmodel.Board, request pcbsolve.
 			return err
 		}
 		var svg bytes.Buffer
-		if err := renderPCBSolveSVG(&svg, board, &candidate, strings.Join(candidate.MoveReasons, "; ")); err != nil {
+		if err := renderPCBSolveRequestSVG(&svg, board, request, &candidate, strings.Join(candidate.MoveReasons, "; ")); err != nil {
 			return err
 		}
 		if err := writeAtomic(fmt.Sprintf("%s.%s.svg", stem, candidate.ID), svg.Bytes()); err != nil {
@@ -409,7 +434,7 @@ func writeSolveArtifacts(outPath string, board pcbmodel.Board, request pcbsolve.
 	main, mainLocal := baseline.Bytes(), baselineLocal.Bytes()
 	if len(report.Candidates) > 0 {
 		var svg bytes.Buffer
-		if err := renderPCBSolveSVG(&svg, board, &report.Candidates[0], strings.Join(report.Candidates[0].MoveReasons, "; ")); err != nil {
+		if err := renderPCBSolveRequestSVG(&svg, board, request, &report.Candidates[0], strings.Join(report.Candidates[0].MoveReasons, "; ")); err != nil {
 			return err
 		}
 		main = svg.Bytes()

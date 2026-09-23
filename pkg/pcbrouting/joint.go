@@ -83,8 +83,10 @@ func (r JointRequest) Validate() error {
 
 // SolveJoint performs bounded MRV backtracking. A path selected for an earlier
 // demand is visible to every later CandidateFactory call, so all returned paths
-// coexist in one board state. Candidate alternatives are backtracked when a
-// later demand cannot fit.
+// coexist in one board state. When a later demand cannot fit, it tries the
+// current demand's alternative candidates, then other MRV-ordered demands.
+// Earlier routes are thereby recomputed against a different selected set,
+// within the same budget. This does not enumerate all geometric paths.
 func SolveJoint(ctx context.Context, req JointRequest, factory CandidateFactory, checker CandidateChecker) (JointResult, error) {
 	result := JointResult{Status: Incomplete}
 	if err := req.Validate(); err != nil {
@@ -122,9 +124,8 @@ func SolveJoint(ctx context.Context, req JointRequest, factory CandidateFactory,
 		type nextDemand struct {
 			demand     Demand
 			candidates []JointCandidate
-			reason     string
 		}
-		var next *nextDemand
+		var choices []nextDemand
 		for _, demand := range req.Demands {
 			if done[demand.ID] {
 				continue
@@ -136,6 +137,9 @@ func SolveJoint(ctx context.Context, req JointRequest, factory CandidateFactory,
 			}
 			candidates, used, reason, err := factory(ctx, demand, cloneJointCandidates(selected), remaining)
 			if err != nil {
+				return false, err
+			}
+			if err := ctx.Err(); err != nil {
 				return false, err
 			}
 			if used < 0 || used > remaining {
@@ -160,29 +164,32 @@ func SolveJoint(ctx context.Context, req JointRequest, factory CandidateFactory,
 				}
 			}
 			candidates = valid
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
 			if len(candidates) == 0 {
-				if next == nil {
-					next = &nextDemand{demand: demand, reason: reason}
-				}
 				result.Reason = reason
 				return false, nil
 			}
-			if next == nil || len(candidates) < len(next.candidates) || len(candidates) == len(next.candidates) && demand.ID < next.demand.ID {
-				next = &nextDemand{demand: demand, candidates: append([]JointCandidate(nil), candidates...), reason: reason}
-			}
+			choices = append(choices, nextDemand{demand: demand, candidates: cloneJointCandidates(candidates)})
 		}
-		if next == nil {
-			return false, nil
-		}
-		for _, candidate := range next.candidates {
-			done[next.demand.ID] = true
-			ok, err := search(append(selected, candidate), done)
-			delete(done, next.demand.ID)
-			if err != nil || ok {
-				return ok, err
+		sort.SliceStable(choices, func(i, j int) bool {
+			if len(choices[i].candidates) != len(choices[j].candidates) {
+				return len(choices[i].candidates) < len(choices[j].candidates)
 			}
-			if result.Exhausted {
-				return false, nil
+			return choices[i].demand.ID < choices[j].demand.ID
+		})
+		for _, next := range choices {
+			for _, candidate := range next.candidates {
+				done[next.demand.ID] = true
+				ok, err := search(append(selected, candidate), done)
+				delete(done, next.demand.ID)
+				if err != nil || ok {
+					return ok, err
+				}
+				if result.Exhausted {
+					return false, nil
+				}
 			}
 		}
 		return false, nil

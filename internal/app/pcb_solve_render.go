@@ -6,13 +6,18 @@ import (
 	"io"
 	"strings"
 
+	"github.com/zhoushoujianwork/easyeda-agent/pkg/pcblayout"
 	"github.com/zhoushoujianwork/easyeda-agent/pkg/pcbmodel"
 	"github.com/zhoushoujianwork/easyeda-agent/pkg/pcbrouting"
 	"github.com/zhoushoujianwork/easyeda-agent/pkg/pcbsolve"
 )
 
 func renderPCBSolveSVG(w io.Writer, baseline pcbmodel.Board, candidate *pcbsolve.Candidate, note string, conflicts ...pcbsolve.Conflict) error {
-	return renderPCBSolveSVGViewport(w, baseline, candidate, note, baseline.Outline.BBox, conflicts...)
+	return renderPCBSolveSVGViewport(w, baseline, candidate, note, baseline.Outline.BBox, nil, conflicts...)
+}
+
+func renderPCBSolveRequestSVG(w io.Writer, baseline pcbmodel.Board, request pcbsolve.Request, candidate *pcbsolve.Candidate, note string, conflicts ...pcbsolve.Conflict) error {
+	return renderPCBSolveSVGViewport(w, baseline, candidate, note, baseline.Outline.BBox, request.Layout.Keepouts, conflicts...)
 }
 
 func renderPCBSolveLocalSVG(w io.Writer, baseline pcbmodel.Board, request pcbsolve.Request, candidate *pcbsolve.Candidate, note string, conflicts ...pcbsolve.Conflict) error {
@@ -20,30 +25,47 @@ func renderPCBSolveLocalSVG(w io.Writer, baseline pcbmodel.Board, request pcbsol
 	if candidate != nil {
 		shown = candidate.Board
 	}
-	return renderPCBSolveSVGViewport(w, baseline, candidate, note, solveFocusBBox(baseline, shown, request, candidate), conflicts...)
+	return renderPCBSolveSVGViewport(w, baseline, candidate, note, solveFocusBBox(baseline, shown, request, candidate), request.Layout.Keepouts, conflicts...)
 }
 
-func renderPCBSolveSVGViewport(w io.Writer, baseline pcbmodel.Board, candidate *pcbsolve.Candidate, note string, box pcbmodel.BBox, conflicts ...pcbsolve.Conflict) error {
+func renderPCBSolveSVGViewport(w io.Writer, baseline pcbmodel.Board, candidate *pcbsolve.Candidate, note string, box pcbmodel.BBox, keepouts []pcblayout.Keepout, conflicts ...pcbsolve.Conflict) error {
 	if !box.Valid() || box.Width() <= 0 || box.Height() <= 0 {
 		return fmt.Errorf("cannot render board without a valid outline")
 	}
 	shown := baseline
 	if candidate != nil {
 		shown = candidate.Board
+		if note == "" && len(candidate.MoveReasons) > 0 {
+			note = strings.Join(candidate.MoveReasons, "; ")
+		}
 	}
 	pad := 30.0
-	width, height := box.Width()+2*pad, box.Height()+2*pad
+	// Reserve enough header space for every reason, including recursive moves.
+	// The drawing coordinates remain unchanged when the header grows.
+	var noteLines []string
+	limit := max(1, int(box.Width()/7))
+	for runes := []rune(note); len(runes) > 0; {
+		n := min(limit, len(runes))
+		noteLines = append(noteLines, string(runes[:n]))
+		runes = runes[n:]
+	}
+	header := max(pad, float64(len(noteLines))*11+10)
+	width, height := box.Width()+2*pad, box.Height()+pad+header
 	flipY := func(y float64) float64 { return box.MinY + box.MaxY - y }
-	if _, err := fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.3f %.3f %.3f %.3f" width="%.0f" height="%.0f">`, box.MinX-pad, box.MinY-pad, width, height, width*2, height*2); err != nil {
+	if _, err := fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.3f %.3f %.3f %.3f" width="%.0f" height="%.0f">`, box.MinX-pad, box.MinY-header, width, height, width*2, height*2); err != nil {
 		return err
 	}
 	fmt.Fprint(w, `<style>text{font:10px ui-monospace,SFMono-Regular,monospace}.base{fill:none;stroke:#8a94a6;stroke-dasharray:4 3}.top{stroke:#d9463e}.bottom{stroke:#2563eb}.pad{fill:#e9a23b;stroke:#7c4a03}.route{fill:none;stroke-linecap:round;stroke-linejoin:round}.move{stroke:#7c3aed;stroke-width:1.2;marker-end:url(#arrow)}.label{fill:#172033}</style>`)
 	fmt.Fprint(w, `<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#7c3aed"/></marker></defs>`)
-	fmt.Fprintf(w, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" fill="#fbfcfe"/>`, box.MinX-pad, box.MinY-pad, width, height)
+	fmt.Fprintf(w, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" fill="#fbfcfe"/>`, box.MinX-pad, box.MinY-header, width, height)
 	outline := svgPoints(baseline.Outline.Points, flipY)
 	fmt.Fprintf(w, `<polygon points="%s" fill="#fff" stroke="#172033" stroke-width="2"/>`, outline)
 	if note != "" {
 		fmt.Fprintf(w, `<desc>%s</desc>`, html.EscapeString(note))
+	}
+	for _, k := range keepouts {
+		b := k.BBox
+		fmt.Fprintf(w, `<g data-layout-keepout="%s"><title>Mechanical keepout %s; layers %v</title><rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" fill="#f59e0b" fill-opacity=".12" stroke="#b45309" stroke-width=".8" stroke-dasharray="3 2"/></g>`, html.EscapeString(k.ID), html.EscapeString(k.ID), k.Layers, b.MinX, flipY(b.MaxY), b.Width(), b.Height())
 	}
 
 	for _, region := range shown.Regions {
@@ -107,31 +129,16 @@ func renderPCBSolveSVGViewport(w io.Writer, baseline pcbmodel.Board, candidate *
 		if len(candidate.Routes) > 0 {
 			fmt.Fprintf(w, `<text class="label" x="%.3f" y="%.3f">Trial paths + clearance (planning only)</text>`, box.MinX, box.MaxY+18)
 		}
-		if len(candidate.MoveReasons) > 0 {
-			note := strings.Join(candidate.MoveReasons, "; ")
-			// Keep the review annotation within the viewport; full evidence remains
-			// in desc/JSON instead of being cut off by the SVG canvas. Full-board
-			// primitives may extend into the focus crop's margin; give the label an
-			// opaque header so a pad cannot make the reason unreadable.
-			fmt.Fprintf(w, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" fill="#fbfcfe"/>`, box.MinX-pad, box.MinY-pad, width, pad)
-			// Explicit font attributes keep the measured monospace width stable in
-			// both browser and native SVG rasterizers, which may ignore CSS styles.
-			limit := max(1, int(box.Width()/7))
-			runes := []rune(note)
-			for row := 0; row < 2 && len(runes) > 0; row++ {
-				n := min(limit, len(runes))
-				line := string(runes[:n])
-				runes = runes[n:]
-				if row == 1 && len(runes) > 0 {
-					line += "…"
-				}
-				fmt.Fprintf(w, `<text class="label" font-family="monospace" font-size="10" x="%.3f" y="%.3f">%s</text>`, box.MinX, box.MinY-16+float64(row)*11, html.EscapeString(line))
-			}
-		}
 	}
 	for _, conflict := range conflicts {
 		a, z := conflict.Segment[0], conflict.Segment[1]
 		fmt.Fprintf(w, `<g data-conflict="%s"><title>%s / %s: %s %s (net %s), layer %d</title><line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f" stroke="#a21caf" stroke-width="1.4" stroke-dasharray="3 2"/></g>`, html.EscapeString(conflict.Object), html.EscapeString(conflict.DemandID), html.EscapeString(conflict.Net), html.EscapeString(conflict.Kind), html.EscapeString(conflict.Object), html.EscapeString(conflict.ConflictNet), conflict.Layer, a[0], flipY(a[1]), z[0], flipY(z[1]))
+	}
+	if len(noteLines) > 0 {
+		fmt.Fprintf(w, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" fill="#fbfcfe"/>`, box.MinX-pad, box.MinY-header, width, header)
+		for row, line := range noteLines {
+			fmt.Fprintf(w, `<text class="label" data-review-note="true" font-family="monospace" font-size="10" x="%.3f" y="%.3f">%s</text>`, box.MinX, box.MinY-header+14+float64(row)*11, html.EscapeString(line))
+		}
 	}
 	fmt.Fprint(w, `</svg>`)
 	return nil

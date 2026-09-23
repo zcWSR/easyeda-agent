@@ -71,7 +71,9 @@ func TestPCBLayoutSolveCheckRenderCLI(t *testing.T) {
 	dir := t.TempDir()
 	boardPath, requestPath, reportPath := filepath.Join(dir, "board.json"), filepath.Join(dir, "request.json"), filepath.Join(dir, "report.json")
 	writeSolveCLIJSON(t, boardPath, solveCLISnapshot(t))
-	writeSolveCLIJSON(t, requestPath, solveCLIRequest())
+	request := solveCLIRequest()
+	request.Layout.Keepouts = []pcblayout.Keepout{{ID: "mechanical-opening", BBox: pcbmodel.BBox{MinX: 5, MinY: 5, MaxX: 15, MaxY: 15}, Layers: []int{1}}}
+	writeSolveCLIJSON(t, requestPath, request)
 	var stdout, stderr bytes.Buffer
 	cmd := newPcbLayoutSolveCmd(&stdout, &stderr)
 	cmd.SetArgs([]string{"--board", boardPath, "--from", requestPath, "--out", reportPath, "--apply-project", "ceshi", "--apply-doc", "pcb-doc"})
@@ -98,6 +100,29 @@ func TestPCBLayoutSolveCheckRenderCLI(t *testing.T) {
 	raw, err := os.ReadFile(renderPath)
 	if err != nil || !strings.Contains(string(raw), "moved after route feedback") {
 		t.Fatalf("render lacks route-feedback evidence: %v", err)
+	}
+	// --from adds the independent mechanical constraints to the exact same
+	// candidate preview; a different request must never supply its overlays.
+	cmd = newPcbLayoutRenderCmd(&stdout, &stderr)
+	cmd.SetArgs([]string{"--board", boardPath, "--from", requestPath, "--candidate", filepath.Join(dir, "report.candidate-01.json"), "--out", renderPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	withRequest, err := os.ReadFile(renderPath)
+	if err != nil || !bytes.Contains(withRequest, []byte(`data-layout-keepout="mechanical-opening"`)) {
+		t.Fatalf("render --from omitted its request keepout: %v", err)
+	}
+	changedRequest := request
+	changedRequest.Layout.MinGap++
+	writeSolveCLIJSON(t, requestPath, changedRequest)
+	cmd = newPcbLayoutRenderCmd(&stdout, &stderr)
+	cmd.SetArgs([]string{"--board", boardPath, "--from", requestPath, "--candidate", filepath.Join(dir, "report.candidate-01.json"), "--out", renderPath})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "provenance") {
+		t.Fatalf("render accepted unrelated constraint overlays: %v", err)
+	}
+	retained, err := os.ReadFile(renderPath)
+	if err != nil || !bytes.Equal(retained, withRequest) {
+		t.Fatalf("failed render replaced the prior preview: %v", err)
 	}
 }
 
@@ -174,9 +199,22 @@ type ioDiscard struct{}
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
 
 func TestPCBAutomaticChannelArtifacts(t *testing.T) {
+	testPCBRouteFeedbackArtifacts(t, "automatic-channel")
+}
+
+func TestPCBMultiGroupClearanceArtifacts(t *testing.T) {
+	testPCBRouteFeedbackArtifacts(t, "multi-group-clearance")
+}
+
+func TestPCBFixedRouteOrderArtifacts(t *testing.T) {
+	testPCBRouteFeedbackArtifacts(t, "fixed-route-order")
+}
+
+func testPCBRouteFeedbackArtifacts(t *testing.T, name string) {
+	t.Helper()
 	var board pcbmodel.Board
 	var req pcbsolve.Request
-	fixture := filepath.Join("..", "..", "pkg", "pcbsolve", "testdata", "automatic-channel")
+	fixture := filepath.Join("..", "..", "pkg", "pcbsolve", "testdata", name)
 	for name, dst := range map[string]any{"board.json": &board, "request.json": &req} {
 		raw, err := os.ReadFile(filepath.Join(fixture, name))
 		if err != nil {
@@ -195,7 +233,7 @@ func TestPCBAutomaticChannelArtifacts(t *testing.T) {
 	}
 	dir := t.TempDir()
 	if root := os.Getenv("EASYEDA_PCB_SOLVE_ARTIFACT_DIR"); root != "" {
-		dir = filepath.Join(root, "automatic-channel")
+		dir = filepath.Join(root, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -207,7 +245,11 @@ func TestPCBAutomaticChannelArtifacts(t *testing.T) {
 	if err := writeSolveArtifacts(path, board, req, rep, nil, []string{filepath.Join(fixture, "board.json"), filepath.Join(fixture, "request.json")}); err != nil {
 		t.Fatal(err)
 	}
-	for name, marker := range map[string]string{"report.attempt-01.svg": "data-conflict=", "report.candidate-01.svg": "data-reservation=", "report.candidate-01.local.svg": "planning only"} {
+	markers := map[string]string{"report.candidate-01.svg": "data-reservation=", "report.candidate-01.local.svg": "planning only"}
+	if name != "fixed-route-order" {
+		markers["report.attempt-01.svg"] = "data-conflict="
+	}
+	for name, marker := range markers {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -216,13 +258,36 @@ func TestPCBAutomaticChannelArtifacts(t *testing.T) {
 			t.Fatalf("%s missing %s", name, marker)
 		}
 		decoder := xml.NewDecoder(bytes.NewReader(raw))
+		var visibleNote strings.Builder
 		for {
-			_, err := decoder.Token()
+			token, err := decoder.Token()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
 				t.Fatalf("invalid SVG %s: %v", name, err)
+			}
+			if start, ok := token.(xml.StartElement); ok && start.Name.Local == "text" {
+				for _, attr := range start.Attr {
+					if attr.Name.Local == "data-review-note" {
+						var line string
+						if err := decoder.DecodeElement(&line, &start); err != nil {
+							t.Fatal(err)
+						}
+						visibleNote.WriteString(line)
+					}
+				}
+			}
+		}
+		if strings.Contains(name, "candidate-01") && visibleNote.String() != strings.Join(rep.Candidates[0].MoveReasons, "; ") {
+			t.Fatalf("candidate preview truncated its move reasons: %q", visibleNote.String())
+		}
+	}
+	for _, keepout := range req.Layout.Keepouts {
+		for _, name := range []string{"report.baseline.svg", "report.candidate-01.svg", "report.candidate-01.local.svg"} {
+			raw, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil || !bytes.Contains(raw, []byte(`data-layout-keepout="`+keepout.ID+`"`)) {
+				t.Fatalf("%s omitted independent mechanical keepout %s: %v", name, keepout.ID, err)
 			}
 		}
 	}

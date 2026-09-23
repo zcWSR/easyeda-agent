@@ -2,6 +2,7 @@ package pcbrouting_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -66,5 +67,81 @@ func TestCheckJointRejectsTamperingAndMissingDemand(t *testing.T) {
 	tampered[1].Routes[0].Net = "A"
 	if err := pcbrouting.CheckJoint(context.Background(), req, tampered, checker); err == nil {
 		t.Fatal("tampered net accepted")
+	}
+}
+
+// A greedily consumes B's only channel. Once B is routed first, the same
+// single-route factory finds A's detour against B's actual reservation.
+func orderConflictFactory(onCall func(pcbrouting.Demand, []pcbrouting.JointCandidate)) pcbrouting.CandidateFactory {
+	return func(ctx context.Context, d pcbrouting.Demand, selected []pcbrouting.JointCandidate, _ int) ([]pcbrouting.JointCandidate, int, string, error) {
+		if onCall != nil {
+			onCall(d, selected)
+		}
+		if d.ID == "B" && len(selected) > 0 {
+			return nil, 1, "shared channel occupied", nil
+		}
+		if d.ID == "A" && len(selected) > 0 {
+			return []pcbrouting.JointCandidate{jointCandidate("A", "detour", 80)}, 1, "", nil
+		}
+		return []pcbrouting.JointCandidate{jointCandidate(d.ID, "shared", 50)}, 1, "", nil
+	}
+}
+
+func orderConflictChecker(_ context.Context, _ pcbrouting.Demand, c pcbrouting.JointCandidate, selected []pcbrouting.JointCandidate) error {
+	for _, prior := range selected {
+		if prior.Routes[0].ID == c.Routes[0].ID {
+			return fmt.Errorf("shared channel occupied")
+		}
+	}
+	return nil
+}
+
+func TestSolveJointBacktracksDemandOrder(t *testing.T) {
+	req := pcbrouting.JointRequest{MaxStates: 100, Demands: []pcbrouting.Demand{{ID: "B", Net: "B"}, {ID: "A", Net: "A"}}}
+	var firstChoices []string
+	factory := orderConflictFactory(func(_ pcbrouting.Demand, selected []pcbrouting.JointCandidate) {
+		if len(selected) == 1 {
+			firstChoices = append(firstChoices, selected[0].DemandID)
+		}
+	})
+	result, err := pcbrouting.SolveJoint(context.Background(), req, factory, orderConflictChecker)
+	if err != nil || result.Status != pcbrouting.Found || len(result.Selected) != 2 {
+		t.Fatalf("order backtracking failed: %+v %v", result, err)
+	}
+	if len(firstChoices) < 2 || firstChoices[0] != "A" || firstChoices[1] != "B" {
+		t.Fatalf("MRV/ID priority must precede alternative order: %v", firstChoices)
+	}
+	if err := pcbrouting.CheckJoint(context.Background(), req, result.Selected, orderConflictChecker); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSolveJointOrderBacktrackingHonorsBudgetAndCancellation(t *testing.T) {
+	req := pcbrouting.JointRequest{MaxStates: 100, Demands: []pcbrouting.Demand{{ID: "A", Net: "A"}, {ID: "B", Net: "B"}}}
+	for _, budget := range []int{1, 4, 7} {
+		bounded := req
+		bounded.MaxStates = budget
+		retriedOrder := false
+		factory := orderConflictFactory(func(_ pcbrouting.Demand, selected []pcbrouting.JointCandidate) {
+			retriedOrder = retriedOrder || len(selected) == 1 && selected[0].DemandID == "B"
+		})
+		result, err := pcbrouting.SolveJoint(context.Background(), bounded, factory, orderConflictChecker)
+		if err != nil || result.Status != pcbrouting.Incomplete || !result.Exhausted || result.States > budget || len(result.Selected) > 0 {
+			t.Fatalf("order retries escaped budget %d: %+v %v", budget, result, err)
+		}
+		if budget == 7 && !retriedOrder {
+			t.Fatal("budget case did not exercise the alternative order")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	factory := orderConflictFactory(func(_ pcbrouting.Demand, selected []pcbrouting.JointCandidate) {
+		if len(selected) == 1 && selected[0].DemandID == "B" {
+			cancel()
+		}
+	})
+	result, err := pcbrouting.SolveJoint(ctx, req, factory, orderConflictChecker)
+	if !errors.Is(err, context.Canceled) || result.Status == pcbrouting.Found || len(result.Selected) > 0 {
+		t.Fatalf("cancellation during alternative order was lost: %+v %v", result, err)
 	}
 }

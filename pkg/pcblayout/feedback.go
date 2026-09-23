@@ -115,37 +115,41 @@ func Neighbors(base pcbmodel.Board, req Request, current Candidate, refs []strin
 				prior = m
 			}
 		}
-		options := append([]Offset(nil), g.Offsets...)
+		// Initial rotations may have been rejected before the group moved. Try
+		// every declared orientation again at the current and neighboring offsets.
+		options := append([]Offset{{X: prior.DX, Y: prior.DY}}, g.Offsets...)
 		if s := g.TranslationSearch; s != nil {
 			for _, d := range [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
 				options = append(options, Offset{X: prior.DX + float64(d[0])*s.Step, Y: prior.DY + float64(d[1])*s.Step})
 			}
 		}
 		for _, o := range options {
-			if o.X == prior.DX && o.Y == prior.DY {
-				continue
-			}
-			m := prior
-			m.DX, m.DY, m.Reason = o.X, o.Y, reason
-			moves := make([]Move, 0, len(current.Moves)+1)
-			for _, old := range current.Moves {
-				if old.Group != g.ID {
-					moves = append(moves, old)
+			for _, rotation := range rotations(g) {
+				if o.X == prior.DX && o.Y == prior.DY && rotation == prior.RotationDelta {
+					continue
 				}
+				m := prior
+				m.DX, m.DY, m.RotationDelta, m.Reason = o.X, o.Y, rotation, reason
+				moves := make([]Move, 0, len(current.Moves)+1)
+				for _, old := range current.Moves {
+					if old.Group != g.ID {
+						moves = append(moves, old)
+					}
+				}
+				if m.DX != 0 || m.DY != 0 || m.RotationDelta != 0 {
+					moves = append(moves, m)
+				}
+				sort.Slice(moves, func(i, j int) bool { return moves[i].Group < moves[j].Group })
+				// Validate the zero transition too, before dropping its no-op record.
+				if !allowedOffset(g, m.DX, m.DY) {
+					continue
+				}
+				board, err := Project(base, req, moves)
+				if err != nil {
+					continue
+				}
+				out = append(out, Candidate{Board: board, Moves: moves, Metrics: moveMetrics(moves)})
 			}
-			if m.DX != 0 || m.DY != 0 || m.RotationDelta != 0 {
-				moves = append(moves, m)
-			}
-			sort.Slice(moves, func(i, j int) bool { return moves[i].Group < moves[j].Group })
-			// Validate the zero transition too, before dropping its no-op record.
-			if !allowedOffset(g, m.DX, m.DY) {
-				continue
-			}
-			board, err := Project(base, req, moves)
-			if err != nil {
-				continue
-			}
-			out = append(out, Candidate{Board: board, Moves: moves, Metrics: moveMetrics(moves)})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return Less(out[i], out[j]) })

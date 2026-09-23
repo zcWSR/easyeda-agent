@@ -41,7 +41,7 @@ easyeda pcb dump --include-copper --out board.json
 easyeda pcb layout solve --board board.json --from solve-request.json --out solve-report.json
 easyeda pcb layout check --board board.json --from solve-request.json \
   --candidate solve-report.candidate-01.json --out check.json
-easyeda pcb layout render --board board.json \
+easyeda pcb layout render --board board.json --from solve-request.json \
   --candidate solve-report.candidate-01.json --out candidate.svg
 ```
 
@@ -53,8 +53,14 @@ track/via/region；Router 在每个固定投影上共同检查所有 demand，�
 布局完成前必须检查块间导线需要的空间。自动让位入口使用
 `layout.groups[].translationSearch: {"step": 10, "maxDistance": 80}`（mil），允许在原始位置
 附近按网格搜索；`offsets` 仍兼容旧的显式备选位置。先共同试布，记录实际被拒绝路径的
-网络、层、对象和位置，再移动完整组并重算所有声明连接。最终候选的通道预留包含路径铜宽、
-净距及过孔占用；预留只存在于计算结果，不加入 board 的既有铜，也不由 layout Apply 写入。
+网络、层、对象和位置，再移动完整组并重算所有声明连接。
+反馈搜索也探索 `allowedRotationDeltas` 声明的整体转角：原地旋转碰撞时，允许在平移后重新
+尝试该朝向。全部成员和内部几何始终从原始 anchor 重建，不累计逐次旋转误差；`fixedAxes`
+中的 `rotation` 仍禁止转动，移动半径与总预算保持。共同路由优先在固定布局中回溯路径和
+排网顺序，让先前占用通道的网络按新的占用重新寻路；这些尝试也消耗共享预算。真实同层
+替代路线的生成仍有限，未找到共同路径不能当全局无解，也不代表一定需要移动模块。
+最终候选保留共同路径的铜宽、净距及过孔占用；预留只存在于计算结果，不加入 board 的
+既有铜，也不由 layout Apply 写入。
 只检查少数 demand 只能证明这些连接；没有完整块间连接需求时，不能称整板布局可布通。
 自动让位会拒绝缺少完整外部连接图的输入；已有焊盘与铜的接触不能因移动而断开，外部旧铜
 尚无显式替换模型时要保留该失败，不能以新路径预留替代旧铜重建。状态/网格资源耗尽不归因
@@ -65,7 +71,9 @@ track/via/region；Router 在每个固定投影上共同检查所有 demand，�
 `semanticSha256`。当前固定装配面，支持 TOP/BOTTOM、直线/45°和每网最多两个过孔；四层只在
 公共模型表达，旧 dump 的层数不能推断内层用途。输出含基线、每次失败尝试和最终候选的
 整板 SVG 与同名 `*.local.svg`；局部范围由声明端点、移动组、实际路径和过孔自动计算，仍与
-整板图消费同一候选。SVG 不证明连通。提供 `--apply-project/--apply-doc` 时，solve 为不含内部铜
+整板图消费同一候选。solve/check 的预览还显示请求中的机械禁放区；移动原因完整换行显示。
+单独 `render` 加 `--from` 可显示相同请求禁放区，并核对板/请求与候选来源；旧的无 `--from`
+调用仍兼容，但只显示板中已有约束。SVG 不证明连通。提供 `--apply-project/--apply-doc` 时，solve 为不含内部铜
 移动的候选输出绑定工程/文档的 layout-only playbook；执行前还须 fresh dump 对照候选的
 `baseSemanticHash`，绑定本身不会自动完成这项哈希检查。playbook 只写器件位置并保存，不写规划路径。移动显式内部铜
 的候选会输出 `unsupported` 说明，不能只移动器件。2026-09-23 的 `ceshi/PCB1` 双网测试
