@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.8] — 2026-09-24 (local schematic layout regression candidate)
+
+- Retry earlier legal naming leads when a later physical island cannot be named. The bounded joint search runs only after five fixed orders fail with budget remaining, keeps at most eight options per island, uses the same candidate allowance and publishes only a fully validated layout. Offline double-island fixtures verify recovery and no partial result on exhaustion; clean-project P1/P2 and Web Apply remain unverified.
+
 ## [1.6.0-dev.7] — 2026-09-24 (local schematic acceptance diagnostic)
 
 - Add a read-only exact project lookup over the official team-root UUID inventory and per-project details. A failed `project.create` that returned no UUID can now be reconciled before any retry; missing, empty or partial inventories never count as proof of absence.
