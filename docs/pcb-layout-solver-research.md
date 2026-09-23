@@ -258,7 +258,8 @@ save → reload → fresh dump → fresh solve/render → fresh stage-snapshot�
 71 器件、62 条既有线、2 个既有过孔、板框与规则未变，只有这两件的丝印位号随动。
 fresh 双网重新求解与独立检查均通过。现场 DRC 仍有 208 条 Connection Error 和 1 条
 Netlist Error，因此不能称整板完成；规划铜未写入，用户确认前不进入整板布线。
-`go test ./... -count=1` 为 3594 项 / 17 包通过；ESP32 原始需求完整回归仍未执行。
+只应用本功能提交内容的隔离检出中，`go test ./... -count=1` 为 3582 项 / 17 包通过；
+ESP32 原始需求完整回归仍未执行。
 
 这轮自动让位实现后的实际验证：`go test ./... -count=1` 为 3556 项 / 17 包通过；
 `make layout-calibrate`、`make skill-check`、`make agent-check` 通过。SVG 已通过 XML 解析检查，
