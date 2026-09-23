@@ -117,6 +117,10 @@ fresh 对象快照，typed 创建临时页并保存返回 UUID，只放与源一
 请求和回包。即时相等只证明内存状态，未经过 save→reload→fresh readback 时，清理的
 持久化仍标 `incomplete`。运行期间其他 Agent 不访问同一窗口。
 
+正式纸张布局前核对 typed `sch sheet-geometry` 是否给出红色绘图区内框的精确边界。
+只有外纸张尺寸和图签避让区时，保守工作矩形可供离线预览，但不能替代内框入页判据；
+记录原响应并标 `unsupported`，补齐采集后再进入现场写前门禁。
+
 逐件只允许一条 attachment 表达所属外围的主依附关系；同一器件分别用两个真实引脚
 再声明一次，哪怕端点同网，也应在 `sch zone-review` / `sch layout-plan --zones` 被拒绝。
 新增正式页面后先重新读取**所有目标页**的 fresh `sch list`，再编 guarded playbook：
