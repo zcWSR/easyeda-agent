@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.5] — 2026-09-23 (local schematic acceptance candidate)
+
+- Reread sparse schematic attribute state by exact primitive ID before accepting a guarded full-page snapshot. EasyEDA Pro 4.1.60 returned `undefined` for `KeyVisible` in the bulk attribute inventory; a second official read must produce a supported value or replacement remains blocked with no deletion. The prior `dev.4` three-page Apply is still untested.
+- End an in-flight daemon action promptly if its connector disconnects, instead of waiting for the full request deadline. A timed-out read during the `dev.4` pre-Apply snapshot is not evidence that the page is safe to replace.
+
 ## [1.6.0-dev.4] — 2026-09-23 (local schematic acceptance candidate)
 
 - Guard whole-page schematic replacement with the complete native state of every page primitive, and recheck that state inside the typed clear action before deletion. This closes a pre-Apply blind-review finding where unchanged parts could mask a new wire or edited network marker.
