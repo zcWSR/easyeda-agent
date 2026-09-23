@@ -22,11 +22,16 @@ dist/local-vX.Y.Z-dev.N/easyeda_darwin_arm64 update \
 make local-daemon-restart LOCAL_EASYEDA="$(command -v easyeda)"
 ```
 
-4. 在用户的内置浏览器 Web EDA 中，停用旧连接器；从上述 `dist` 导入
-   `easyeda-agent-connector.eext` 并启用“允许外部交互”。同 UUID 的旧侧载项须先卸载；
-   市场版与本地侧载版不要同时运行。权限弹窗按浏览器要求由用户单独确认。扩展安装项
-   显示新版本，不证明当前网页已运行新代码。已有文档先按实际状态保留可用证据；更新插件后
-   **请用户刷新当前 Web 页面**，Agent 不用 GUI 刷新来恢复工程或代替 typed 验证。
+4. 更新连接器前，在旧 CLI/daemon/connector 精确同版的窗口里对每个已打开的测试页运行
+   `easyeda sch save --project <project> --doc <page>`，逐页保留 `saved:true` 回包。版本不符
+   或窗口未连接时停止，不能用 GUI 保存兜底。
+5. 在用户的内置浏览器 Web EDA 中进入 **高级 → 扩展管理器 → 已安装**。辨认目标侧载项的
+   版本和 UUID；市场版保持禁用，同 UUID 的旧侧载项先卸载。从上述 `dist` 导入
+   `easyeda-agent-connector.eext`，接受安装提示后在该扩展的 **配置** 中启用
+   **允许外部交互**。该权限允许连接本机 WebSocket 并调用宿主的文件/联网接口；首次启用
+   按浏览器权限规则取得用户确认。扩展列表显示新版本仍不证明当前网页运行新代码。
+6. 更新后**请用户刷新或重开当前 Web 页面**，Agent 不用 GUI 刷新来恢复工程或代替 typed
+   验证。即使 `health` 在刷新前自行上报了新版本，也继续等待刷新后的新鲜连接与对象回读。
 
 ## 2. 核对实际运行时与测试工程
 
