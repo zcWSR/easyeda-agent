@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.9] — 2026-09-24 (local schematic layout regression candidate)
+
+- Let a peripheral checkpoint retry another legal position in the same distance shell after a dependent component fails. The rejected XY set prevents replay; every new candidate still consumes the shared budget and all geometry/connectivity gates remain. An abstract long-core/Q/R corridor fixture proves a complete legal alternative skipped by the prior cursor. Clean-project P1/P2 and Web Apply remain unverified.
+
 ## [1.6.0-dev.8] — 2026-09-24 (local schematic layout regression candidate)
 
 - Retry earlier legal naming leads when a later physical island cannot be named. The bounded joint search runs only after five fixed orders fail with budget remaining, keeps at most eight options per island, uses the same candidate allowance and publishes only a fully validated layout. Offline double-island fixtures verify recovery and no partial result on exhaustion; clean-project P1/P2 and Web Apply remain unverified.
