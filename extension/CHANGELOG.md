@@ -14,6 +14,7 @@
 ### Fixed
 
 - Preserve EasyEDA's native schematic DRC verdict for the requested strict mode while keeping the separate detailed read explicit and non-atomic. Unknown counts remain `null`, never fabricated zeroes; CLI output and workflow gates now fail on a native failed verdict even when detailed counts are unavailable. Non-strict success may still report advisory warnings (#255).
+- Harden local schematic editing and daemon recovery: reject native `net_label` writes on V3 or unknown hosts before a batch starts; allow a new, fully verified wire to preserve unchanged historical geometry findings while still failing any new/changed defect; and add guarded `daemon stop/restart` with live health/PID identity checks instead of guessing or terminating an unrelated process.
 - Bootstrap the Connector when EasyEDA evaluates its entry bundle without dispatching `activate()`. Reuse one versioned transport controller across bundle evaluations, keep lifecycle calls delegated, and release it on `deactivate()` instead of registering competing sockets.
 - Gate schematic layout/designator work on actual netlist availability rather than pin geometry alone. `layout-lint` reports `nets-unproven` separately, and the Skill forbids classifying `floatingPins` as truly unconnected when the netlist read was unavailable.
 - Preserve declared differential pairs in the PCB 3W check, normalize module-frame coordinates, verify zone-frame geometry before reporting it retained, harden empty-page and title-block diagnostics, and keep Connector queue/bootstrap behavior fail-closed across supported hosts.
@@ -21,7 +22,7 @@
 ### Upgrade and validation scope
 
 - This release changes the Connector runtime and starts the 1.6 compatibility line. Upgrade CLI/daemon and Skill together, uninstall the previous sideloaded Connector, import the 1.6.0 `.eext`, reopen the Web editor, and verify the reported Connector version/actions. The release restores the stable marketplace UUID; the temporary dev.5/dev.6 fresh UUID was only a cache-bypass fallback and must not become the published identity.
-- Automated Go, Connector, MCP, Skill, agent-entry, packaging, and native-install checks are release gates. Focused live evidence covers V4 configuration, project transfer, several PCB placement/routing modules, and connector bootstrap. The prescribed fresh requirement-to-four-layer-PCB end-to-end regression was not rerun for this release, and the current crystal schema-v3 candidate remains rejected; neither is represented as completed hardware acceptance.
+- Automated Go, Connector, MCP, Skill, agent-entry, packaging, and native-install checks are release gates. Focused live evidence covers V4 configuration, project transfer, several PCB placement/routing modules, and connector bootstrap. The new local-edit/daemon recovery changes are offline-verified, including Windows cross-builds, but not Windows-runtime verified. The prescribed fresh requirement-to-four-layer-PCB end-to-end regression was not rerun for this release, and the current crystal schema-v3 candidate remains rejected; neither is represented as completed hardware acceptance.
 
 ## [1.5.3-dev.6] — 2026-09-22 (local development)
 
