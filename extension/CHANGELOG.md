@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.13] — 2026-09-24 (local schematic readback recovery candidate)
+
+- Limit native source matching to attributes whose SDK visibility remains unreadable. EasyEDA Pro exposes some generated, fully readable attributes only through the SDK; their absence from the persisted `.epro2` source does not invalidate the SDK inventory. The exact native identity check still blocks recovery of any unreadable attribute missing from the source.
+
 ## [1.6.0-dev.12] — 2026-09-24 (local schematic readback recovery candidate)
 
 - Recover two unreadable attribute visibility fields after schematic reload only from the exact current-page records in an official project export, with project/page/tab, primitive ID, key, parent and value checks. Pin-owned source attributes that omit visibility cannot supply a value. Missing or conflicting evidence still blocks a full-page snapshot and guarded replacement. The clean test project must be reread before release acceptance.
