@@ -416,11 +416,13 @@ Built on / inspired by these open projects — thank you:
 ## PCB algorithm contributions
 
 The public Go packages `pcbmodel`, `pcblayout`, `pcbrouting`, and `pcbsolve` support
-offline work on bounded two-layer placement and routing. Run `make pcb-solver-test`
+offline placement and routing work. The coordination design covers multilayer boards;
+the current implementation supports bounded two-layer solving. Run `make pcb-solver-test`
 without EasyEDA or a daemon. See the [contribution plan](docs/pcb-solver-community-design.md)
 and [mathematical model and scoped tasks](docs/pcb-solver-community-design-detail.md)
 (Chinese). Current opportunities include tiny independent exact references,
-alternative routes on the same layer, and congestion-aware placement seeds.
+alternative routes on the same layer, congestion-aware placement seeds, and staged
+multilayer coordination with explicit stackup, via-span, and plane constraints.
 Algorithm PRs should target `dev` and include reproducible cases and independent checks.
 
 ## License

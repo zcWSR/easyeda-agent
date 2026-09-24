@@ -39,10 +39,12 @@ Compose 固定转换已确认几何，Apply 执行和回读，不在写入阶段
 
 PCB 公共计算按单向依赖拆为 `pkg/pcbmodel`（板/层叠/几何）、`pkg/pcblayout`（完整移动组与
 机械合法性）、`pkg/pcbrouting`（单次路径、多网共同选择和独立检查）、`pkg/pcbsolve`
-（路由反馈、共享预算、候选排序与整体复验）。公共包不引用 `internal/app`；快照解析、块库
+（面向多层的布局布线协调、路由反馈、共享预算、候选排序与整体复验；当前实现二层）。公共包不引用 `internal/app`；快照解析、块库
 提示转换、Cobra、文件、SVG、运行时 PID 和 typed Apply 仍在宿主层。
 
-`pcb route solve/check` 保留单端点对入口；`pcb layout solve/check/render` 承载二层板共同求解。
+`pcb route solve/check` 保留单端点对入口；`pcb layout solve/check/render` 当前承载二层板共同求解。
+多层扩展继续沿用这四包和同一协调入口，按层叠/换层模型、独立检查、搜索与宿主适配分步
+实现；职责与计划见[社区方案](pcb-solver-community-design.md)，不另起一套多层协调器。
 
 协同入口先共同试布，再把实际拒绝的线段、阻挡对象、网络和层反馈给 `pcblayout.Neighbors`。
 组的 `translationSearch` 声明步长/半径，动态产生原始 anchor 周围的位置；机械冲突可递归驱动
