@@ -48,6 +48,8 @@ U3 CH340C、C8、10 个网络标记、导线和模块框均写入，逐脚检查
 `bridge-check` 为 0 桥接/孤儿；`clusters --strict` 为 2 组、0 重叠、0 出纸；
 `layout-lint` 为 2 件、0 紧贴、0 出纸；官方 `sch drc` 为 0 fatal、0 error、
 **6 warn 且不提供逐项详情**。导出图还显示 `Name`/`Description` 被宿主绘在纸框外。
+图签修正后重新运行 `dev.13` 的 `sch gate --strict --json`，结果仍为 `fail`，
+唯一 blocker 是这 6 条未归因的 DRC 警告；其余阶段没有 blocker。
 因此 P3 是**已落盘的局部阶段结果**，严格 F2 和发布验收仍未通过。
 无历史上下文的独立 Agent 仅用冻结证据复核：P3 原生工程源与 `dev.13` 完整回读的
 13 COMPONENT、10 WIRE、1 RECT、1 TEXT 原语 ID 集合一致；U3/C8 共 18 个物理脚的
@@ -61,7 +63,7 @@ F2 strict gate、三页完成或整板验收；图签越界和 6 条无逐项详
 | M1 | `dev.7` 专项通过，独立离线复核通过 | 32/32 唯一可见官方位号 bbox、属性 ID/parent 和全部 pin 几何一致；专用测量页 typed 删除后，三张正式页 save→reload→fresh 完整对象与初始快照精确相等。 |
 | M2 | 部分通过 | 三页官方 SVG 与 fresh 图纸对象已配对，红色 A4 内框 raw `[10,10,1160,815]`、图签/Logo 保守禁放区 `[454,1,1166,196]` 用于 P3 写前；P1/P2 全页候选和保存后对象/图像的完整入框仍未复核。P3 图签附加字段可见越界。 |
 | F1 | 源一致性离线复核通过，完整用例阻塞 | 新源为 32 件、139 物理脚、23 网、99 条 pin→net 与 40 个明确 NC，逐脚无重叠/遗漏，归属与附着检查通过。P1/P2 冻结候选及单区复现均报告 `candidate-budget-exhausted`，`globalInfeasibilityProven:false`；两区拆分副本因跨区 `direct` 写前拒绝，独立复核还发现跨区专属附件；P3 区内求解成功。未产生三页完整真实 direct 导线树、整页计划和 guarded 队列。 |
-| F2 | P3 局部落盘，整体未通过 | P3 前 35 步写入后，严格门禁第 36 步拦下；单独 typed 保存、重载、`dev.13` 完整对象回读与导出成功，6 条 DRC 汇总警告和图签越界待处理。P1/P2 未 Apply，三页 strict gate 不成立。 |
+| F2 | P3 局部落盘，整体未通过 | P3 前 35 步写入后，第 36 步严格门禁拦下；单独 typed 保存、重载、`dev.13` 完整对象回读与导出成功。图签修正后的新鲜 strict gate 仍仅因 6 条未归因 DRC 警告失败，图签附加字段也可见越界。P1/P2 未 Apply，三页 strict gate 不成立。 |
 | E1 | `offline-only`，现场未测 | 独立复核可沿源 netlist 追溯 USB 供电/数据→CH340C→UART 与 DTR#/RTS#→EN/BOOT；理想 NPN 静态四态 LL→HH、LH→HL、HL→LH、HH→HH。尚无完整实际导线和现场回读，不能判现场通过或实板可烧录。 |
 | L1 | 未运行 | 尚无经保存重载确认的完整基线。 |
 | L2 | 条件未满足 | 未发现可归因且可回读的现场旧支路错误。 |
