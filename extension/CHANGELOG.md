@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.14] — 2026-09-24 (offline schematic solver candidate)
+
+- Add bounded naming-frontier checks during peripheral placement, direct joins and final naming, plus dependency shell retries and exact failure attribution. Keep all probes on the shared candidate budget, preserve a feasible small-budget baseline, and treat rejected A* routes as inconclusive rather than cached geometric impossibility. Abstract geometry and budget regressions pass, but frozen clean-project P1/P2 still exhaust their candidate limits; neither page is ready for live Apply.
+
 ## [1.6.0-dev.13] — 2026-09-24 (local schematic readback recovery candidate)
 
 - Limit native source matching to attributes whose SDK visibility remains unreadable. EasyEDA Pro exposes some generated, fully readable attributes only through the SDK; their absence from the persisted `.epro2` source does not invalidate the SDK inventory. The exact native identity check still blocks recovery of any unreadable attribute missing from the source.
