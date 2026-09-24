@@ -34,6 +34,12 @@ test('project source archive: ignores geometry source-looking strings in a diffe
 	assert.equal(readNativeFootprintSource(inventory, 'abe23dba1def1246').source?.uuid, '20c29e37a9b84b4197418483096f9c05');
 });
 
+test('footprint-only source reader ignores unrelated asset identities', async () => {
+	const unrelated = '{"type":"DOCHEAD"}||{"docType":"DEVICE","uuid":null}|\n';
+	const inventory = await readProjectFootprintSourceArchive(await archive({ 'one.epru': unrelated + footprint + page }), pageUuid);
+	assert.equal(inventory.length, 1);
+});
+
 test('project source archive: accepts the official EOF BLOB without a trailing separator', async () => {
 	const source = footprint + page + '{"type":"BLOB"}||{"content":"data:image/png;base64,AA=="}';
 	const inventory = await readProjectFootprintSourceArchive(await archive({ 'one.epru': source }), pageUuid);

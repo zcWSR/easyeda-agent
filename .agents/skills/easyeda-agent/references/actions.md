@@ -23,6 +23,24 @@
 生成器的输入、支持范围与位号/身份规则集中在 [schematic-data.md](schematic-data.md)。
 数据层校验用于发现结构问题，执行时的实时回读用于证明变更确已生效。
 
+### 原理图属性和本地器件身份
+
+`schematic.attribute.visibility.modify` 只改变页图框、器件或网络端口的 `Name` / `Description`
+显示标志。`schematic.attribute.geometry.modify` 只移动已有导线的可见 `Name` 文字，
+不改变导线、网络或文字内容。两者都要求新鲜读取的父对象与属性 ID、旧状态和目标值；
+写后回读若未证实，结果视为未知，不能重放旧请求。保存重开、属性回读和官方导图仍须独立验收。
+
+排查属性动作时保留原始请求和响应、`easyeda health` 的三端版本、窗口/文档 ID，
+以及独立回读的 wire `primitiveId/net/line/style` 和属性
+`primitiveId/parentPrimitiveId/key/value/x/y/rotation/keyVisible/valueVisible`。
+例如目标位姿 `[245,685,0]`，错误却同时报告观测位姿 `[245,685,0]`，这是后验判断
+可能有误的证据，不等于写入失败；先保存重开再读取，不能马上重试。
+
+读取 16 位实例 UUID 的项目本地 Device 时，仅接受当前官方工程导出的 DEVICE、SYMBOL、
+FOOTPRINT 唯一 `DOCHEAD`/`META.source` 与官方 Device association 一致的 32 位库资产。
+非 BOM 铜件不得携带采购字段；BOM 件还须精确核对 C 号、MPN、制造商、供应商及 BOM/PCB 标志。
+缺失或冲突时报告未解析，不按名称、页名或项目名猜测。
+
 compose 生成的全工程位号唯一性步骤使用 `schematic.components.list` 的
 `allPages:true,tagPages:true` 最小清单，只检查位号冲突、既有 primitiveId 和待建位号不存在；
 它不请求慢速 device identity、bbox 或 pins。紧随其后的目标页守卫仍读取完整

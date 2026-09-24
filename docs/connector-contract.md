@@ -86,6 +86,8 @@ The connector will map actions to these EasyEDA APIs first:
 - `eda.sch_PrimitiveComponent.create`
 - `eda.sch_PrimitiveComponent.modify`
 - `eda.sch_PrimitiveComponent.delete`
+- `eda.sch_PrimitiveAttribute.get`
+- `eda.sch_PrimitiveAttribute.modify`
 - `eda.sch_PrimitiveWire.create`
 - `eda.sch_PrimitiveComponent.createNetFlag`
 - `eda.sch_PrimitiveComponent.createNetPort`

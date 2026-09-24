@@ -12,7 +12,7 @@ import { exactJSON, preservedInstance } from './preserve-instance';
 import { barePcbRuleConfiguration, pcbRulesEqual, planPcbConfig } from './pcb-config';
 import { pcbNetColorSet } from './pcb-net-color';
 import { documentTypeLabel, readResponseContext } from './eda-context';
-import { readProjectFootprintSourceArchive } from './native-footprint-source';
+import { readProjectFootprintSourceArchive, readProjectNativeAssetSourceArchive } from './native-footprint-source';
 import {
 	assertLegacySimpleWireOperation,
 	classifyWireContact,
@@ -49,6 +49,8 @@ import {
 	pickNamedCandidate,
 	readDeviceFootprint,
 	readNativeFootprintSource,
+	readNativeProjectAssetSource,
+	type NativeProjectAssetInventoryEntry,
 	requireNumber,
 	requireString,
 	requireStringArray,
@@ -2791,6 +2793,117 @@ const schematicNetflagCreate: Handler = async (payload) => {
 	};
 };
 
+// Narrow schematic-attribute visibility repair. Values, keys, nets and parent
+// objects are immutable through this action; only visibility flags are patched.
+const schematicAttributeVisibilityModify: Handler = async (payload) => {
+	const parentId = requireString(payload, 'parentPrimitiveId');
+	const attributeId = requireString(payload, 'attributePrimitiveId');
+	const expectedParentType = requireString(payload, 'expectedParentType');
+	const expectedKey = requireString(payload, 'expectedKey');
+	const expectedValue = requireString(payload, 'expectedValue');
+	if (!['netport', 'part', 'sheet'].includes(expectedParentType)) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'expectedParentType must be netport, part, or sheet.');
+	if (!['Name', 'Description'].includes(expectedKey)) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Only Name and Description attributes may be changed by this action.');
+	const expectedKeyVisible = payload.expectedKeyVisible;
+	const expectedValueVisible = payload.expectedValueVisible;
+	if (expectedKeyVisible !== null && typeof expectedKeyVisible !== 'boolean') throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'expectedKeyVisible must be boolean or null.');
+	if (expectedValueVisible !== null && typeof expectedValueVisible !== 'boolean') throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'expectedValueVisible must be boolean or null.');
+	const desiredKeyVisible = optionalBoolean(payload, 'keyVisible');
+	const desiredValueVisible = optionalBoolean(payload, 'valueVisible');
+	if (desiredKeyVisible === undefined && desiredValueVisible === undefined) throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'Provide keyVisible and/or valueVisible.');
+	const [parent, attribute] = await Promise.all([
+		eda.sch_PrimitiveComponent.get(parentId),
+		eda.sch_PrimitiveAttribute.get(attributeId),
+	]);
+	if (!parent || parent.getState_PrimitiveId() !== parentId || parent.getState_ComponentType() !== expectedParentType) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Parent id or type changed since readback.');
+	}
+	if (expectedParentType === 'netport' && expectedKey === 'Name' && parent.getState_Net() !== expectedValue) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Netport Name must match the parent port\'s actual network.');
+	}
+	if (!attribute || attribute.getState_PrimitiveId() !== attributeId || attribute.getState_ParentPrimitiveId() !== parentId || attribute.getState_Key() !== expectedKey || attribute.getState_Value() !== expectedValue) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Attribute parent, key, or value changed since readback.');
+	}
+	if (attribute.getState_KeyVisible() !== expectedKeyVisible || attribute.getState_ValueVisible() !== expectedValueVisible) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Attribute visibility changed since readback; re-read before retrying.');
+	}
+	const patch: { keyVisible?: boolean; valueVisible?: boolean } = {};
+	if (desiredKeyVisible !== undefined) patch.keyVisible = desiredKeyVisible;
+	if (desiredValueVisible !== undefined) patch.valueVisible = desiredValueVisible;
+	const changed = await eda.sch_PrimitiveAttribute.modify(attributeId, patch);
+	if (!changed) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'EasyEDA did not modify the attribute visibility.');
+	const [actualParent, actual] = await Promise.all([
+		eda.sch_PrimitiveComponent.get(parentId),
+		eda.sch_PrimitiveAttribute.get(attributeId),
+	]);
+	if (!actualParent || actualParent.getState_PrimitiveId() !== parentId || actualParent.getState_ComponentType() !== expectedParentType || (expectedParentType === 'netport' && expectedKey === 'Name' && actualParent.getState_Net() !== expectedValue) || !actual || actual.getState_PrimitiveId() !== attributeId || actual.getState_ParentPrimitiveId() !== parentId || actual.getState_Key() !== expectedKey || actual.getState_Value() !== expectedValue || actual.getState_KeyVisible() !== (desiredKeyVisible ?? expectedKeyVisible) || actual.getState_ValueVisible() !== (desiredValueVisible ?? expectedValueVisible)) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Attribute visibility readback did not match the requested state.');
+	}
+	return { result: { parentPrimitiveId: parentId, attributePrimitiveId: attributeId, parentType: expectedParentType, key: expectedKey, value: expectedValue, keyVisible: actual.getState_KeyVisible(), valueVisible: actual.getState_ValueVisible(), verified: true } };
+};
+
+// Move only the native Name attribute of an existing wire. The label remains
+// owned by the same wire; no wire path, network, or attribute text is patched.
+const schematicAttributeGeometryModify: Handler = async (payload) => {
+	const wireId = requireString(payload, 'parentPrimitiveId');
+	const attributeId = requireString(payload, 'attributePrimitiveId');
+	const expectedParentType = requireString(payload, 'expectedParentType');
+	const expectedKey = requireString(payload, 'expectedKey');
+	const expectedNet = requireString(payload, 'expectedNet');
+	const expectedValue = requireString(payload, 'expectedValue');
+	if (expectedParentType !== 'wire' || expectedKey !== 'Name') throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Only the Name attribute of a wire may be moved.');
+	const expectedLine = normalizeWirePoints(payload.expectedLine);
+	const oldCoordinate = (field: 'expectedX' | 'expectedY' | 'expectedRotation'): number | null => {
+		const value = payload[field];
+		if (value === null || (typeof value === 'number' && Number.isFinite(value))) return value;
+		throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, `${field} must be a finite number or explicit null.`);
+	};
+	const expectedX = oldCoordinate('expectedX');
+	const expectedY = oldCoordinate('expectedY');
+	const expectedRotation = oldCoordinate('expectedRotation');
+	const expectedKeyVisible = payload.expectedKeyVisible;
+	const expectedValueVisible = payload.expectedValueVisible;
+	if (expectedKeyVisible !== null && typeof expectedKeyVisible !== 'boolean') throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'expectedKeyVisible must be boolean or null.');
+	if (expectedValueVisible !== true) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Wire Name must be visible before moving its geometry.');
+	if (expectedNet !== expectedValue) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Wire Name must equal the expected network.');
+	const patch: { x?: number; y?: number; rotation?: number } = {};
+	for (const field of ['x', 'y', 'rotation'] as const) {
+		if (payload[field] === undefined) continue;
+		if (typeof payload[field] !== 'number' || !Number.isFinite(payload[field])) throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, `${field} must be a finite number.`);
+		patch[field] = payload[field] as number;
+	}
+	if (Object.keys(patch).length === 0) throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'Provide x, y, and/or rotation.');
+	// The Pro SDK may normalize/consume the object passed to modify(). Keep the
+	// intended pose as immutable scalar evidence before handing it to the host.
+	const targetX = patch.x ?? expectedX;
+	const targetY = patch.y ?? expectedY;
+	const targetRotation = patch.rotation ?? expectedRotation;
+	const [wire, attribute] = await Promise.all([
+		eda.sch_PrimitiveWire.get(wireId),
+		eda.sch_PrimitiveAttribute.get(attributeId),
+	]);
+	if (!wire || wire.getState_PrimitiveId() !== wireId || wire.getState_Net() !== expectedNet || exactJSON(normalizeWirePoints(wire.getState_Line())) !== exactJSON(expectedLine)) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Wire id, net, or line changed since readback.');
+	}
+	if (!attribute || attribute.getState_PrimitiveId() !== attributeId || attribute.getState_ParentPrimitiveId() !== wireId || attribute.getState_Key() !== 'Name' || attribute.getState_Value() !== expectedValue || attribute.getState_X() !== expectedX || attribute.getState_Y() !== expectedY || attribute.getState_Rotation() !== expectedRotation || attribute.getState_KeyVisible() !== expectedKeyVisible || attribute.getState_ValueVisible() !== expectedValueVisible) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Wire Name identity, text, visibility, or geometry changed since readback.');
+	}
+	const wireStyle = [wire.getState_Color(), wire.getState_LineWidth(), wire.getState_LineType()];
+	const changed = await eda.sch_PrimitiveAttribute.modify(attributeId, { ...patch });
+	if (!changed) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'EasyEDA did not modify the wire Name geometry.');
+	const [actualWire, actual] = await Promise.all([
+		eda.sch_PrimitiveWire.get(wireId),
+		eda.sch_PrimitiveAttribute.get(attributeId),
+	]);
+	if (!actualWire || actualWire.getState_PrimitiveId() !== wireId || actualWire.getState_Net() !== expectedNet || exactJSON(normalizeWirePoints(actualWire.getState_Line())) !== exactJSON(expectedLine) || exactJSON([actualWire.getState_Color(), actualWire.getState_LineWidth(), actualWire.getState_LineType()]) !== exactJSON(wireStyle) || !actual || actual.getState_PrimitiveId() !== attributeId || actual.getState_ParentPrimitiveId() !== wireId || actual.getState_Key() !== 'Name' || actual.getState_Value() !== expectedValue || actual.getState_KeyVisible() !== expectedKeyVisible || actual.getState_ValueVisible() !== expectedValueVisible) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Wire Name protected identity, network, line, style, text, or visibility changed after geometry modification; re-read the page before any retry.');
+	}
+	const observedPose = [actual.getState_X(), actual.getState_Y(), actual.getState_Rotation()];
+	if (observedPose[0] !== targetX || observedPose[1] !== targetY || observedPose[2] !== targetRotation) {
+		throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `Wire Name geometry readback differs (target ${JSON.stringify([targetX, targetY, targetRotation])}, observed ${JSON.stringify(observedPose)}); mutation outcome is unknown, re-read before any retry.`);
+	}
+	return { result: { parentPrimitiveId: wireId, attributePrimitiveId: attributeId, key: 'Name', value: expectedValue, net: expectedNet, line: expectedLine, x: actual.getState_X(), y: actual.getState_Y(), rotation: actual.getState_Rotation(), verified: true } };
+};
+
 // ─── No-connect flag (非连接标识) ───────────────────────────────────────
 //
 // A no-connect mark is NOT a standalone primitive — it is a PIN STATE.
@@ -4801,6 +4914,35 @@ type LibraryBuildInventoryReader = {
 	getAllPrimitiveId: () => Promise<Array<string>>;
 };
 
+const LIBRARY_BUILD_PHASE_TIMEOUT_MS = 12_000;
+class LibraryBuildPhaseTimeoutError extends Error {
+	constructor(readonly phase: string) { super(`Library build phase "${phase}" exceeded ${LIBRARY_BUILD_PHASE_TIMEOUT_MS}ms; mutation outcome may be unknown. Do not retry or clean up until re-reading the target.`); }
+}
+
+/** A bounded, logged await for library authoring calls. The underlying SDK
+ * promise is not cancellable; late settlement is logged and never treated as
+ * success. A timeout therefore means unknown state and callers must not retry. */
+function libraryBuildPhase<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+	const log = (message: string) => { try { eda.sys_Log.add(`[library-build] ${phase}: ${message}`); } catch { /* diagnostics cannot block authoring */ } };
+	log('start');
+	return new Promise<T>((resolve, reject) => {
+		let settled = false;
+		const deadline = armDeadline(LIBRARY_BUILD_PHASE_TIMEOUT_MS, () => {
+			if (settled) return;
+			settled = true;
+			log(`timeout after ${LIBRARY_BUILD_PHASE_TIMEOUT_MS}ms; operation remains uncancelled`);
+			reject(new LibraryBuildPhaseTimeoutError(phase));
+		});
+		Promise.resolve().then(operation).then(value => {
+			if (settled) { log('settled late after timeout; outcome remains unknown'); return; }
+			settled = true; deadline.cancel(); log('complete'); resolve(value);
+		}, error => {
+			if (settled) { log(`rejected late after timeout: ${describeThrown(error)}`); return; }
+			settled = true; deadline.cancel(); log(`failed: ${describeThrown(error)}`); reject(error);
+		});
+	});
+}
+
 /**
  * Open and focus a library canvas, then prove that subsequent primitive calls
  * will address the requested asset.  `lib_*.openInEditor()` can return a tab id
@@ -4817,29 +4959,38 @@ async function activateLibraryDocument(
 ): Promise<string> {
 	let splitScreenId: string | undefined;
 	try {
-		const before = await eda.dmt_SelectControl.getCurrentDocumentInfo();
-		if (before?.tabId) splitScreenId = await eda.dmt_EditorControl.getSplitScreenIdByTabId(before.tabId);
+		const before = await libraryBuildPhase(`${label}.current-document-before-open`, () => eda.dmt_SelectControl.getCurrentDocumentInfo());
+		if (before?.tabId) splitScreenId = await libraryBuildPhase(`${label}.split-screen-id`, () => eda.dmt_EditorControl.getSplitScreenIdByTabId(before.tabId));
 	}
-	catch { /* opening without a split id is supported */ }
+	catch (err) {
+		if (err instanceof LibraryBuildPhaseTimeoutError) throw err;
+		/* opening without a split id is supported */
+	}
 
-	const tabId = await eda.dmt_EditorControl.openLibraryDocument(libraryUuid, libraryType, uuid, splitScreenId);
+	// Use the official asset-specific Symbol opener. The generic document opener
+	// has stalled for a Symbol before any geometry was written.
+	const tabId = await libraryBuildPhase(`${label}.open-document`, () => libraryType === '2'
+		? eda.lib_Symbol.openInEditor(uuid, libraryUuid, splitScreenId)
+		: eda.dmt_EditorControl.openLibraryDocument(libraryUuid, libraryType, uuid, splitScreenId));
 	if (!tabId) throw new ActionError(ErrorCodes.INVALID_STATE, `EasyEDA did not open the ${label} editor.`);
-	const activated = await eda.dmt_EditorControl.activateDocument(tabId);
+	const activated = await libraryBuildPhase(`${label}.activate-document`, () => eda.dmt_EditorControl.activateDocument(tabId));
 	if (!activated) throw new ActionError(ErrorCodes.INVALID_STATE, `EasyEDA opened ${label} "${uuid}" but did not activate its tab.`);
 
 	let actual: Awaited<ReturnType<typeof eda.dmt_SelectControl.getCurrentDocumentInfo>> | undefined;
-	for (let attempt = 0; attempt < 20; attempt++) {
-		try { actual = await eda.dmt_SelectControl.getCurrentDocumentInfo(); }
-		catch { actual = undefined; }
-		if (
-			actual?.uuid === uuid &&
-			actual.parentLibraryUuid === libraryUuid &&
-			actual.documentType === expectedDocumentType
-		) return tabId;
-		await new Promise<void>(resolve => setTimeout(resolve, 50));
+	const focusDeadlineAt = Date.now() + 8000;
+	for (let attempt = 0; attempt < 20 && Date.now() < focusDeadlineAt; attempt++) {
+		try { actual = await libraryBuildPhase(`${label}.read-active-document-${attempt + 1}`, () => eda.dmt_SelectControl.getCurrentDocumentInfo()); }
+		catch (err) { if (err instanceof LibraryBuildPhaseTimeoutError) throw err; actual = undefined; }
+		// The active document may report an owner UUID in parentLibraryUuid
+		// while the opener takes a logical library path. Bind focus to the exact
+		// returned tab, requested asset UUID and document type instead.
+		if (actual?.uuid === uuid && actual.tabId === tabId && actual.documentType === expectedDocumentType) return tabId;
+		// A bare 50 ms timer can be throttled to 60 s in a background Pro tab.
+		// The shared worker-tick deadline keeps this identity wait bounded.
+		await new Promise<void>(resolve => { armDeadline(50, () => resolve()); });
 	}
 	const actualSummary = actual
-		? `uuid=${actual.uuid}, parentLibraryUuid=${actual.parentLibraryUuid ?? '<missing>'}, documentType=${actual.documentType}`
+		? `uuid=${actual.uuid}, tabId=${actual.tabId ?? '<missing>'}, parentLibraryUuid=${actual.parentLibraryUuid ?? '<missing>'}, documentType=${actual.documentType}`
 		: 'no current document';
 	throw new ActionError(
 		ErrorCodes.INVALID_STATE,
@@ -4858,7 +5009,7 @@ async function requireEmptyLibraryBuildTarget(label: string, readers: Array<Libr
 	let inventories: Array<{ key: string; ids: Array<string> }>;
 	try {
 		inventories = await Promise.all(readers.map(async reader => {
-			const ids = await reader.getAllPrimitiveId();
+			const ids = await libraryBuildPhase(`${label}.inventory.${reader.key}`, reader.getAllPrimitiveId);
 			if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id)) {
 				throw new Error(`${reader.key} inventory returned an invalid primitive-id list`);
 			}
@@ -4866,6 +5017,7 @@ async function requireEmptyLibraryBuildTarget(label: string, readers: Array<Libr
 		}));
 	}
 	catch (err) {
+		if (err instanceof LibraryBuildPhaseTimeoutError) throw err;
 		throw new ActionError(
 			ErrorCodes.PRECONDITION_REFUSED,
 			`${label} build could not prove the opened asset is empty; no geometry was created. Inventory error: ${describeThrown(err)}`,
@@ -4889,20 +5041,20 @@ const libraryFootprintBuild: Handler = async (payload) => {
 	const createdPads: string[] = [];
 	const createdLines: string[] = [];
 	try {
-		tabId = await activateLibraryDocument(
-			uuid, libraryUuid,
-			'4' as ELIB_LibraryType.FOOTPRINT, 4 as EDMT_EditorDocumentType.FOOTPRINT,
-			'footprint',
-		);
+			tabId = await activateLibraryDocument(
+				uuid, libraryUuid,
+				'4' as ELIB_LibraryType.FOOTPRINT, 4 as EDMT_EditorDocumentType.FOOTPRINT,
+				'footprint',
+			);
 		await requireEmptyLibraryBuildTarget('Footprint', [
 			{ key: 'pads', getAllPrimitiveId: () => eda.pcb_PrimitivePad.getAllPrimitiveId() },
 			{ key: 'polylines', getAllPrimitiveId: () => eda.pcb_PrimitivePolyline.getAllPrimitiveId() },
 		]);
 		for (const p of pads) {
-			const primitive = await eda.pcb_PrimitivePad.create(
+			const primitive = await libraryBuildPhase(`footprint.create-pad.${p.number}`, () => eda.pcb_PrimitivePad.create(
 				p.layer as TPCB_LayersOfPad, p.number, p.x, p.y, p.rotation, p.shape,
 				'', p.hole, 0, 0, 0, p.metallization, p.padType,
-			);
+			));
 			const id = primitiveIdOf(primitive);
 			if (!primitive || !id) throw new Error(`pad ${p.number} create returned no persistent primitive id`);
 			createdPads.push(id);
@@ -4915,15 +5067,16 @@ const libraryFootprintBuild: Handler = async (payload) => {
 			const source = [l.startX, l.startY, 'L', l.endX, l.endY] as unknown as TPCB_PolygonSourceArray;
 			const polygon = eda.pcb_MathPolygon.createPolygon(source);
 			if (!polygon) throw new Error('line polygon creation returned no geometry');
-			const primitive = await eda.pcb_PrimitivePolyline.create('', l.layer as TPCB_LayersOfLine, polygon, l.width, false);
+			const primitive = await libraryBuildPhase(`footprint.create-line-${createdLines.length + 1}`, () => eda.pcb_PrimitivePolyline.create('', l.layer as TPCB_LayersOfLine, polygon, l.width, false));
 			const id = primitiveIdOf(primitive);
 			if (!primitive || !id) throw new Error('line create returned no persistent primitive id');
 			createdLines.push(id);
 		}
-		await eda.pcb_Document.save();
+		const saved = await libraryBuildPhase('footprint.save', () => eda.pcb_Document.save());
+		if (saved !== true) throw new Error('footprint.save returned false after geometry creation');
 		const [padReadback, lineReadback] = await Promise.all([
-			createdPads.length ? eda.pcb_PrimitivePad.get(createdPads) : Promise.resolve([]),
-			createdLines.length ? eda.pcb_PrimitivePolyline.get(createdLines) : Promise.resolve([]),
+			createdPads.length ? libraryBuildPhase('footprint.readback-pads', () => eda.pcb_PrimitivePad.get(createdPads)) : Promise.resolve([]),
+			createdLines.length ? libraryBuildPhase('footprint.readback-lines', () => eda.pcb_PrimitivePolyline.get(createdLines)) : Promise.resolve([]),
 		]);
 		const verified = padReadback.length === createdPads.length && lineReadback.length === createdLines.length;
 		return {
@@ -4932,6 +5085,7 @@ const libraryFootprintBuild: Handler = async (payload) => {
 		};
 	}
 	catch (err) {
+		if (err instanceof LibraryBuildPhaseTimeoutError) return { result: { partial: true, outcome: 'unknown', phase: err.phase, uuid, libraryUuid, tabId: tabId ?? null, created: { pads: createdPads, lines: createdLines }, error: err.message, verified: false }, warnings: ['A library build API call timed out without cancellation; do not retry or clean up until a fresh target inventory proves the actual state.'] };
 		if (err instanceof ActionError && createdPads.length + createdLines.length === 0) throw err;
 		// Mutation has started: never throw and lose autosave/partial-state semantics.
 		const rollback = { pads: false, lines: false };
@@ -5203,30 +5357,32 @@ const librarySymbolBuild: Handler = async (payload) => {
 			{ key: 'polygons', getAllPrimitiveId: () => eda.sch_PrimitivePolygon.getAllPrimitiveId() },
 			{ key: 'circles', getAllPrimitiveId: () => eda.sch_PrimitiveCircle.getAllPrimitiveId() },
 		]);
-		const outline = await eda.sch_PrimitivePolygon.create(payload.outline as number[], null, 'none', 1, null);
+		const outline = await libraryBuildPhase('symbol.create-outline', () => eda.sch_PrimitivePolygon.create(payload.outline as number[], null, 'none', 1, null));
 		outlineId = primitiveIdOf(outline);
 		if (!outlineId) throw new Error('symbol outline create returned no persistent primitive id');
 		for (const p of pins) {
-			const primitive = await eda.sch_PrimitivePin.create(p.x, p.y, p.number, p.name, p.rotation, p.length, null, p.shape, p.pinType);
+			const primitive = await libraryBuildPhase(`symbol.create-pin.${p.number}`, () => eda.sch_PrimitivePin.create(p.x, p.y, p.number, p.name, p.rotation, p.length, null, p.shape, p.pinType));
 			const id = primitiveIdOf(primitive);
 			if (!id) throw new Error(`symbol pin ${p.number} create returned no persistent primitive id`);
 			createdPins.push(id);
 		}
 		for (const c of circles) {
-			const primitive = await eda.sch_PrimitiveCircle.create(c.centerX, c.centerY, c.radius, null, 'none', c.lineWidth, null, null);
+			const primitive = await libraryBuildPhase(`symbol.create-circle.${createdCircles.length + 1}`, () => eda.sch_PrimitiveCircle.create(c.centerX, c.centerY, c.radius, null, 'none', c.lineWidth, null, null));
 			const id = primitiveIdOf(primitive);
 			if (!id) throw new Error('symbol circle create returned no persistent primitive id');
 			createdCircles.push(id);
 		}
-		await eda.sch_Document.save();
+		const saved = await libraryBuildPhase('symbol.save', () => eda.sch_Document.save());
+		if (saved !== true) throw new Error('symbol.save returned false after geometry creation');
 		const [pinReadback, outlineReadback, circleReadback] = await Promise.all([
-			eda.sch_PrimitivePin.get(createdPins), eda.sch_PrimitivePolygon.get(outlineId),
-			createdCircles.length ? eda.sch_PrimitiveCircle.get(createdCircles) : Promise.resolve([]),
+			libraryBuildPhase('symbol.readback-pins', () => eda.sch_PrimitivePin.get(createdPins)), libraryBuildPhase('symbol.readback-outline', () => eda.sch_PrimitivePolygon.get(outlineId)),
+			createdCircles.length ? libraryBuildPhase('symbol.readback-circles', () => eda.sch_PrimitiveCircle.get(createdCircles)) : Promise.resolve([]),
 		]);
 		const verified = pinReadback.length === createdPins.length && Boolean(outlineReadback) && circleReadback.length === createdCircles.length;
 		return { result: { uuid, libraryUuid, tabId, created: { pins: createdPins, outline: outlineId, circles: createdCircles }, verified } };
 	}
 	catch (err) {
+		if (err instanceof LibraryBuildPhaseTimeoutError) return { result: { partial: true, outcome: 'unknown', phase: err.phase, uuid, libraryUuid, tabId: tabId ?? null, created: { pins: createdPins, outline: outlineId, circles: createdCircles }, error: err.message, verified: false }, warnings: ['A library build API call timed out without cancellation; do not retry or clean up until a fresh target inventory proves the actual state.'] };
 		if (err instanceof ActionError && createdPins.length + createdCircles.length === 0 && !outlineId) throw err;
 		try { if (createdPins.length) await eda.sch_PrimitivePin.delete(createdPins); } catch { /* report partial */ }
 		try { if (createdCircles.length) await eda.sch_PrimitiveCircle.delete(createdCircles); } catch { /* report partial */ }
@@ -6402,6 +6558,22 @@ const stableIdentityName = (value: unknown): string => {
 };
 
 interface NativeFootprintInventory { entries?: unknown; error?: string }
+interface NativeProjectAssetInventory { entries?: Array<NativeProjectAssetInventoryEntry>; error?: string }
+async function loadNativeProjectAssetInventory(): Promise<NativeProjectAssetInventory> {
+	try {
+		const before = await readResponseContext();
+		if (!before.projectUuid || !before.documentUuid) return { error: 'native project asset source requires a known current project and document' };
+		if (typeof eda.sys_FileManager?.getProjectFile !== 'function') return { error: 'official project source export unavailable' };
+		const archive = await withTimeout(eda.sys_FileManager.getProjectFile('easyeda-agent-identity.epro2', undefined, 'epro2'), 10000, 'identity getProjectFile timed out after 10000ms');
+		if (!archive) return { error: 'official project source export returned no archive' };
+		const entries = await withTimeout(readProjectNativeAssetSourceArchive(archive, before.documentUuid), 7000, 'native asset source decoding timed out after 7000ms');
+		const after = await readResponseContext();
+		if (after.projectUuid !== before.projectUuid || after.documentUuid !== before.documentUuid) return { error: 'project/document changed while reading native asset sources' };
+		return { entries };
+	} catch (err) {
+		return { error: `official native asset source query failed: ${describeThrown(err)}` };
+	}
+}
 async function loadNativeFootprintInventory(expectedContext?: { projectUuid?: string; documentUuid?: string }): Promise<NativeFootprintInventory> {
 	try {
 		const before = await readResponseContext();
@@ -6525,6 +6697,71 @@ async function resolveInstanceFootprintDevice(
 	};
 }
 
+/** Resolve a placed project-local Device from exact native provenance. This
+ * covers both non-BOM copper assets and accurately procured local BOM assets
+ * absent from the online LCSC index. Neither name nor C-number search may
+ * bridge the 16-hex instance / 32-hex library UUID domains by itself. */
+export async function resolveNativeLocalDevice(
+	snapshot: Record<string, unknown>,
+	getInventory: () => Promise<NativeProjectAssetInventory> = loadNativeProjectAssetInventory,
+	getDevice: (uuid: string, libraryUuid: string) => Promise<unknown> = (uuid, libraryUuid) => eda.lib_Device.get(uuid, libraryUuid),
+): Promise<DeviceResolution> {
+	const instanceDevice = identityRecord(snapshot.device);
+	const instanceSymbol = identityRecord(snapshot.symbol);
+	const instanceFootprint = readDeviceFootprint(snapshot);
+	const name = stableIdentityName(identityRecord(snapshot.component).name) || stableIdentityName(instanceDevice.name) || stableIdentityName(snapshot.name);
+	const failure = (reason: string): DeviceResolution => ({ reason: `local native device identity unresolved: ${reason}` });
+	const bom = snapshot.addIntoBom;
+	const supplierId = identityText(snapshot.supplierId);
+	const mpn = identityText(snapshot.manufacturerId);
+	const manufacturer = identityText(snapshot.manufacturer);
+	const supplier = identityText(snapshot.supplier);
+	if (snapshot.addIntoPcb !== true || (bom !== false && bom !== true)) return failure('placed BOM/PCB flags are missing or unsupported');
+	if (bom === false && (supplierId || mpn || manufacturer || supplier)) return failure('non-BOM copper asset has procurement identity fields');
+	if (bom === true && (!/^C\d+$/.test(supplierId) || !mpn || !manufacturer || !supplier)) return failure('local BOM asset lacks an exact C-number, MPN, manufacturer, or supplier');
+	if (!name || !instanceIdentityUuid(instanceDevice.uuid) || !instanceIdentityUuid(instanceSymbol.uuid) || !instanceIdentityUuid(instanceFootprint.uuid)) return failure('placed device/symbol/footprint instance identity or exact name is missing');
+	const libraryUuid = identityText(instanceDevice.libraryUuid);
+	if (!libraryUuid || identityText(instanceSymbol.libraryUuid) !== libraryUuid || instanceFootprint.libraryUuid !== libraryUuid) return failure('placed asset libraries are missing or differ');
+	const inventory = await getInventory();
+	if (inventory.error || !inventory.entries) return failure(inventory.error ?? 'native asset inventory unavailable');
+	const nativeDevice = readNativeProjectAssetSource(inventory.entries, 'DEVICE', instanceDevice.uuid as string);
+	const nativeSymbol = readNativeProjectAssetSource(inventory.entries, 'SYMBOL', instanceSymbol.uuid as string);
+	const nativeFootprint = readNativeProjectAssetSource(inventory.entries, 'FOOTPRINT', instanceFootprint.uuid);
+	if (!nativeDevice.source || !nativeSymbol.source || !nativeFootprint.source) return failure([nativeDevice.error, nativeSymbol.error, nativeFootprint.error].filter(Boolean).join('; '));
+	if ([nativeDevice.source, nativeSymbol.source, nativeFootprint.source].some(source => source.libraryUuid !== libraryUuid)) return failure('native asset source library differs from placed library');
+	let detail: Record<string, unknown>;
+	try { detail = identityRecord(await withTimeout(getDevice(nativeDevice.source.uuid, libraryUuid), 7000, 'local device.get timed out after 7000ms')); }
+	catch (err) { return failure(`official device.get failed: ${describeThrown(err)}`); }
+	const property = identityRecord(detail.property);
+	const association = identityRecord(detail.association);
+	const associatedSymbol = identityRecord(association.symbol);
+	const associatedFootprint = readDeviceFootprint({ association });
+	if (detail.uuid !== nativeDevice.source.uuid || (identityText(detail.libraryUuid) && detail.libraryUuid !== libraryUuid)
+		|| detail.name !== name || (property.name && property.name !== name)
+		|| property.addIntoBom !== bom || property.addIntoPcb !== true
+		|| associatedSymbol.uuid !== nativeSymbol.source.uuid || associatedFootprint.uuid !== nativeFootprint.source.uuid
+		|| (identityText(associatedSymbol.libraryUuid) && associatedSymbol.libraryUuid !== libraryUuid)
+		|| (associatedFootprint.libraryUuid && associatedFootprint.libraryUuid !== libraryUuid)) {
+		return failure('official device identity, assembly flags, symbol, or footprint association conflicts with native sources');
+	}
+	const officialFields: Array<[string, string, string]> = [
+		['manufacturerId', mpn, 'Manufacturer Part'], ['supplierId', supplierId, 'Supplier Part'],
+		['manufacturer', manufacturer, 'Manufacturer'], ['supplier', supplier, 'Supplier'],
+	];
+	const officialOther = identityRecord(property.otherProperty);
+	for (const [field, placed, otherKey] of officialFields) {
+		if (identityText(property[field]) !== placed || (officialOther[otherKey] !== undefined && officialOther[otherKey] !== placed)) {
+			return failure(`official ${field} or ${otherKey} conflicts with placed procurement identity`);
+		}
+	}
+	return {
+		device: { uuid: nativeDevice.source.uuid, libraryUuid, via: bom ? 'native-local-bom-source' : 'native-local-copper-source' },
+		...(/^C\d+$/.test(supplierId) ? { lcsc: supplierId } : {}),
+		deviceFootprint: instanceFootprint.name,
+		footprintSource: nativeFootprint.source,
+	};
+}
+
 /**
  * Safe structured resolver behind resolvePlacedDeviceIdentity — NEVER falls
  * back to an unrelated first hit (#158: a bare `search("U.FL-R-SMT-1(01)")`
@@ -6548,6 +6785,10 @@ async function resolvePlacedDevice(
 ): Promise<DeviceResolution> {
 	const instanceFp = readDeviceFootprint(snapshot);
 	if (instanceIdentityUuid(identityRecord(snapshot.device).uuid) && instanceIdentityUuid(instanceFp.uuid)) {
+		const placedLibrary = identityText(identityRecord(snapshot.device).libraryUuid);
+		if (snapshot.addIntoPcb === true && (snapshot.addIntoBom === false || (snapshot.addIntoBom === true && !libraryIdentityUuid(placedLibrary)))) {
+			return resolveNativeLocalDevice(snapshot);
+		}
 		return resolveInstanceFootprintDevice(snapshot, getNativeFootprints);
 	}
 	const fpIdentity = instanceFp.name || instanceFp.uuid || instanceFp.libraryUuid;
@@ -13744,6 +13985,8 @@ const HANDLERS: Record<string, Handler> = {
 	'schematic.wire.create': schematicWireCreate,
 	'schematic.group.move': schematicGroupMove,
 	'schematic.netflag.create': schematicNetflagCreate,
+	'schematic.attribute.visibility.modify': schematicAttributeVisibilityModify,
+	'schematic.attribute.geometry.modify': schematicAttributeGeometryModify,
 	'schematic.pin.set_no_connect': schematicPinSetNoConnect,
 	'schematic.pin.disconnect': schematicPinDisconnect,
 	'schematic.select': schematicSelect,

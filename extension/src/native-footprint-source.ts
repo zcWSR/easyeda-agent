@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 
-import { projectFootprintSourceInventory } from './util';
+import { projectNativeAssetSourceInventory, type NativeProjectAssetInventoryEntry, type NativeProjectAssetType } from './util';
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
@@ -12,10 +12,11 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, value) => {
 /** Decode the single root .epru in an official epro2 export, without extracting
  * images or writing any archive content to disk. Bound decompression as it runs.
  */
-export async function readProjectFootprintSourceArchive(
+export async function readProjectNativeAssetSourceArchive(
 	file: Blob,
 	documentUuid: string,
-): Promise<Array<{ footprintUuid: string; documentSource: string }>> {
+	includeTypes: ReadonlyArray<NativeProjectAssetType> = ['DEVICE', 'SYMBOL', 'FOOTPRINT'],
+): Promise<Array<NativeProjectAssetInventoryEntry>> {
 	if (!file || file.size <= 0 || file.size > MAX_ARCHIVE_BYTES) throw new Error('official project archive is empty or exceeds 64 MiB');
 	const bytes = await file.arrayBuffer();
 	if (bytes.byteLength !== file.size || bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error('official project archive size changed while reading');
@@ -71,5 +72,11 @@ export async function readProjectFootprintSourceArchive(
 		});
 		stream.resume();
 	});
-	return projectFootprintSourceInventory(new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes), documentUuid);
+	return projectNativeAssetSourceInventory(new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes), documentUuid, includeTypes);
+}
+
+/** Compatibility projection for the existing C-number/footprint resolver. */
+export async function readProjectFootprintSourceArchive(file: Blob, documentUuid: string): Promise<Array<{ footprintUuid: string; documentSource: string; sourceKind: 'project-epro2' }>> {
+	const assets = await readProjectNativeAssetSourceArchive(file, documentUuid, ['FOOTPRINT']);
+	return assets.filter(item => item.docType === 'FOOTPRINT').map(item => ({ footprintUuid: item.instanceUuid, documentSource: item.documentSource, sourceKind: item.sourceKind }));
 }

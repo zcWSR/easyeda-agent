@@ -60,6 +60,46 @@ func TestConnectPinActionDocumentsYUpContract(t *testing.T) {
 	}
 }
 
+func TestAttributeVisibilityActionIsGuardedAndMutating(t *testing.T) {
+	var found *ActionSpec
+	for _, action := range AllActions() {
+		if action.Name == "schematic.attribute.visibility.modify" {
+			copy := action
+			found = &copy
+			break
+		}
+	}
+	if found == nil || !found.Mutates || !found.NeedsWindow {
+		t.Fatalf("attribute visibility action must be catalogued as a mutating window action: %#v", found)
+	}
+	inputs := strings.Join(found.Inputs, " ")
+	for _, required := range []string{"parentPrimitiveId", "attributePrimitiveId", "expectedParentType", "expectedKey", "expectedValue", "expectedKeyVisible", "expectedValueVisible"} {
+		if !strings.Contains(inputs, required) {
+			t.Errorf("attribute visibility action missing guard input %q: %s", required, inputs)
+		}
+	}
+}
+
+func TestAttributeGeometryActionIsGuardedAndMutating(t *testing.T) {
+	var found *ActionSpec
+	for _, action := range AllActions() {
+		if action.Name == "schematic.attribute.geometry.modify" {
+			copy := action
+			found = &copy
+			break
+		}
+	}
+	if found == nil || !found.Mutates || !found.NeedsWindow {
+		t.Fatalf("wire Name geometry action must be catalogued as a mutating window action: %#v", found)
+	}
+	inputs := strings.Join(found.Inputs, " ")
+	for _, required := range []string{"parentPrimitiveId", "attributePrimitiveId", "expectedParentType", "expectedKey", "expectedNet", "expectedLine", "expectedValue", "expectedX", "expectedY", "expectedRotation", "expectedKeyVisible", "expectedValueVisible"} {
+		if !strings.Contains(inputs, required) {
+			t.Errorf("wire Name geometry action missing guard input %q: %s", required, inputs)
+		}
+	}
+}
+
 func TestComponentsListDocumentsReadOnlyPreflightContract(t *testing.T) {
 	var spec *ActionSpec
 	for _, action := range AllActions() {

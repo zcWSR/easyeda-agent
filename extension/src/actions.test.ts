@@ -74,16 +74,18 @@ test('special pads retain raw geometry and do not publish a misleading base-shap
 	assert.equal(got.height, undefined);
 });
 
-function libraryDocumentControl(uuid: string, libraryUuid: string, documentType: number, tabId: string): Record<string, unknown> {
+function libraryDocumentControl(uuid: string, libraryUuid: string, documentType: number, tabId: string, reportedParentLibraryUuid = libraryUuid): Record<string, unknown> {
 	let current = { uuid: 'previous', parentLibraryUuid: 'previous-library', documentType: 0, tabId: 'previous-tab' };
+	const open = async () => {
+		current = { uuid, parentLibraryUuid: reportedParentLibraryUuid, documentType, tabId };
+		return tabId;
+	};
 	return {
 		dmt_SelectControl: { getCurrentDocumentInfo: async () => current },
+		lib_Symbol: { openInEditor: open },
 		dmt_EditorControl: {
 			getSplitScreenIdByTabId: async () => 'split-1',
-			openLibraryDocument: async () => {
-				current = { uuid, parentLibraryUuid: libraryUuid, documentType, tabId };
-				return tabId;
-			},
+			openLibraryDocument: open,
 			activateDocument: async () => true,
 		},
 	};
@@ -943,6 +945,131 @@ test('library footprint build opens the asset, creates pads/lines and verifies I
 	finally { delete (globalThis as any).eda; }
 });
 
+test('library footprint build accepts the active returned tab when parentLibraryUuid is the owner UUID', async () => {
+	let creates = 0;
+	(globalThis as any).eda = {
+		...libraryDocumentControl('FP-LOCAL', 'sample-local-library', 4, 'FP-LOCAL@sample-local-library', 'dae93b21b8a647f59cd87164acf3f6f6'),
+		pcb_PrimitivePad: {
+			getAllPrimitiveId: async () => [],
+			create: async () => { creates++; return { getState_PrimitiveId: () => 'pad-1' }; },
+			get: async () => [{ getState_PrimitiveId: () => 'pad-1' }],
+		},
+		pcb_PrimitivePolyline: { getAllPrimitiveId: async () => [] },
+		pcb_Document: { save: async () => true },
+	};
+	try {
+		const result: any = await runAction('library.footprint.build', {
+			uuid: 'FP-LOCAL', libraryUuid: 'sample-local-library',
+			pads: [{ number: '1', layer: 1, x: 0, y: 0, shape: ['RECT', 40, 40, 0] }],
+		});
+		assert.equal(result.result.verified, true);
+		assert.equal(creates, 1);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint build still refuses an unrelated active tab before writing', async () => {
+	let creates = 0;
+	(globalThis as any).eda = {
+		dmt_SelectControl: { getCurrentDocumentInfo: async () => ({ uuid: 'FP-LOCAL', parentLibraryUuid: 'sample-local-library', documentType: 4, tabId: 'unrelated@sample-local-library' }) },
+		dmt_EditorControl: { getSplitScreenIdByTabId: async () => 'split-1', openLibraryDocument: async () => 'FP-LOCAL@sample-local-library', activateDocument: async () => true },
+		pcb_PrimitivePad: { getAllPrimitiveId: async () => [], create: async () => { creates++; return { getState_PrimitiveId: () => 'pad-1' }; } },
+		pcb_PrimitivePolyline: { getAllPrimitiveId: async () => [] },
+	};
+	try {
+		await assert.rejects(() => runAction('library.footprint.build', {
+			uuid: 'FP-LOCAL', libraryUuid: 'sample-local-library',
+			pads: [{ number: '1', layer: 1, x: 0, y: 0, shape: ['RECT', 40, 40, 0] }],
+		}), (err: any) => err.code === 'INVALID_STATE' && /did not focus/.test(err.message));
+		assert.equal(creates, 0);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint build reports unknown state and does not clean up after a timed-out create', async () => {
+	const logs: string[] = [];
+	let deletes = 0;
+	(globalThis as any).eda = {
+		...libraryDocumentControl('FP-TIMEOUT', 'LIB-F', 4, 'TAB-FP'),
+		sys_Log: { add: (line: string) => logs.push(line) },
+		pcb_PrimitivePad: { getAllPrimitiveId: async () => [], create: async () => new Promise(() => {}), get: async () => [], delete: async () => { deletes++; return true; } },
+		pcb_MathPolygon: { createPolygon: (source: unknown) => ({ source }) },
+		pcb_PrimitivePolyline: { getAllPrimitiveId: async () => [], create: async () => undefined, get: async () => [], delete: async () => { deletes++; return true; } },
+		pcb_Document: { save: async () => true },
+	};
+	try {
+		const result: any = await runAction('library.footprint.build', {
+			uuid: 'FP-TIMEOUT', libraryUuid: 'LIB-F',
+			pads: [{ number: '1', layer: 1, x: 0, y: 0, shape: ['RECT', 40, 40, 0] }], lines: [],
+		});
+		assert.equal(result.result.outcome, 'unknown');
+		assert.equal(result.result.phase, 'footprint.create-pad.1');
+		assert.equal(deletes, 0, 'a timed-out, uncancellable write must not trigger speculative rollback');
+		assert.ok(logs.some(line => line.includes('[library-build] footprint.create-pad.1: timeout')));
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint build does not report success when the official save returns false', async () => {
+	let deletes = 0;
+	(globalThis as any).eda = {
+		...libraryDocumentControl('FP-SAVE', 'LIB-F', 4, 'TAB-FP'),
+		pcb_PrimitivePad: { getAllPrimitiveId: async () => [], create: async () => ({ getState_PrimitiveId: () => 'pad-1' }), delete: async () => { deletes++; return true; } },
+		pcb_PrimitivePolyline: { getAllPrimitiveId: async () => [], delete: async () => true },
+		pcb_Document: { save: async () => false },
+	};
+	try {
+		const result: any = await runAction('library.footprint.build', { uuid: 'FP-SAVE', libraryUuid: 'LIB-F', pads: [{ number: '1', layer: 1, x: 0, y: 0, shape: ['RECT', 40, 40, 0] }] });
+		assert.equal(result.result.partial, true);
+		assert.equal(result.result.verified, false);
+		assert.match(result.result.error, /save returned false/);
+		assert.equal(deletes, 1);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library symbol build does not report success when the official save returns false', async () => {
+	let deletes = 0;
+	(globalThis as any).eda = {
+		...libraryDocumentControl('SYM-SAVE', 'LIB-S', 2, 'TAB-SYM'),
+		sch_PrimitivePin: { getAllPrimitiveId: async () => [], create: async () => ({ getState_PrimitiveId: () => 'pin-1' }), delete: async () => { deletes++; return true; } },
+		sch_PrimitivePolygon: { getAllPrimitiveId: async () => [], create: async () => ({ getState_PrimitiveId: () => 'outline-1' }), delete: async () => { deletes++; return true; } },
+		sch_PrimitiveCircle: { getAllPrimitiveId: async () => [], delete: async () => true },
+		sch_Document: { save: async () => false },
+	};
+	try {
+		const result: any = await runAction('library.symbol.build', { uuid: 'SYM-SAVE', libraryUuid: 'LIB-S', outline: [-20, -20, 20, -20, 20, 20, -20, 20], pins: [{ number: '1', name: 'IN', x: -40, y: 0 }] });
+		assert.equal(result.result.partial, true);
+		assert.equal(result.result.verified, false);
+		assert.match(result.result.error, /save returned false/);
+		assert.equal(deletes, 2);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library symbol build uses the official symbol-specific editor opener', async () => {
+	const control = libraryDocumentControl('SYM-DIRECT', 'LIB-S', 2, 'TAB-SYM');
+	let genericCalls = 0;
+	let symbolCalls = 0;
+	const direct = (control.lib_Symbol as { openInEditor: () => Promise<string> }).openInEditor;
+	const editor = control.dmt_EditorControl as Record<string, unknown>;
+	(globalThis as any).eda = {
+		...control,
+		lib_Symbol: { openInEditor: async () => { symbolCalls++; return direct(); } },
+		dmt_EditorControl: { ...editor, openLibraryDocument: async () => { genericCalls++; throw new Error('generic opener must not be used for Symbol'); } },
+		sch_PrimitivePin: { getAllPrimitiveId: async () => [], create: async () => ({ getState_PrimitiveId: () => 'pin-1' }), get: async () => [{ getState_PrimitiveId: () => 'pin-1' }] },
+		sch_PrimitivePolygon: { getAllPrimitiveId: async () => [], create: async () => ({ getState_PrimitiveId: () => 'outline-1' }), get: async () => ({ getState_PrimitiveId: () => 'outline-1' }) },
+		sch_PrimitiveCircle: { getAllPrimitiveId: async () => [] },
+		sch_Document: { save: async () => true },
+	};
+	try {
+		const result: any = await runAction('library.symbol.build', { uuid: 'SYM-DIRECT', libraryUuid: 'LIB-S', outline: [-20, -20, 20, -20, 20, 20, -20, 20], pins: [{ number: '1', name: 'IN', x: -40, y: 0 }] });
+		assert.equal(result.result.verified, true);
+		assert.equal(symbolCalls, 1);
+		assert.equal(genericCalls, 0);
+	} finally { delete (globalThis as any).eda; }
+});
+
 test('library footprint build refuses a replay before creating duplicate geometry', async () => {
 	const padIds: string[] = [];
 	const lineIds: string[] = [];
@@ -1180,6 +1307,203 @@ test('connect_pin endpoint contract is y-UP and matches Go autoconnect', () => {
 	// Both implementations score/place the snapped coordinate, not the raw 18-unit end.
 	assert.deepEqual(connectPinEndpoint(545, 290, 18, 'up'), { x: 545, y: 310 });
 	assert.deepEqual(connectPinEndpoint(545, 290, 18, 'down'), { x: 545, y: 270 });
+});
+
+test('schematic attribute visibility modify verifies the exact netport network and generic target identity', async (t) => {
+	const globals = globalThis as any;
+	const previousEda = globals.eda;
+	t.after(() => { if (previousEda === undefined) delete globals.eda; else globals.eda = previousEda; });
+	const makeFixture = (options: { parentId?: string; parentType?: string; net?: string; attributeId?: string; attributeParentId?: string; key?: string; value?: string; keyVisible?: boolean; valueVisible?: boolean; apply?: boolean } = {}) => {
+		const state = {
+			parentId: options.parentId ?? 'port-1', parentType: options.parentType ?? 'netport', net: options.net ?? 'PD_INT',
+			attributeId: options.attributeId ?? 'name-1', attributeParentId: options.attributeParentId ?? 'port-1',
+			key: options.key ?? 'Name', value: options.value ?? 'PD_INT', keyVisible: options.keyVisible ?? false, valueVisible: options.valueVisible ?? false,
+			apply: options.apply ?? true,
+		};
+		let modifications = 0;
+		const parent = {
+			getState_PrimitiveId: () => state.parentId, getState_ComponentType: () => state.parentType, getState_Net: () => state.net,
+		};
+		const attr = {
+			getState_PrimitiveId: () => state.attributeId, getState_ParentPrimitiveId: () => state.attributeParentId,
+			getState_Key: () => state.key, getState_Value: () => state.value,
+			getState_KeyVisible: () => state.keyVisible, getState_ValueVisible: () => state.valueVisible,
+		};
+		globals.eda = {
+			sch_PrimitiveComponent: { get: async (id: string) => id === 'port-1' ? parent : undefined },
+			sch_PrimitiveAttribute: {
+				get: async (id: string) => id === 'name-1' ? attr : undefined,
+				modify: async (_id: string, patch: { keyVisible?: boolean; valueVisible?: boolean }) => {
+					modifications++;
+					if (state.apply) {
+						if (patch.keyVisible !== undefined) state.keyVisible = patch.keyVisible;
+						if (patch.valueVisible !== undefined) state.valueVisible = patch.valueVisible;
+					}
+					return attr;
+				},
+			},
+			dmt_Project: { getCurrentProjectInfo: async () => undefined },
+			dmt_SelectControl: { getCurrentDocumentInfo: async () => undefined },
+		};
+		return { state, get modifications() { return modifications; } };
+	};
+	const netportName = { parentPrimitiveId: 'port-1', attributePrimitiveId: 'name-1', expectedParentType: 'netport', expectedKey: 'Name', expectedValue: 'PD_INT', expectedKeyVisible: false, expectedValueVisible: false };
+
+	await t.test('modifies a network-matching netport name and verifies it', async () => {
+		const fixture = makeFixture();
+		const result: any = await runAction('schematic.attribute.visibility.modify', { ...netportName, valueVisible: true });
+		assert.equal(result.result.verified, true);
+		assert.equal(fixture.state.valueVisible, true);
+		assert.equal(fixture.modifications, 1);
+	});
+	await t.test('refuses a stale netport name even when the attribute itself matches', async () => {
+		const fixture = makeFixture({ net: 'PD_RST' });
+		await assert.rejects(() => runAction('schematic.attribute.visibility.modify', { ...netportName, valueVisible: true }));
+		assert.equal(fixture.modifications, 0);
+	});
+	for (const [parentType, key, value, patch] of [
+		['part', 'Description', 'reset supervisor', { keyVisible: true }],
+		['sheet', 'Description', 'Interface page', { valueVisible: true }],
+	] as const) {
+		await t.test(`supports guarded ${parentType} ${key} visibility`, async () => {
+			const fixture = makeFixture({ parentType, net: '', key, value });
+			const result: any = await runAction('schematic.attribute.visibility.modify', {
+				parentPrimitiveId: 'port-1', attributePrimitiveId: 'name-1', expectedParentType: parentType, expectedKey: key, expectedValue: value,
+				expectedKeyVisible: false, expectedValueVisible: false, ...patch,
+			});
+			assert.equal(result.result.verified, true);
+			assert.equal(fixture.modifications, 1);
+		});
+	}
+	for (const [label, options, payload] of [
+		['parent type changed', { parentType: 'part' }, {}],
+		['parent object changed', { parentId: 'other-port' }, {}],
+		['attribute belongs to another parent', { attributeParentId: 'other-port' }, {}],
+		['attribute key changed', { key: 'Description' }, {}],
+		['attribute value changed', { value: 'OTHER' }, {}],
+		['visibility changed since the snapshot', { valueVisible: true }, {}],
+	] as const) {
+		await t.test(`refuses ${label} before writing`, async () => {
+			const fixture = makeFixture(options);
+			await assert.rejects(() => runAction('schematic.attribute.visibility.modify', { ...netportName, valueVisible: true, ...payload }));
+			assert.equal(fixture.modifications, 0);
+		});
+	}
+	await t.test('reports a readback mismatch after an accepted SDK call', async () => {
+		const fixture = makeFixture({ apply: false });
+		await assert.rejects(() => runAction('schematic.attribute.visibility.modify', { ...netportName, valueVisible: true }));
+		assert.equal(fixture.modifications, 1);
+	});
+});
+
+test('schematic attribute geometry modify moves only a guarded wire Name', async (t) => {
+	const globals = globalThis as any;
+	const previousEda = globals.eda;
+	t.after(() => { if (previousEda === undefined) delete globals.eda; else globals.eda = previousEda; });
+	const line = [280, 565, 220, 565, 280, 615, 280, 565];
+	const base = {
+		parentPrimitiveId: 'wire-1', attributePrimitiveId: 'attr-1', expectedParentType: 'wire', expectedKey: 'Name', expectedNet: 'TEST_NET_A', expectedLine: line,
+		expectedValue: 'TEST_NET_A', expectedX: 280, expectedY: 590, expectedRotation: 90,
+		expectedKeyVisible: false, expectedValueVisible: true,
+	};
+	const fixture = (changes: Record<string, unknown> = {}, apply = true) => {
+		const state: Record<string, any> = { wireId: 'wire-1', net: 'TEST_NET_A', line: [...line], color: null, lineWidth: null, lineType: null,
+			attributeId: 'attr-1', parentId: 'wire-1', key: 'Name', value: 'TEST_NET_A', x: 280, y: 590, rotation: 90,
+			keyVisible: false, valueVisible: true, ...changes };
+		let modifications = 0;
+		const wire = {
+			getState_PrimitiveId: () => state.wireId, getState_Net: () => state.net, getState_Line: () => [...state.line],
+			getState_Color: () => state.color, getState_LineWidth: () => state.lineWidth, getState_LineType: () => state.lineType,
+		};
+		const attribute = {
+			getState_PrimitiveId: () => state.attributeId, getState_ParentPrimitiveId: () => state.parentId,
+			getState_Key: () => state.key, getState_Value: () => state.value,
+			getState_X: () => state.x, getState_Y: () => state.y, getState_Rotation: () => state.rotation,
+			getState_KeyVisible: () => state.keyVisible, getState_ValueVisible: () => state.valueVisible,
+		};
+		globals.eda = {
+			sch_PrimitiveWire: { get: async (id: string) => id === 'wire-1' ? wire : undefined },
+			sch_PrimitiveAttribute: {
+				get: async (id: string) => id === 'attr-1' ? attribute : undefined,
+				modify: async (_id: string, patch: Record<string, unknown>) => {
+					modifications++;
+					if (apply) Object.assign(state, patch);
+					return attribute;
+				},
+			},
+			dmt_Project: { getCurrentProjectInfo: async () => undefined },
+			dmt_SelectControl: { getCurrentDocumentInfo: async () => undefined },
+		};
+		return { state, get modifications() { return modifications; } };
+	};
+	await t.test('moves and rotates only the Name; wire path, net, and text remain', async () => {
+		const f = fixture();
+		const result: any = await runAction('schematic.attribute.geometry.modify', { ...base, x: 250, y: 580, rotation: 0 });
+		assert.equal(result.result.verified, true);
+		assert.deepEqual([f.state.x, f.state.y, f.state.rotation], [250, 580, 0]);
+		assert.deepEqual([f.state.net, f.state.line, f.state.value], ['TEST_NET_A', line, 'TEST_NET_A']);
+		assert.equal(f.modifications, 1);
+	});
+	await t.test('accepts a null old rotation and changes only that field', async () => {
+		const f = fixture({ rotation: null });
+		const result: any = await runAction('schematic.attribute.geometry.modify', { ...base, expectedRotation: null, rotation: 0 });
+		assert.equal(result.result.verified, true);
+		assert.deepEqual([f.state.x, f.state.y, f.state.rotation], [280, 590, 0]);
+	});
+	await t.test('SDK may consume the mutable patch without changing the intended pose', async () => {
+		const f = fixture();
+		globals.eda.sch_PrimitiveAttribute.modify = async (_id: string, patch: Record<string, number>) => {
+			Object.assign(f.state, patch);
+			delete patch.x;
+			delete patch.y;
+			delete patch.rotation;
+			return {};
+		};
+		const result: any = await runAction('schematic.attribute.geometry.modify', { ...base, x: 245, y: 685, rotation: 0 });
+		assert.equal(result.result.verified, true);
+		assert.deepEqual([f.state.x, f.state.y, f.state.rotation], [245, 685, 0]);
+	});
+	for (const [name, drift] of [
+		['wire id', { wireId: 'wire-2' }], ['wire net', { net: 'TEST_NET_B' }],
+		['wire geometry', { line: [280, 565, 220, 565] }], ['attribute parent', { parentId: 'wire-2' }],
+		['attribute key', { key: 'Relevance' }], ['attribute text', { value: 'TEST_NET_B' }],
+		['attribute x', { x: 285 }], ['attribute y', { y: 595 }], ['attribute rotation', { rotation: null }],
+		['attribute visibility', { valueVisible: false }],
+	] as const) {
+		await t.test(`refuses stale ${name} before any write`, async () => {
+			const f = fixture(drift);
+			await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, rotation: 0 }));
+			assert.equal(f.modifications, 0);
+		});
+	}
+	for (const [name, bad] of [
+		['missing geometry', {}], ['nonfinite target', { x: Number.NaN }],
+		['null target', { rotation: null }], ['different net than Name', { expectedNet: 'TEST_NET_B', rotation: 0 }],
+		['missing prior coordinate', { expectedX: undefined, rotation: 0 }],
+		['wrong parent type', { expectedParentType: 'netport', rotation: 0 }],
+		['wrong key', { expectedKey: 'Description', rotation: 0 }],
+	] as const) {
+		await t.test(`rejects ${name}`, async () => {
+			const f = fixture();
+			await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, ...bad }));
+			assert.equal(f.modifications, 0);
+		});
+	}
+	await t.test('reports a failed SDK persistence readback', async () => {
+		const f = fixture({}, false);
+		await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, rotation: 0 }));
+		assert.equal(f.modifications, 1);
+	});
+	await t.test('reports a protected wire mutation after SDK accepts the call', async () => {
+		const f = fixture();
+		globals.eda.sch_PrimitiveAttribute.modify = async () => { f.state.net = 'OTHER'; return {}; };
+		await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, rotation: 0 }));
+	});
+	await t.test('reports a protected label text mutation after SDK accepts the call', async () => {
+		const f = fixture();
+		globals.eda.sch_PrimitiveAttribute.modify = async () => { f.state.rotation = 0; f.state.value = 'TEST_NET_B'; return {}; };
+		await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, rotation: 0 }));
+	});
 });
 
 test('connect_pin net_label creates only its stub and native attribute without rotation calibration', async (t) => {
