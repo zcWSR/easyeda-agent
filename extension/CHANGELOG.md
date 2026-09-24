@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.12] — 2026-09-24 (local schematic readback recovery candidate)
+
+- Recover two unreadable attribute visibility fields after schematic reload only from the exact current-page records in an official project export, with project/page/tab, primitive ID, key, parent and value checks. Pin-owned source attributes that omit visibility cannot supply a value. Missing or conflicting evidence still blocks a full-page snapshot and guarded replacement. The clean test project must be reread before release acceptance.
+
 ## [1.6.0-dev.11] — 2026-09-24 (local project-source diagnostic candidate)
 
 - Add a bounded, read-only typed export of the current native `.epro2` project archive. It checks the project UUID before and after the official export and verifies artifact size and SHA-256, enabling offline inspection of page-source attributes and sheet geometry. The current test page's strict post-reload read remains under investigation; no release acceptance is claimed.
