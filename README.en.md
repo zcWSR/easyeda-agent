@@ -413,6 +413,16 @@ Built on / inspired by these open projects — thank you:
 - **Official EasyEDA extensions** ([github.com/easyeda](https://github.com/easyeda)) — we study their `eda.*` API usage + algorithms (not their UI) as prior art; the absorb-list lives in [`docs/ecosystem-survey.md`](docs/ecosystem-survey.md). Notably [`eext-run-api-gateway`](https://github.com/easyeda/eext-run-api-gateway) proved the in-editor code channel, and [`eext-export-design-report`](https://github.com/easyeda/eext-export-design-report) informed our design-report reads.
 - Candidate not yet absorbed: [**polyclip-ts**](https://github.com/luizbarboza/polyclip-ts) (polygon boolean) — for a future silkscreen-fill-with-obstacle-avoidance (`docs/ecosystem-survey.md` A10).
 
+## PCB algorithm contributions
+
+The public Go packages `pcbmodel`, `pcblayout`, `pcbrouting`, and `pcbsolve` support
+offline work on bounded two-layer placement and routing. Run `make pcb-solver-test`
+without EasyEDA or a daemon. See the [contribution plan](docs/pcb-solver-community-design.md)
+and [mathematical model and scoped tasks](docs/pcb-solver-community-design-detail.md)
+(Chinese). Current opportunities include tiny independent exact references,
+alternative routes on the same layer, and congestion-aware placement seeds.
+Algorithm PRs should target `dev` and include reproducible cases and independent checks.
+
 ## License
 
 [MIT](LICENSE) — use it, fork it, ship it commercially; just keep the copyright

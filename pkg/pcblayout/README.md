@@ -1,5 +1,7 @@
 # pcblayout
 
+社区入口：[问题范围、可认领任务与离线验证](../../docs/pcb-solver-community-design.md)。
+
 固定装配面上的有限、确定性 PCB 布局搜索。输入是 `pcbmodel.Board` 和显式移动组：每组声明
 成员、anchor、允许的平移/旋转、固定轴，以及随组移动的内部 track/via/region ID。
 

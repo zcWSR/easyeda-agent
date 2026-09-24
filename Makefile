@@ -36,6 +36,10 @@ help: ## show this cheatsheet
 test: ## go test ./...
 	go test ./...
 
+.PHONY: pcb-solver-test
+pcb-solver-test: ## offline public PCB solver packages (Go only; no EDA or daemon)
+	go test ./pkg/pcbmodel ./pkg/pcblayout ./pkg/pcbrouting ./pkg/pcbsolve -count=1
+
 mcp-test: build ## install MCP deps and run unit + stdio protocol tests
 	npm --prefix mcp ci --ignore-scripts
 	EASYEDA_BIN="$(CURDIR)/bin/easyeda" npm --prefix mcp test

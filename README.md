@@ -241,6 +241,7 @@ EasyEDA Pro project
 
 ## 开发与贡献
 
+- PCB 算法贡献：[四个公共 Go 包、数学问题与可认领任务](docs/pcb-solver-community-design.md)；`make pcb-solver-test` 可离线运行，无需 EDA。
 - 文档导航与信息归属：[docs/README.md](docs/README.md)
 - 跨项目查询、维护 Skill 和多客户端兼容：[Agent 协作设计](docs/agent-collaboration.md)
 - 开发环境：[docs/dev-environment.md](docs/dev-environment.md)

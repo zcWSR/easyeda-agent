@@ -14,6 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pcb-solvers:
+    name: PCB solver packages (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Verify public solver packages and file cases
+        run: make pcb-solver-test
+
   test:
     name: CLI, connector and Skill
     runs-on: ubuntu-latest

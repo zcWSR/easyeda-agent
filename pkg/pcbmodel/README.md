@@ -1,5 +1,7 @@
 # pcbmodel
 
+社区入口：[问题范围、可认领任务与离线验证](../../docs/pcb-solver-community-design.md)。
+
 编辑器无关的 PCB 公共数据模型。坐标为 y-UP，默认单位为 mil；运行时 primitive ID 只保留为
 来源证据，算法使用稳定的器件位号和 `REF.PAD` 端点。
 
