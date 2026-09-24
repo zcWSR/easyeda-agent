@@ -28,6 +28,15 @@ P1/P2 完整预算输入仍分别耗尽 200000/100000 候选；这些版本未�
 `P1-layout-report-dev14.json`、`P2-layout-report-dev14.json`，其 `sourceSha256`
 与输入原始字节一致，`globalInfeasibilityProven:false`，且没有输出完整布局。
 这只能说明当前有界搜索未找到解，不能把两页判为几何不可解或用于现场 Apply。
+按用户提出的更紧凑间距再作参数敏感性复测：P1 冻结源本来就是允许的最小 `spacing:10`；
+P2 只把 `spacing` 从 30 改为 10，保留器件、连接、归属及 100000 候选预算，
+报告 `P2-layout-report-spacing10-dev14.json` 仍在 100000/100000 停止。
+再仅把这份 10 raw 源的预算提升到 500000，
+`P2-layout-report-spacing10-budget500k-dev14.json` 仍在 500000/500000 停止，
+最后观察到 U1.36 `UART0_RX` 无安全标记引线，`globalInfeasibilityProven:false`。
+两份变体各自另存源，报告哈希与对应输入字节一致；没有生成可 Apply 的完整布局。
+无历史上下文的只读 Agent 复核了每轮仅改变一个参数、报告哈希配对与失败边界；
+该复核不构成 F1 或现场验收通过。
 按两区拆分建议另存 P1 USB 与 P2 MCU 的离线源副本并运行 `sch zone-review`：
 分别因跨区 `USB_DN_CONN`、`MCU_EN` 仍声明 `direct` 而写前拒绝。
 两区现有专属附件分别连成覆盖全部 7 件、13 件的依赖树；改成同名端口会丢失
