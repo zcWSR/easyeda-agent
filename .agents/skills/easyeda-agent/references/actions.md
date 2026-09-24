@@ -41,6 +41,11 @@ FOOTPRINT 唯一 `DOCHEAD`/`META.source` 与官方 Device association 一致的 
 非 BOM 铜件不得携带采购字段；BOM 件还须精确核对 C 号、MPN、制造商、供应商及 BOM/PCB 标志。
 缺失或冲突时报告未解析，不按名称、页名或项目名猜测。
 
+`sch group-move --ids` 的网表逐脚不变只证明电气连接；器件 `otherProperty` 仍可能在
+SDK 的纯坐标 `modify` 中被整体清空。当前 typed `schematic.group.move` 在同一次写入带回
+已读取的属性，并在移动导线/端口前重新读取位置和属性。若回执含 `partial`、
+`notApplied` 或 `verified:false`，先按新鲜回读恢复现场，不继续另一段位移或重放旧请求。
+
 compose 生成的全工程位号唯一性步骤使用 `schematic.components.list` 的
 `allPages:true,tagPages:true` 最小清单，只检查位号冲突、既有 primitiveId 和待建位号不存在；
 它不请求慢速 device identity、bbox 或 pins。紧随其后的目标页守卫仍读取完整

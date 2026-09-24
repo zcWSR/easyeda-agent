@@ -2600,7 +2600,7 @@ const schematicGroupMove: Handler = async (payload) => {
 		id: string; kind: 'netflag' | 'netport'; createArg: string; net: string;
 		x: number; y: number; rotation: number; mirror: boolean;
 	};
-	const elements: Array<{ id: string; comp: (typeof allComponents)[number] }> = [];
+	const elements: Array<{ id: string; comp: (typeof allComponents)[number]; x: number; y: number; properties?: Record<string, SchematicPropertyValue> }> = [];
 	const flagPlans: Array<flagPlan> = [];
 	for (const comp of allComponents) {
 		const id = comp.getState_PrimitiveId();
@@ -2639,18 +2639,49 @@ const schematicGroupMove: Handler = async (payload) => {
 				`group-move: ${ctype} ${id} cannot be moved (no create API to recreate it) — aborted BEFORE any mutation. Exclude it from the set.`);
 		}
 		else {
-			elements.push({ id, comp });
+			// The host replaces otherProperty as a whole on component.modify,
+			// including geometry-only patches. Reject unsupported values before
+			// moving anything, then carry the exact properties in the same write.
+			const rawProperties = comp.getState_OtherProperty?.();
+			const properties = rawProperties == null ? undefined : requireSchematicPropertyPatch(rawProperties, 'otherProperty');
+			elements.push({ id, comp, x: comp.getState_X(), y: comp.getState_Y(), properties });
 		}
 	}
 
-	for (const { id, comp } of elements) {
-		const from = { x: comp.getState_X(), y: comp.getState_Y() };
+	for (const { id, x, y, properties } of elements) {
+		const from = { x, y };
 		const to = { x: from.x + dx, y: from.y + dy };
 		let moved;
-		try { moved = await eda.sch_PrimitiveComponent.modify(id, { x: to.x, y: to.y }); }
+		try { moved = await eda.sch_PrimitiveComponent.modify(id, { x: to.x, y: to.y, ...(properties && Object.keys(properties).length ? { otherProperty: { ...properties } } : {}) }); }
 		catch (err) { throw edaError(err, `group-move: failed to translate component ${id}.`); }
 		if (!moved) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, `group-move: modify returned no primitive for component ${id}.`);
 		movedComponents.push({ primitiveId: id, designator: moved.getState_Designator?.() ?? null, from, to });
+	}
+	// A successful modify return does not prove that the host kept properties.
+	// Verify once from a fresh inventory before deleting/recreating flags/wires.
+	if (movedComponents.length) {
+		let freshComponents: typeof allComponents;
+		try {
+			const readback = await eda.sch_PrimitiveComponent.getAll();
+			freshComponents = Array.isArray(readback) ? readback : [];
+		}
+		catch { freshComponents = []; }
+		const byId = new Map(freshComponents.map(comp => [comp.getState_PrimitiveId(), comp]));
+		const notApplied: Array<string> = [];
+		for (const { id, x, y, properties } of elements) {
+			const fresh = byId.get(id);
+			if (!fresh) { notApplied.push(`${id}:readback`); continue; }
+			if (fresh.getState_X() !== x + dx || fresh.getState_Y() !== y + dy) notApplied.push(`${id}:position`);
+			const actual = cleanOtherProperty(fresh.getState_OtherProperty?.() as Record<string, unknown> | undefined) ?? {};
+			for (const [key, value] of Object.entries(properties ?? {})) {
+				if (!propertyApplied(actual, key, value)) notApplied.push(`${id}:otherProperty.${key}`);
+			}
+		}
+		if (notApplied.length) return {
+			result: { dx, dy, movedComponents, movedFlags, movedWires, count: movedComponents.length,
+				partial: true, verified: false, notApplied },
+			warnings: [`group-move stopped before flags/wires: component position or properties were not preserved (${notApplied.join(', ')}); re-read before recovery.`],
+		};
 	}
 
 	// Flags: delete + recreate at the shifted anchor. Rotation passes through

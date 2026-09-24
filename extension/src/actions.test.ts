@@ -1985,6 +1985,64 @@ test('modify: maps customAttributes to SDK otherProperty and preserves existing 
 	delete (globalThis as any).eda;
 });
 
+test('group move preserves a part\'s custom properties when the SDK clears omitted otherProperty', async (t) => {
+	const globals = globalThis as any;
+	const previous = globals.eda;
+	t.after(() => { if (previous === undefined) delete globals.eda; else globals.eda = previous; });
+	let x = 100;
+	let attributes: Record<string, string> = { Description: 'service connector', Value: '2x3', 'Component ID': 'connector-1' };
+	const patches: Array<Record<string, unknown>> = [];
+	const current = () => mockComponent({ PrimitiveId: 'part-1', ComponentType: 'part', Designator: 'J1', X: x, Y: 200, OtherProperty: { ...attributes } });
+	globals.eda = {
+		sch_PrimitiveComponent: {
+			getAll: async () => [current()],
+			modify: async (_id: string, patch: Record<string, unknown>) => {
+				patches.push(patch);
+				x = patch.x as number;
+				attributes = patch.otherProperty ? { ...(patch.otherProperty as Record<string, string>) } : {};
+				return current();
+			},
+		},
+		sch_PrimitiveWire: { getAll: async () => [] },
+	};
+	const response: any = await runAction('schematic.group.move', { primitiveIds: ['part-1'], dx: 40, dy: 0 });
+	assert.equal(response.result.partial, undefined);
+	assert.equal(x, 140);
+	assert.deepEqual(attributes, { Description: 'service connector', Value: '2x3', 'Component ID': 'connector-1' });
+	assert.deepEqual(patches[0].otherProperty, attributes);
+});
+
+test('group move reports a partial mutation before touching wires when the SDK still drops a property', async (t) => {
+	const globals = globalThis as any;
+	const previous = globals.eda;
+	t.after(() => { if (previous === undefined) delete globals.eda; else globals.eda = previous; });
+	let x = 100;
+	let wireWrites = 0;
+	let attributes: Record<string, string> = { Description: 'test part', 'Component ID': 'part-1' };
+	const current = () => mockComponent({ PrimitiveId: 'part-1', ComponentType: 'part', X: x, Y: 200, OtherProperty: { ...attributes } });
+	globals.eda = {
+		sch_PrimitiveComponent: {
+			getAll: async () => [current()],
+			modify: async (_id: string, patch: Record<string, unknown>) => {
+				x = patch.x as number;
+				attributes = { ...(patch.otherProperty as Record<string, string>) };
+				delete attributes['Component ID'];
+				return current();
+			},
+		},
+		sch_PrimitiveWire: {
+			getAll: async () => [{ getState_PrimitiveId: () => 'wire-1', getState_Line: () => [100, 200, 120, 200],
+				getState_Net: () => 'TEST_NET', getState_Color: () => null, getState_LineWidth: () => null, getState_LineType: () => null }],
+			delete: async () => { wireWrites++; return true; },
+		},
+	};
+	const response: any = await runAction('schematic.group.move', { primitiveIds: ['part-1', 'wire-1'], dx: 40, dy: 0 });
+	assert.equal(response.result.partial, true);
+	assert.equal(response.result.verified, false);
+	assert.deepEqual(response.result.notApplied, ['part-1:otherProperty.Component ID']);
+	assert.equal(wireWrites, 0);
+});
+
 test('modify: partial otherProperty also merges instead of clearing metadata', async () => {
 	const fx = installComponentModifyStub();
 	await schematicComponentModify({

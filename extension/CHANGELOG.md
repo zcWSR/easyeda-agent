@@ -2,12 +2,13 @@
 
 ## [Unreleased]
 
-## [1.6.0-dev.1] — 2026-09-24 (local fork candidate; live acceptance pending)
+## [1.6.0-dev.2] — 2026-09-24 (local fork candidate; live acceptance pending)
 
 - Add guarded typed schematic actions for Name/Description visibility and existing wire Name geometry. Exact parent, attribute, network, path, prior pose and visibility must match before mutation; protected fields are re-read afterward. Geometry verification freezes the requested pose before handing a separate patch object to the SDK, avoiding a false failure when the SDK consumes its input object.
 - Bound Symbol/Footprint build phases with diagnostic logs and unknown-outcome timeouts. Bind the active library canvas by returned tab, asset UUID and document type, use the official Symbol opener, and reject `save() === false`.
 - Resolve project-local non-BOM copper and locally authored BOM Devices from unique native DEVICE/SYMBOL/FOOTPRINT `DOCHEAD` and `META.source` records plus exact official Device association and procurement fields. Missing or conflicting evidence remains unresolved; no project-name or designator branch is used.
-- Migrated from the older local 1.5.2 development patch onto upstream 1.6.0. Offline tests and builds are required before any connector deployment; no 1.6.0-dev.1 live EasyEDA acceptance is claimed.
+- Migrated from the older local 1.5.2 development patch onto upstream 1.6.0. Offline tests and builds are required before any connector deployment; no 1.6.0-dev.2 live EasyEDA acceptance is claimed.
+- Preserve component `otherProperty` during `schematic.group.move --ids`: geometry-only SDK writes can otherwise clear all custom fields while netlist checks still pass. Fresh component readback verifies coordinates and every preserved property before moving selected flags/wires; incomplete results are reported as partial. A host mock reproduces the property loss before the fix and covers success and failed preserve-write paths.
 
 ## [1.6.0] — 2026-09-23
 
