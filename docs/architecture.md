@@ -12,7 +12,7 @@
               ↓
 Skill/Agent：在目标源数据中表达电气事实、核心/外围归属、约束
               ↓
-Go 纯计算：SCH 区内/纸张计划，或 PCB 模块 layout-plan 候选 → 数据校验
+Go 纯计算：SCH 区内/纸张计划，或 PCB Layout/Router 协同候选 → 数据校验
               ↓
 固定渲染 / compose --layout-page → 可检查的 Apply 队列
               ↓
@@ -37,11 +37,20 @@ Agent 合成总分。候选经选择后转成 typed Apply，写后再由官方�
 检查器基于原始几何/连接证据报告对象与规则，缺测不是零问题，评分也不替代具体事实。
 Compose 固定转换已确认几何，Apply 执行和回读，不在写入阶段偷偷重设计。
 
-PCB 局部寻路使用公开纯 Go 包 `pkg/pcbrouting`，由命令层和既有晶振规划器直接引用。
-包只消费几何端点、搜索约束和整段合法性函数；宿主数据采集、规则解析与文件 IO 留在
-`internal/app`。`pcb route solve/check` 承载离线求解与复验，没有额外二进制、RPC 或安装步骤。
-独立校验不重跑求解器，按输入需求逐段检查候选；命令层从同一快照和报告默认生成整板 SVG，
-渲染不参与求解或通过判定。后续扩大布线能力继续保持此依赖方向。
+PCB 公共计算按单向依赖拆为 `pkg/pcbmodel`（板/层叠/几何）、`pkg/pcblayout`（完整移动组与
+机械合法性）、`pkg/pcbrouting`（单次路径、多网共同选择和独立检查）、`pkg/pcbsolve`
+（路由反馈、共享预算、候选排序与整体复验）。公共包不引用 `internal/app`；快照解析、块库
+提示转换、Cobra、文件、SVG、运行时 PID 和 typed Apply 仍在宿主层。
+
+`pcb route solve/check` 保留单端点对入口；`pcb layout solve/check/render` 承载二层板共同求解。
+
+协同入口先共同试布，再把实际拒绝的线段、阻挡对象、网络和层反馈给 `pcblayout.Neighbors`。
+组的 `translationSearch` 声明步长/半径，动态产生原始 anchor 周围的位置；机械冲突可递归驱动
+邻组让位。每次投影重算所有需求，最后 `Project` 和独立共同路径检查复验。通道预留作为候选
+派生数据由同一渲染器消费，不进入既有铜清单或布局 Apply。初始布局前的拥塞容量估计仍为 planned。
+独立校验从原始板与请求重建 move 投影，不重跑求解器、不信候选指标；渲染与检查消费同一
+候选对象，像素不参与通过判定。旧快照只有铜层数时只允许明确的两层映射；四层不能由层数
+推断内层角色，当前联合求解会返回 incomplete/planned 边界。
 当前提取范围和状态语义见 [概念表](concepts.md#pcb-布线求解内核与宿主适配)。
 
 ### daemon / Connector

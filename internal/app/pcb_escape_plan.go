@@ -3,12 +3,14 @@ package app
 // Escape reservations are geometric witnesses, not editor copper and not a
 // whole-board routing claim. Every owner pad is accounted for independently.
 import (
-	"container/heap"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/zhoushoujianwork/easyeda-agent/pkg/pcbrouting"
 )
 
 type pcbRoutingIntent struct {
@@ -562,89 +564,32 @@ func pcbEscapeViaChoices(ctx *pcbEscapeContext, in pcbRoutingIntent, d pcbEscape
 	return out
 }
 
-// Grid search has a shared budget across all route candidates and joint states.
-// Heading is part of the key, retaining only paths with at most 45-degree turns.
+// Grid search delegates to the public routing kernel. The adapter only accounts
+// for the escape planner's shared budget and converts its legacy callback shape;
+// there is no second A* implementation here.
 func pcbEscapeGrid(a, z [2]float64, step, detour float64, clear func([2]float64, [2]float64) bool, budget *pcbEscapeBudget) [][2]float64 {
-	if !clear(a, a) || !clear(z, z) {
+	remaining := budget.MaxStates - budget.Used
+	if remaining <= 0 {
+		budget.Exhausted = true
 		return nil
 	}
-	pathOK := func(p [][2]float64) bool {
-		for i := 1; i < len(p); i++ {
-			if !clear(p[i-1], p[i]) {
-				return false
-			}
-		}
-		return true
+	// Preserve the former per-attempt bound: one impossible segment must not
+	// consume the complete joint-search budget before alternate demand orders.
+	maxStates := remaining
+	if maxStates > 8192 {
+		maxStates = 8192
 	}
-	if p := crystal45Path(a, z); pathOK(p) {
-		return crystalCompressRoute(p)
+	result, err := pcbrouting.Solve(context.Background(), pcbrouting.Request{
+		From: a, To: z, Step: step, MaxDetour: detour, MaxStates: maxStates,
+	}, clear)
+	budget.Used += result.States
+	if budget.Used >= budget.MaxStates {
+		budget.Exhausted = true
 	}
-	type key struct{ x, y, h int }
-	start := key{0, 0, 8}
-	dist := map[key]float64{start: 0}
-	parent := map[key]key{}
-	point := func(k key) [2]float64 { return [2]float64{a[0] + float64(k.x)*step, a[1] + float64(k.y)*step} }
-	q := &crystalRouteQueue{{x: 0, y: 0, heading: 8, estimate: math.Hypot(z[0]-a[0], z[1]-a[1])}}
-	heap.Init(q)
-	dirs := [][2]int{{1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}}
-	// One impossible segment must not consume the entire joint search budget
-	// before an alternate ordering or allowed layer transition can be tried.
-	for visits := 0; q.Len() > 0 && visits < 8192; visits++ {
-		if !budget.take() {
-			return nil
-		}
-		n := heap.Pop(q).(crystalRouteNode)
-		k := key{n.x, n.y, n.heading}
-		if n.cost > dist[k]+1e-7 {
-			continue
-		}
-		p := point(k)
-		if math.Hypot(z[0]-p[0], z[1]-p[1]) <= step*2 {
-			tail := crystal45Path(p, z)
-			if pathOK(tail) {
-				rev := [][2]float64{p}
-				for cursor := k; cursor != start; {
-					cursor = parent[cursor]
-					rev = append(rev, point(cursor))
-				}
-				var route [][2]float64
-				for i := len(rev) - 1; i >= 0; i-- {
-					route = append(route, rev[i])
-				}
-				route = append(route, tail[1:]...)
-				if route, ok := crystalBevelRoute(crystalCompressRoute(route), clear); ok {
-					return route
-				}
-			}
-		}
-		for h, v := range dirs {
-			if n.heading < 8 {
-				turn := int(math.Abs(float64(h - n.heading)))
-				if turn > 4 {
-					turn = 8 - turn
-				}
-				if turn > 1 {
-					continue
-				}
-			}
-			next := key{k.x + v[0], k.y + v[1], h}
-			t := point(next)
-			if rectPtDist(math.Min(a[0], z[0]), math.Min(a[1], z[1]), math.Max(a[0], z[0]), math.Max(a[1], z[1]), t[0], t[1]) > detour+1e-6 {
-				continue
-			}
-			cost := n.cost + math.Hypot(t[0]-p[0], t[1]-p[1])
-			if old, ok := dist[next]; ok && cost >= old-1e-7 {
-				continue
-			}
-			if !clear(p, t) {
-				continue
-			}
-			dist[next] = cost
-			parent[next] = k
-			heap.Push(q, crystalRouteNode{x: next.x, y: next.y, heading: h, cost: cost, estimate: cost + math.Hypot(z[0]-t[0], z[1]-t[1])})
-		}
+	if err != nil || result.Status != pcbrouting.Found {
+		return nil
 	}
-	return nil
+	return result.Points
 }
 
 func pcbEscapeCandidates(ctx *pcbEscapeContext, in pcbRoutingIntent, d pcbEscapeDemand, routes []pcbModuleRoute, budget *pcbEscapeBudget, plannedVias ...pcbModuleVia) []pcbModuleRoute {

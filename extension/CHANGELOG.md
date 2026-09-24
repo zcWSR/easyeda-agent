@@ -68,6 +68,28 @@
 - Surface the same distinction in `sch layout-lint`: parts whose geometry is proven but whose pin-to-net attribution is not are reported as a separate `nets-unproven` category (new `netsUnproven` field, its own strict-gate reason and summary column) instead of being conflated with the legacy-connector `unprovenPins` bucket, which would send the reader to a different fix.
 - Skill: `sch read.floatingPins` may only be recorded as `connectionState:"unconnected"` when `sch read.netlistAvailable` is true — with a muted netlist every pin lands in that list, so it states a failed read rather than an unconnected design.
 
+## [1.6.0] — 2026-09-23
+
+### Added
+
+- Add parameterized PCB placement and routing foundations: schema-v3 layout intent, bounded candidate generation, replayable Apply playbooks, module-owned object recovery, shared path verification, routing reports/previews, and `pcb module-check` evidence after save/reload. The retained AT32F415 examples include live placement/routing facts plus explicit rejected candidates; they are reusable evidence, not a claim that the whole board or crystal module has completed final acceptance.
+- Add `pcb via-fence` for perimeter-only GND/RF stitching around a protected rectangle. It includes each corner once, redistributes every edge so `--pitch` is a maximum spacing, expands outward with `--margin`, uses live via rules for unspecified sizes, and keeps dry-run pure. The crystal-guard contract requires controlled MCU spacing, short/direct OSC paths, an explicit TOP GND guard, TOP/BOTTOM `no-pours`, and an external GND via fence.
+- Add typed `project.open` and `project.export`, Cobra and MCP wrappers, active-project/page identity checks, explicit unsaved-data acknowledgement, bounded native `.epro2` transfer, ZIP/CRC validation, no-overwrite delivery, and SHA-256 reporting. The revised typed path was live-verified across two saved projects; archive import/restore remains unverified (`restoreVerified:false`).
+- Add native Windows installation through `install.ps1`, per-site part UUID relocalization, board-fitted PCB snapshots, typed layout-review evidence, V4 compatibility reporting, PCB stackup/config/net-color controls, document close/reload, poured-copper readback, and safer project/document recovery when no tab is active.
+
+### Fixed
+
+- Preserve EasyEDA's native schematic DRC verdict for the requested strict mode while keeping the separate detailed read explicit and non-atomic. Unknown counts remain `null`, never fabricated zeroes; CLI output and workflow gates now fail on a native failed verdict even when detailed counts are unavailable. Non-strict success may still report advisory warnings (#255).
+- Harden local schematic editing and daemon recovery: reject native `net_label` writes on V3 or unknown hosts before a batch starts; allow a new, fully verified wire to preserve unchanged historical geometry findings while still failing any new/changed defect; and add guarded `daemon stop/restart` with live health/PID identity checks instead of guessing or terminating an unrelated process.
+- Bootstrap the Connector when EasyEDA evaluates its entry bundle without dispatching `activate()`. Reuse one versioned transport controller across bundle evaluations, keep lifecycle calls delegated, and release it on `deactivate()` instead of registering competing sockets.
+- Gate schematic layout/designator work on actual netlist availability rather than pin geometry alone. `layout-lint` reports `nets-unproven` separately, and the Skill forbids classifying `floatingPins` as truly unconnected when the netlist read was unavailable.
+- Preserve declared differential pairs in the PCB 3W check, normalize module-frame coordinates, verify zone-frame geometry before reporting it retained, harden empty-page and title-block diagnostics, and keep Connector queue/bootstrap behavior fail-closed across supported hosts.
+
+### Upgrade and validation scope
+
+- This release changes the Connector runtime and starts the 1.6 compatibility line. Upgrade CLI/daemon and Skill together, uninstall the previous sideloaded Connector, import the 1.6.0 `.eext`, reopen the Web editor, and verify the reported Connector version/actions. The release restores the stable marketplace UUID; the temporary dev.5/dev.6 fresh UUID was only a cache-bypass fallback and must not become the published identity.
+- Automated Go, Connector, MCP, Skill, agent-entry, packaging, and native-install checks are release gates. Focused live evidence covers V4 configuration, project transfer, several PCB placement/routing modules, and connector bootstrap. The new local-edit/daemon recovery changes are offline-verified, including Windows cross-builds, but not Windows-runtime verified. The prescribed fresh requirement-to-four-layer-PCB end-to-end regression was not rerun for this release, and the current crystal schema-v3 candidate remains rejected; neither is represented as completed hardware acceptance.
+
 ## [1.5.3-dev.6] — 2026-09-22 (local development)
 
 - Add fail-closed typed `document.close` and use it for `doc reload`, removing the old `debug.exec_js` close path. The close request binds both the fresh document UUID and tab ID, preserves the official split ID when readable, and only then allows typed reopen plus fresh document/object settlement checks.

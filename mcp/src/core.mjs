@@ -68,7 +68,7 @@ export function filterActions(actions, { domain, search, mutates } = {}) {
 }
 
 // Project creation targets a connector window, not a document that does not exist yet.
-// Keep this exception exact: all other mutations retain project/document pinning.
+// Project transfer uses explicit window/UUID guards; other mutations retain document pinning.
 export function buildActionCallArgs(action, input = {}) {
   if (action.name === 'project.create') {
     if (typeof input.window !== 'string' || !input.window.trim()) {
@@ -76,6 +76,17 @@ export function buildActionCallArgs(action, input = {}) {
     }
     if (input.project || input.doc) {
       throw new Error('project.create does not accept project or doc routing; use payload.friendlyName for the new project');
+    }
+  }
+  else if (action.name === 'project.open' || action.name === 'project.export') {
+    if (typeof input.window !== 'string' || !input.window.trim() || input.project || input.doc) {
+      throw new Error('Project transfer requires an explicit window and payload.projectUuid; omit project/doc routing');
+    }
+    if (typeof input.payload?.projectUuid !== 'string' || !input.payload.projectUuid.trim()) {
+      throw new Error('payload.projectUuid is required');
+    }
+    if (action.name === 'project.open' && input.payload.allowDiscardUnsaved !== true) {
+      throw new Error('Save documents first; payload.allowDiscardUnsaved must be true');
     }
   }
   else if (action.mutates && (!input.project || !input.doc)) {
@@ -158,4 +169,25 @@ export function toMcpResult(execution) {
     result.structuredContent = value;
   }
   return result;
+}
+
+// Project-level transfer has no existing-document routing prerequisite.
+export function buildProjectTransferArgs(input = {}) {
+  for (const key of ['window', 'projectUuid']) {
+    if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`${key} is required`);
+  }
+  if (input.project || input.doc) throw new Error('Use projectUuid/window, not project/doc routing');
+  const args = ['project', input.operation, '--window', input.window, '--project-uuid', input.projectUuid];
+  if (input.operation === 'open') {
+    if (input.allowDiscardUnsaved !== true) throw new Error('Save all documents first and explicitly acknowledge allowDiscardUnsaved');
+    if (input.out) throw new Error('out applies only to export');
+    args.push('--allow-discard-unsaved');
+    if (input.pageUuid) args.push('--page-uuid', input.pageUuid);
+  } else if (input.operation === 'export') {
+    if (typeof input.out !== 'string' || !input.out.toLowerCase().endsWith('.epro2')) throw new Error('out must be a new .epro2 file');
+    if (input.pageUuid) throw new Error('pageUuid applies only to open');
+    if (input.allowDiscardUnsaved) throw new Error('allowDiscardUnsaved applies only to open');
+    args.push('--out', input.out);
+  } else throw new Error('operation must be open or export');
+  return args;
 }

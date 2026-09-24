@@ -68,6 +68,12 @@ RECT/圆角 RECT/OVAL/圆焊盘、直线、实心多边形铜区、禁线区和�
 Layout 不复制通用 Router。Router 单网通过也不批准器件位置，必须由 Layout 汇总同一候选中
 所有需求的占用冲突。Router 接口新增能力时保持这一适配层，不让晶振策略直接依赖其内部队列。
 
+公共实现位于 `pkg/pcbmodel`、`pkg/pcblayout`、`pkg/pcbrouting`、`pkg/pcbsolve`。板级入口为
+`pcb layout solve/check/render`：`SolveJoint` 让后续网络看到已选路径并有限回溯，`pcbsolve.Check`
+从原始板和 move 重建投影后独立复验。典型文件案例覆盖路由反馈让位、TOP/BOTTOM/TOP 两过孔、
+两网各自可达但共同失败；公共包文件案例为 offline-verified，`ceshi/PCB1` 双网测试通道的
+自动让位与 layout-only Apply 已完成保存重载现场复验，规划路径仍未写成铜。
+
 先调整路线/组内布局，再移动目标模块，再递归纳入挡路的可动组，平移失败才换位置/允许
 朝向。每组声明成员、固定轴、内部铜归属和外部连接；整体变换内部对象，重算外部引线，
 重建铺铜后验证。未知归属作为固定障碍。检查全部受影响模块，有限搜索返回原因与预算。

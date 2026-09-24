@@ -21,9 +21,14 @@ test('stdio MCP initializes, lists tools, and invokes offline discovery', async 
   try {
     await client.connect(transport);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 11);
+    assert.equal(listed.tools.length, 12);
     assert.ok(listed.tools.some((tool) => tool.name === 'easyeda_pcb'));
     assert.ok(!listed.tools.some((tool) => tool.name === 'easyeda_debug'));
+
+    assert.ok(listed.tools.some((tool) => tool.name === 'easyeda_project_transfer'));
+    const rejectedOpen = await client.callTool({ name: 'easyeda_project_transfer', arguments: { operation: 'open', window: 'w', projectUuid: 'p' } });
+    assert.equal(rejectedOpen.isError, true);
+    assert.match(rejectedOpen.content[0].text, /acknowledge/);
 
     const allActions = await client.callTool({
       name: 'easyeda_actions',
@@ -31,6 +36,7 @@ test('stdio MCP initializes, lists tools, and invokes offline discovery', async 
     });
     assert.equal(allActions.isError, false);
     assert.ok(!allActions.structuredContent.actions.some((action) => action.domain === 'debug'));
+    for (const name of ['project.open', 'project.export']) assert.ok(allActions.structuredContent.actions.some(action => action.name === name));
 
     const discovered = await client.callTool({
       name: 'easyeda_actions',

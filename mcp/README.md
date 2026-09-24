@@ -1,8 +1,8 @@
 # easyeda-agent MCP
 
-Local stdio MCP adapter over the existing `easyeda` CLI/daemon. It exposes 11
+Local stdio MCP adapter over the existing `easyeda` CLI/daemon. It exposes 12
 tools: connection health, action discovery, one tool for each of the seven safe
-action domains, circuit blocks, and the guarded workflow state machine. The
+action domains, circuit blocks, the guarded workflow state machine, and project transfer. The
 arbitrary-JavaScript debug domain is deliberately not exposed.
 
 ```bash
@@ -69,3 +69,19 @@ The connected extension must implement `project.create`. If the call returns
 `UNKNOWN_ACTION`, update the connector to a version providing that handler;
 a compatible version reported by `easyeda_health` alone does not prove action
 availability. Do not retry creation with a fabricated `doc` to work around it.
+
+
+## Project transfer
+
+Use `easyeda_project_transfer` for `operation: "open"` or `"export"`. Both require
+an explicit `window` and `projectUuid`, without `project`/`doc` routing. Opening
+requires `allowDiscardUnsaved: true` after saving all documents; optional `pageUuid`
+waits for a schematic page and verifies its active identity. Export requires a new
+`out` path ending in `.epro2`; it verifies the active project before/after capture,
+validates ZIP integrity and reports SHA-256 without overwriting an existing file.
+`restoreVerified: false` means an import round trip has not been verified.
+
+These commands require the matching CLI build. Fixed official-API adapters support
+released connectors without exposing arbitrary JavaScript to the MCP caller.
+
+Project transfer requires connector handlers `project.open` and `project.export` and the matching CLI/daemon catalog. Both are catalogued; prefer `easyeda_project_transfer` for native export because the CLI validates and writes the archive. Old daemons/connectors reject unknown actions; no debug.exec_js fallback.

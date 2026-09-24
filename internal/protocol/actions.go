@@ -82,6 +82,21 @@ func AllActions() []ActionSpec {
 			Outputs:     []string{"uuid", "friendlyName", "projectName", "created", "opened", "partial when creation succeeded but requested open failed"},
 		},
 		{
+			Name: "project.open", Domain: DomainProject, Phase: 1,
+			Mutates: true, NeedsWindow: true, NeedsConfirm: true,
+			Description: "Open a project through the official API and verify its identity. Can discard unsaved data: save all documents first and pass allowDiscardUnsaved:true. Optional schematic page waits for tree readiness and verifies page/project identity. No debug fallback.",
+			Inputs:      []string{"projectUuid", "allowDiscardUnsaved (required true)", "pageUuid optional"},
+			Outputs:     []string{"uuid", "friendlyName", "opened", "verified", "documentUuid optional", "documentVerified optional"},
+			VerifyWith:  []string{"project.current", "document.current"},
+		},
+		{
+			Name: "project.export", Domain: DomainProject, Phase: 1, NeedsWindow: true,
+			Description: "Export the active project as native epro2 bytes; checks project identity before and after export, bounds payload to 16 MiB. Save first. CLI validates ZIP/CRC and writes a new file; export does not verify restore.",
+			Inputs:      []string{"projectUuid"},
+			Outputs:     []string{"uuid", "format", "size", "base64"},
+			VerifyWith:  []string{"project.current"},
+		},
+		{
 			Name:        "document.current",
 			Domain:      DomainDocument,
 			Phase:       1,
@@ -646,9 +661,9 @@ func AllActions() []ActionSpec {
 			Domain:      DomainSchematic,
 			Phase:       1,
 			NeedsWindow: true,
-			Description: "Run schematic DRC and normalize the result into per-violation detail. Each violation carries {level, rule, message, primitiveIds, designators, x, y} (best-effort projection over the SDK shape, raw kept) plus a severity `summary` and a `fatal` count (error+fatal severities) for the design-flow S5 gate. `includeVerboseError` (default true) selects the detailed/array SDK overload. NOTE: the EDA schematic DRC API only returns an aggregate {count,type} (no per-item detail) — for the itemized findings the UI panel shows (which pins float, etc.), use schematic.check.",
+			Description: "Run schematic DRC; passed/nativePassed use the boolean SDK verdict under the requested strict mode. Detailed mode makes a separate SDK read (not atomic). countsAvailable/detailsAvailable describe coverage; boolean-only summary/fatal are null, never fabricated zeros. Normalize available detail. Each violation carries {level, rule, message, primitiveIds, designators, x, y} (best-effort projection over the SDK shape, raw kept) plus a severity `summary` and a `fatal` count (error+fatal severities) for the design-flow S5 gate. `includeVerboseError` (default true) selects the detailed/array SDK overload. NOTE: the EDA schematic DRC API only returns an aggregate {count,type} (no per-item detail) — for the itemized findings the UI panel shows (which pins float, etc.), use schematic.check.",
 			Inputs:      []string{"strict", "includeVerboseError"},
-			Outputs:     []string{"passed", "fatal", "summary", "violations"},
+			Outputs:     []string{"passed", "nativePassed", "strict", "fatal nullable", "summary nullable", "violations", "countsAvailable", "detailsAvailable", "verdictSource optional"},
 		},
 		{
 			Name:        "schematic.check",

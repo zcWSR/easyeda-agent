@@ -42,3 +42,29 @@ EasyEDA Pro。Agent 不得用交互界面、CUA、`debug.exec_js`、分块 base6
 原理图连接数据及 PCB 板框/机械层；不得把 `undefined`、无变化或单一 UUID 清单当成功。
 
 来源与完整探测矩阵见 [GitHub issue #203](https://github.com/zhoushoujianwork/easyeda-agent/issues/203)。
+
+
+## 工程级打开与原生导出
+
+`project open --uuid` 是旧的文档打开别名，只能用于当前工程内页面，不是跨工程打开。
+跨工程时先保存所有未保存文档，再显式调用：
+
+```bash
+easyeda project open --window <window-id> --project-uuid <project-uuid> --page-uuid <page-uuid> --allow-discard-unsaved
+easyeda project export --window <window-id> --project-uuid <project-uuid> --out ./deliverable.epro2
+```
+
+打开命令使用官方 `dmt_Project.openProject`；该 API 可能丢弃未保存数据，因此标志是明确确认，
+不是自动保存。命令核对打开后的真实工程身份；超时或失败先读回，不盲目重复。
+导出使用官方 `sys_FileManager.getProjectFile`，要求目标工程已激活，前后检查 UUID，
+拒绝覆盖文件，校验原生 ZIP 完整性并输出字节数/SHA-256。输出 `restoreVerified=false`：
+ZIP 校验和导出成功不代表重新导入验证通过。请在导出前显式保存所有文档。
+底层调用正式 typed action `project.open` / `project.export`，需要注册这两个 action 的新版 daemon 及包含 handler 的新版连接器。旧 daemon 或连接器拒绝 unknown action / UNKNOWN_ACTION 时停止并升级；禁止回退到 debug.exec_js。
+直接调用 `project.open` 同样必须传 `allowDiscardUnsaved:true`；`project.export` 不接受页面路由。
+限制：归档最大 16 MiB，解压验证上限 128 MiB，超限明确失败。
+
+MCP 使用 `easyeda_project_transfer`，`operation` 为 `open` 或 `export`，均需 `window`、
+`projectUuid`；打开另需 `allowDiscardUnsaved=true`，导出另需新 `out` 路径。不传文档路由。
+此工具需要含上述 CLI 命令的匹配构建；不要仅替换 MCP 而仍使用旧 CLI。
+
+工程身份可能先于文档树就绪。需直接进入原理图时，打开命令同时传 `--page-uuid`（MCP `pageUuid`），等待目标页面出现在树中后只打开一次，并核对工程和页面身份。省略此参数只保证工程身份，不保证页面已加载。

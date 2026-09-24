@@ -450,6 +450,7 @@ func newPcbCmd(cfg *appConfig, stdout, stderr io.Writer) *cobra.Command {
 	pcb.AddCommand(newPcbConfigCmd(cfg, &window, stdout, stderr))
 	pcb.AddCommand(newPcbNetPathCmd(cfg, &window, stdout, stderr))
 	pcb.AddCommand(newPcbRouteCmd(stdout, stderr))
+	pcb.AddCommand(newPcbLayoutCmd(stdout, stderr))
 
 	// ── drc ───────────────────────────────────────────────────────────────
 	// pcb.drc.check — the PCB counterpart to `sch drc`. Routing is automatic:

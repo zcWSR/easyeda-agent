@@ -28,6 +28,7 @@
 | 分区规划 | `pcb floorplan` / `pcb zones` | S0 spec 驱动的有序带切分(只读)+ 分区认领 |
 | 分档记录 | `pcb stage confirm-tier 1-4` / `set-assembly` | 兼容保留孔→边缘件→主芯片+RF→卫星的历史记录；不决定后续动作能否执行 |
 | 布局检查 | `pcb layout-lint` | 报告重叠/紧间距/可布性(飞线 MST+交叉)/手焊可达性(no-access)的具体事实 |
+| 二层协同求解 | `pcb layout solve/check/render` | 纯离线：从完整 board dump 与参数请求生成/独立复验/渲染布局+共同路由候选；solve 输出基线、失败尝试、候选的整板与自动聚焦局部 SVG；固定装配面，支持 TOP/BOTTOM 与最多两个过孔；可用 `--apply-project/--apply-doc` 输出绑定目标工程/文档的 layout-only playbook，执行前仍须 fresh dump 核对候选来源哈希；本命令本身不写 EDA |
 | 布局质量分 | `pcb layout-score` | 九维 0-100+逐器件归因(partition/flow-order/edge-io/protection/tidy/compact/rf/routable/clearance),blocking 一票否决;`--part` 器件聚焦视角;金标准五真板校准(`make layout-calibrate`) |
 | 打分驱动精修 | `pcb refine` | 读归因对最弱维做确定性变换,每步复核可回滚;锁定件不动，历史签字档仅作提示 |
 | 编组式移动 | `pcb components move` 类 | 无状态刚体移动(持久编组见路线 §1) |
@@ -38,11 +39,18 @@
 |---|---|---|
 | 短线启发式 | `pcb route-short` | 每网 MST、规则感知线宽(按网络角色给宽)、障碍感知 L 朝向、默认跳电源/地(该铺铜) |
 | 离线局部寻路 | `pcb route solve/check --board board.json --from request.json --out report.json` | 公共 Go 包 `pkg/pcbrouting`；TOP/BOTTOM 单层零过孔、直线/45°有界寻路。默认同时输出同名 SVG，显示整板障碍、搜索范围、路径线宽/净距和失败原因；`check` 另传 `--plan plan.json`，按独立需求重验；不连接编辑器、不是整板自动布线 |
+| 布局/多网反馈闭环 | `pcb layout solve --board board.json --from request.json --out report.json` | `pkg/pcbsolve` 在每个完整布局投影上共同求解所有需求；先有界回溯路径/排网次序，实际阻挡再驱动完整组平移/声明旋转，总预算耗尽为 incomplete。`check` 从 move 重建候选；`render --from request.json` 核对板/请求来源并显示相同机械禁放区，无 `--from` 的旧调用仍兼容 |
 | 关键网先行 | `pcb route-critical` | P7.0 一条命令:电源按层数走 planes/pour → 差分对双源识别成对布线+skew 实测 → 自动 `track-lock` |
 | 逐焊盘铜路径核查 | `pcb net-path --from REF.PAD [--through REF.PAD] --to REF.PAD [--layer 1]` | 只读按支持的原始 pad shape + track/arc/via 构图；`--layer` 在受限图求路并排除物理过孔，回报 requestedLayer/连续路径/层/线宽/过孔数；未知焊盘几何、缺失 arc 回读或 ordered proof 的重叠铜返回 unknown/error，同网名不等于连通，铺铜/PLANE 明确排除 |
 | 外部自动布线 | `pcb export-dsn` / `import-autoroute` / `pcb autoroute` | Specctra DSN 往返(带禁布区注入),Freerouting 兜底;稠密板默认交编辑器原生自动布线 |
 | 拆线 | `pcb rip-up` | 按网/按范围拆 |
 | 锁定 | `pcb track-lock` | 手布关键线锁死,防被自动布线/pour-rebuild 冲掉 |
+
+二层请求可在 `layout.groups[]` 中添加 `translationSearch: {"step":10,"maxDistance":80}`（mil）；
+这会按实际冲突动态搜索让位位置，旧 `offsets` 继续兼容。自动移动组的全部外部网络必须由
+`routing.demands` 连成完整连接图；缺失时拒绝输入。输出含 `attempts[].conflicts`、失败时的
+`partialRoutes`、合法候选的 `reservations`。它们是通道规划，layout Apply 只写器件位置；
+已有外部铜的断连、未声明变换及被篡改的预留由 `check` 拒绝。
 
 ### 4. 铺铜与平面
 
@@ -79,6 +87,7 @@
 4. **2D/3D 渲染切换 `pcb view-mode`**(#169):snapshot 前确定性选视图。
 5. **受控阻抗**:平台墙(叠层 Er/介质厚读不到);网长可读,等长/skew 报告可做。
 6. **泪滴**:无 typed API,文档源注入路径未验证。
+7. **四层联合求解**：公共层叠模型已表达有序 signal/plane 和 plane net；旧 dump 只有层数时不推断内层角色。内层平面、跨层过孔与回流共同求解留待下一阶段。
 
 ---
 
