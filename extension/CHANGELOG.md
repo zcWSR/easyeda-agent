@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.11] — 2026-09-24 (local project-source diagnostic candidate)
+
+- Add a bounded, read-only typed export of the current native `.epro2` project archive. It checks the project UUID before and after the official export and verifies artifact size and SHA-256, enabling offline inspection of page-source attributes and sheet geometry. The current test page's strict post-reload read remains under investigation; no release acceptance is claimed.
+
 ## [1.6.0-dev.10] — 2026-09-24 (local sheet-geometry investigation candidate)
 
 - Add a read-only typed export of the official `.elibz2` symbol source with identity, size, and SHA-256 checks. It can collect the installed A4 sheet symbol for offline inspection; it does not yet establish the red drawing border or title-block geometry. No schematic Apply or release acceptance is claimed.
