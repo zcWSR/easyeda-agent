@@ -3277,6 +3277,9 @@ test('pcb modify patch: locked/lock aliases normalize onto primitiveLock', () =>
 });
 
 test('pcb modify patch: unknown keys hard-error instead of silently no-opping', () => {
+	assert.throws(() => normalizePcbComponentPatch({ layer: 'BOTTOM' }), /numeric layer ID/);
+	assert.throws(() => normalizePcbComponentPatch({ layer: 1.5 }), /numeric layer ID/);
+	assert.deepEqual(normalizePcbComponentPatch({ layer: 2 }), { layer: 2 });
 	assert.throws(() => normalizePcbComponentPatch({ loked: false }), (err: any) => {
 		assert.equal(err.code, 'MISSING_PAYLOAD_FIELD');
 		assert.match(err.message, /loked/);

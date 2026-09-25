@@ -10869,6 +10869,12 @@ export function normalizePcbComponentPatch(raw: Record<string, unknown>): Record
 			unknown.push(rawKey);
 			continue;
 		}
+		if (key === 'layer' && (typeof value !== 'number' || !Number.isInteger(value) || value < 1)) {
+			throw new ActionError(
+				ErrorCodes.MISSING_PAYLOAD_FIELD,
+				'PCB component layer must be a positive numeric layer ID from pcb.layers.list (TOP=1, BOTTOM=2). String names can be silently ignored by the EDA modify API.',
+			);
+		}
 		if (key in out && out[key] !== value) {
 			throw new ActionError(
 				ErrorCodes.MISSING_PAYLOAD_FIELD,
@@ -11019,7 +11025,7 @@ export const pcbComponentModify: Handler = async (payload) => {
 
 	const result: Record<string, unknown> = {
 		component: readback ?? serializePcbComponent(component),
-		verified: verification !== null && verification.notApplied.length === 0,
+		verified: verification !== null && verification.notApplied.length === 0 && verification.unverified.length === 0,
 	};
 	if (verification) {
 		result.applied = verification.applied;
