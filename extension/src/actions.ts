@@ -6783,8 +6783,11 @@ export async function resolveNativeLocalDevice(
 	const manufacturer = identityText(snapshot.manufacturer);
 	const supplier = identityText(snapshot.supplier);
 	if (snapshot.addIntoPcb !== true || (bom !== false && bom !== true)) return failure('placed BOM/PCB flags are missing or unsupported');
-	if (bom === false && (supplierId || mpn || manufacturer || supplier)) return failure('non-BOM copper asset has procurement identity fields');
-	if (bom === true && (!/^C\d+$/.test(supplierId) || !mpn || !manufacturer || !supplier)) return failure('local BOM asset lacks an exact C-number, MPN, manufacturer, or supplier');
+	const hasProcurementIdentity = Boolean(supplierId || mpn || manufacturer || supplier);
+	// A populated, non-BOM part can be an intentional DNP footprint. The BOM
+	// flag is assembly policy, not proof that the asset is unprocured copper.
+	// Require the same complete procurement tuple as a populated BOM part.
+	if ((bom === true || hasProcurementIdentity) && (!/^C\d+$/.test(supplierId) || !mpn || !manufacturer || !supplier)) return failure('local procured asset lacks an exact C-number, MPN, manufacturer, or supplier');
 	if (!name || !instanceIdentityUuid(instanceDevice.uuid) || !instanceIdentityUuid(instanceSymbol.uuid) || !instanceIdentityUuid(instanceFootprint.uuid)) return failure('placed device/symbol/footprint instance identity or exact name is missing');
 	const libraryUuid = identityText(instanceDevice.libraryUuid);
 	if (!libraryUuid || identityText(instanceSymbol.libraryUuid) !== libraryUuid || instanceFootprint.libraryUuid !== libraryUuid) return failure('placed asset libraries are missing or differ');
@@ -6821,7 +6824,7 @@ export async function resolveNativeLocalDevice(
 		}
 	}
 	return {
-		device: { uuid: nativeDevice.source.uuid, libraryUuid, via: bom ? 'native-local-bom-source' : 'native-local-copper-source' },
+		device: { uuid: nativeDevice.source.uuid, libraryUuid, via: bom ? 'native-local-bom-source' : hasProcurementIdentity ? 'native-local-dnp-source' : 'native-local-copper-source' },
 		...(/^C\d+$/.test(supplierId) ? { lcsc: supplierId } : {}),
 		deviceFootprint: instanceFootprint.name,
 		footprintSource: nativeFootprint.source,

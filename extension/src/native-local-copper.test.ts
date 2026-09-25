@@ -96,6 +96,15 @@ test('native local BOM resolver proves exact procurement fields without online L
 	assert.equal(result.lcsc, 'C55113741');
 });
 
+test('native local DNP resolver keeps non-BOM assembly policy and proves procurement identity', async () => {
+	const inventory = projectNativeAssetSourceInventory(project, pageUuid);
+	const placed = { ...bomSnapshot, addIntoBom: false };
+	const official = { ...bomProperty, addIntoBom: false };
+	const result = await resolveNativeLocalDevice(placed, async () => ({ entries: inventory }), async () => ({ ...detail, property: official }));
+	assert.deepEqual(result.device, { uuid: asset.device, libraryUuid, via: 'native-local-dnp-source' });
+	assert.equal(result.lcsc, 'C55113741');
+});
+
 test('native local BOM resolver refuses missing or conflicting procurement and binding evidence', async (t) => {
 	const inventory = projectNativeAssetSourceInventory(project, pageUuid);
 	const cases: Array<[string, Record<string, unknown>, typeof inventory, Record<string, unknown>]> = [
