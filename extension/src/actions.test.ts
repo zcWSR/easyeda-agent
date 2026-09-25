@@ -34,6 +34,49 @@ import {
 	summarizeActivePageConnectivity,
 } from './actions';
 
+test('schematic text create guards the page and freshly verifies only the new annotation', async (t) => {
+	const globals = globalThis as any;
+	const previousEda = globals.eda;
+	const previousDocumentTypes = globals.EDMT_EditorDocumentType;
+	t.after(() => {
+		if (previousEda === undefined) delete globals.eda; else globals.eda = previousEda;
+		if (previousDocumentTypes === undefined) delete globals.EDMT_EditorDocumentType; else globals.EDMT_EditorDocumentType = previousDocumentTypes;
+	});
+	globals.EDMT_EditorDocumentType = { HOME: -1, BLANK: 0, SCHEMATIC_PAGE: 1, PCB: 3, SYMBOL_COMPONENT: 2, FOOTPRINT: 4, PANEL: 5 };
+	let current = 'page-1';
+	let created = 0;
+	let readable = true;
+	const text = {
+		getState_PrimitiveId: () => 'new-text-1', getState_Content: () => 'ABC123',
+		getState_X: () => 120, getState_Y: () => 80, getState_Rotation: () => 0,
+	};
+	globals.eda = {
+		dmt_Project: { getCurrentProjectInfo: async () => ({ uuid: 'project-1' }) },
+		dmt_SelectControl: { getCurrentDocumentInfo: async () => ({ uuid: current, documentType: EDMT_EditorDocumentType.SCHEMATIC_PAGE }) },
+		sch_PrimitiveText: {
+			create: async () => { created++; return text; },
+			get: async () => readable ? text : undefined,
+		},
+	};
+	const input = { expectedDocumentUuid: 'page-1', content: 'ABC123', x: 120, y: 80 };
+	for (const bad of [{ ...input, expectedDocumentUuid: 'wrong' }, { ...input, content: '  ' }, { ...input, x: Number.NaN }, { ...input, rotation: 45 }]) {
+		await assert.rejects(() => runAction('schematic.text.create', bad));
+	}
+	assert.equal(created, 0);
+	const good: any = await runAction('schematic.text.create', input);
+	assert.equal(good.result.primitiveId, 'new-text-1');
+	assert.equal(good.result.verified, true);
+	assert.equal(created, 1);
+	readable = false;
+	const partial: any = await runAction('schematic.text.create', input);
+	assert.equal(partial.result.primitiveId, 'new-text-1');
+	assert.equal(partial.result.partial, true);
+	assert.equal(partial.result.verified, false);
+	current = 'page-2';
+	await assert.rejects(() => runAction('schematic.text.create', input));
+	assert.equal(created, 2);
+});
+
 test('PCB pad serialization preserves source shape/rotation and computes shape-aware bbox extents', () => {
 	const pad: any = {
 		getState_PrimitiveId: () => 'p1',

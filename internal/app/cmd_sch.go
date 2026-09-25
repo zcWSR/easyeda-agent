@@ -1078,6 +1078,35 @@ Page-lazy-load law: only the active page's texts are returned — pass --page (o
 		sch.AddCommand(c)
 	}
 
+	// ── text-create ──────────────────────────────────────────────────────────
+	// Independent schematic annotation; the exact --doc UUID is required.
+	{
+		var content string
+		var x, y, rotation float64
+		c := &cobra.Command{
+			Use:     "text-create",
+			Short:   "Create one independent text annotation on the exact schematic page",
+			Args:    cobra.NoArgs,
+			Example: `  easyeda sch text-create --doc <page-uuid> --content 'Part XYZ' --x 120 --y 80`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if cfg.doc == "" {
+					return fmt.Errorf("text-create requires --doc with the exact schematic page UUID")
+				}
+				if strings.TrimSpace(content) == "" || !cmd.Flags().Changed("x") || !cmd.Flags().Changed("y") {
+					return fmt.Errorf("text-create requires nonblank --content, --x and --y")
+				}
+				return dispatch(cfg, "schematic.text.create", window, map[string]any{
+					"expectedDocumentUuid": cfg.doc, "content": content, "x": x, "y": y, "rotation": rotation,
+				}, stdout, stderr)
+			},
+		}
+		c.Flags().StringVar(&content, "content", "", "visible annotation text")
+		c.Flags().Float64Var(&x, "x", 0, "schematic X coordinate (raw)")
+		c.Flags().Float64Var(&y, "y", 0, "schematic Y coordinate (raw)")
+		c.Flags().Float64Var(&rotation, "rotation", 0, "rotation: 0, 90, 180 or 270 degrees")
+		sch.AddCommand(c)
+	}
+
 	// ── wire ──────────────────────────────────────────────────────────────
 	// schematic.wire.create
 	//

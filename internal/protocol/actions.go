@@ -381,6 +381,17 @@ func AllActions() []ActionSpec {
 			Outputs:     []string{"count", "scope (activePage)", "texts[].primitiveId", "texts[].content", "texts[].x", "texts[].y", "texts[].rotation", "texts[].fontSize", "texts[].color"},
 		},
 		{
+			Name:        "schematic.text.create",
+			Domain:      DomainSchematic,
+			Phase:       1,
+			Mutates:     true,
+			NeedsWindow: true,
+			Description: "Create one independent visible schematic text annotation on the exact active page. Verifies fresh primitive readback and returns its ID even if post-create verification is incomplete; do not retry an unknown write without re-reading the page.",
+			Inputs:      []string{"expectedDocumentUuid", "content", "x", "y", "rotation optional"},
+			Outputs:     []string{"primitiveId", "expectedDocumentUuid", "content", "x", "y", "rotation", "verified", "partial"},
+			VerifyWith:  []string{"schematic.text.list"},
+		},
+		{
 			Name:        "schematic.library.search",
 			Domain:      DomainSchematic,
 			Phase:       1,

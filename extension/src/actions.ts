@@ -6498,6 +6498,41 @@ const schematicTextList: Handler = async () => {
 	return { result: { count: items.length, scope: 'activePage', texts: items } };
 };
 
+/** Create one independent annotation on the expected active schematic page.
+ * The returned id is the only safe recovery target if later verification fails. */
+const schematicTextCreate: Handler = async (payload) => {
+	const expectedDocumentUuid = requireString(payload, 'expectedDocumentUuid');
+	const content = requireString(payload, 'content');
+	if (!content.trim()) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Text content must not be blank.');
+	const x = requireNumber(payload, 'x');
+	const y = requireNumber(payload, 'y');
+	if (!Number.isFinite(x) || !Number.isFinite(y)) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Text coordinates must be finite.');
+	const rotation = payload.rotation === undefined ? 0 : requireNumber(payload, 'rotation');
+	if (![0, 90, 180, 270].includes(rotation)) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Text rotation must be 0, 90, 180, or 270.');
+	const before = await readResponseContext();
+	if (before.documentType !== 'schematic' || before.documentUuid !== expectedDocumentUuid) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'The expected schematic page is not active. Re-read document.current before creating text.');
+	}
+	let created;
+	try { created = await eda.sch_PrimitiveText.create(x, y, content, rotation); }
+	catch (err) { throw edaError(err, 'Text creation outcome is unknown; re-read text-list before retrying.'); }
+	const primitiveId = created?.getState_PrimitiveId();
+	if (!primitiveId) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Text creation returned no id; re-read text-list before retrying.');
+	let fresh;
+	let after;
+	try {
+		fresh = await eda.sch_PrimitiveText.get(primitiveId);
+		after = await readResponseContext();
+	} catch { /* Keep the exact new id for recovery below. */ }
+	const verified = after?.documentUuid === expectedDocumentUuid && after.documentType === 'schematic' &&
+		fresh?.getState_PrimitiveId() === primitiveId && fresh.getState_Content() === content &&
+		fresh.getState_X() === x && fresh.getState_Y() === y && fresh.getState_Rotation() === rotation;
+	return {
+		result: { primitiveId, expectedDocumentUuid, content, x, y, rotation, verified, partial: !verified },
+		...(verified ? {} : { warnings: [`Text ${primitiveId} was created but fresh readback did not prove its final state. Re-read the expected page; delete only this id if recovery is needed.`] }),
+	};
+};
+
 // ─── Replace: swap a placed component's DEVICE(器件标准化「使用推荐器件」)───
 
 /** Pin identity snapshot used for the before/after diff of a device replace. */
@@ -14057,6 +14092,7 @@ const HANDLERS: Record<string, Handler> = {
 	'schematic.component.replace': schematicComponentReplace,
 	'schematic.component.resolve_lcsc': schematicComponentResolveLcsc,
 	'schematic.text.list': schematicTextList,
+	'schematic.text.create': schematicTextCreate,
 	'pcb.documents.list': pcbDocumentsList,
 	'pcb.components.list': pcbComponentsList,
 	'pcb.layers.list': pcbLayersList,

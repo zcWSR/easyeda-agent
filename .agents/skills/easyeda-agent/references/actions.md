@@ -46,6 +46,14 @@ SDK 的纯坐标 `modify` 中被整体清空。当前 typed `schematic.group.mov
 已读取的属性，并在移动导线/端口前重新读取位置和属性。若回执含 `partial`、
 `notApplied` 或 `verified:false`，先按新鲜回读恢复现场，不继续另一段位移或重放旧请求。
 
+独立可见注释使用 `sch text-create --doc <准确页UUID> --content <文字> --x <rawX> --y <rawY>`，
+可选 `--rotation 0|90|180|270`。此动作只建文本，不改器件属性或网络；返回新图元 ID，
+并以官方 `sch_PrimitiveText.get` 新鲜回读位置、内容、旋转和活动页。`verified:false` 时
+不能重放创建；先对目标页运行 `sch text-list --page <UUID> --stay`。只有确认需要撤销且
+回读的 ID、内容、位置都属于本次新增文字，才用 `sch prim-delete --doc <UUID> --ids <新ID>`
+精确删除该文本，再保存重开复核。超时或无 ID 时结果未知，先按内容与坐标核清所有文本，
+不能批量删除同内容的旧文字。
+
 compose 生成的全工程位号唯一性步骤使用 `schematic.components.list` 的
 `allPages:true,tagPages:true` 最小清单，只检查位号冲突、既有 primitiveId 和待建位号不存在；
 它不请求慢速 device identity、bbox 或 pins。紧随其后的目标页守卫仍读取完整
