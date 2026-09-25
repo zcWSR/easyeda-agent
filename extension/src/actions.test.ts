@@ -15,6 +15,7 @@ import { sweepDeadlines } from './deadlines';
 
 import {
 	connectPinEndpoint,
+	clickImportConfirm,
 	constraintList,
 	detectPolarityConventionOutliers,
 	getComponentOrThrow,
@@ -4247,4 +4248,20 @@ test('import confirm probe never clicks a non-apply button and ignores unrelated
 	assert.deepEqual(noButton, { outcome: 'no-button', clicked: [] });
 	const unrelated = await runImportConfirmStep('Design Rule Check', ['Apply Changes']);
 	assert.deepEqual(unrelated, { outcome: 'none', clicked: [] });
+});
+
+test('import confirm clicks Apply Changes only once while the dialog closes asynchronously', async () => {
+	let clicks = 0;
+	let firstClickAt = 0;
+	const title = 'Confirm Importing changes information';
+	const button = { innerText: 'Apply Changes', offsetParent: {}, click: () => { clicks++; firstClickAt ||= Date.now(); } };
+	const modal = { innerText: title, offsetParent: {}, querySelectorAll: () => [button] };
+	(globalThis as any).document = {
+		querySelectorAll: () => firstClickAt && Date.now() - firstClickAt >= 350 ? [] : [modal],
+	};
+	try {
+		assert.equal(await clickImportConfirm(1_000), 'applied');
+		assert.equal(clicks, 1, 'polling for close must not click Apply Changes again');
+	}
+	finally { delete (globalThis as any).document; }
 });

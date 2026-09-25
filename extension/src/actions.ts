@@ -10044,6 +10044,7 @@ export const IMPORT_CONFIRM_APPLY_LABELS: ReadonlyArray<string> = [
 export function importConfirmStepSource(
 	titles: ReadonlyArray<string> = IMPORT_CONFIRM_DIALOG_TITLES,
 	applyLabels: ReadonlyArray<string> = IMPORT_CONFIRM_APPLY_LABELS,
+	clickApply = true,
 ): string {
 	const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 	return `
@@ -10053,6 +10054,7 @@ export function importConfirmStepSource(
 		const modals = Array.from(document.querySelectorAll('.arco-modal, [class*=modal]'))
 			.filter(e => e.offsetParent !== null && titles.some(t => norm(e.innerText).includes(t)));
 		if (!modals.length) return 'none';
+		if (!${clickApply}) return 'present';
 		const btn = modals.flatMap(m => Array.from(m.querySelectorAll('button')))
 			.find(b => applyLabels.includes(norm(b.innerText)) && b.offsetParent !== null);
 		if (!btn) return 'no-button';
@@ -10070,7 +10072,7 @@ export function importConfirmStepSource(
 // "reading 'querySelectorAll' of undefined"), while a `new AsyncFunction`'s
 // scope chain ends at the real global — the exact trick debug.exec_js uses,
 // which is why exec_js probes could always see the dialog.
-async function clickImportConfirm(timeoutMs: number): Promise<string> {
+export async function clickImportConfirm(timeoutMs: number): Promise<string> {
 	const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as {
 		new (body: string): () => Promise<unknown>;
 	};
@@ -10078,6 +10080,7 @@ async function clickImportConfirm(timeoutMs: number): Promise<string> {
 	// carry the 确认导入信息 text without the footer buttons (live-verified
 	// 'no-button' miss), so the button search must span ALL matching nodes.
 	const step = new AsyncFunction(importConfirmStepSource());
+	const presence = new AsyncFunction(importConfirmStepSource(IMPORT_CONFIRM_DIALOG_TITLES, IMPORT_CONFIRM_APPLY_LABELS, false));
 	const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
@@ -10085,10 +10088,11 @@ async function clickImportConfirm(timeoutMs: number): Promise<string> {
 		if (r === 'clicked') {
 			// Wait for the modal to actually close (the apply is async).
 			const closeBy = Date.now() + 10_000;
-			while (Date.now() < closeBy && (await step()) !== 'none') {
+			while (Date.now() < closeBy) {
+				if ((await presence()) === 'none') return 'applied';
 				await pause(250);
 			}
-			return 'applied';
+			return 'still-open';
 		}
 		if (r === 'no-button') return 'no-button';
 		await pause(250);

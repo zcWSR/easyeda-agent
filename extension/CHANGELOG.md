@@ -2,10 +2,15 @@
 
 ## [Unreleased]
 
-## [1.6.0-dev.3] — 2026-09-25 (local fork candidate; live acceptance pending)
+## [1.6.0-dev.4] — 2026-09-25 (local fork candidate; live acceptance pending)
+
+- Click the schematic-to-PCB import confirmation once, then only observe whether the dialog closes. A delayed close previously re-ran the clicking probe, which could submit the same import more than once; report an unclosed dialog instead of calling it applied.
+- Clear the daemon's PCB `staleRisk` after a successful typed `document.close`, matching the current save-close-reopen command. Preserve the risk after a failed close. These are generic Connector/daemon corrections; they do not alter component identity or PCB geometry directly.
+
+## [1.6.0-dev.3] — 2026-09-25 (local fork; P4 text creation live-verified)
 
 - Add a page-guarded typed action and CLI command to create one independent schematic text annotation. Return the new primitive ID and verify content, coordinates, rotation, and active page from fresh official reads; an uncertain write requires inventory before retry or exact-ID cleanup.
-- Keep the existing v1.6.0-dev.2 connector identity and behavior for other actions. This version distinguishes a changed bundle from the installed dev.2; installation and save/reopen acceptance are separate checks.
+- Keep the existing v1.6.0-dev.2 connector behavior for other actions. The new text action was accepted on the native P4 page with save/reopen, exact object readback, unchanged connectivity and official image review.
 
 ## [1.6.0-dev.2] — 2026-09-24 (local fork candidate; live acceptance pending)
 

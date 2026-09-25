@@ -64,6 +64,28 @@ func TestStaleGuard_ReloadClears(t *testing.T) {
 	}
 }
 
+func TestStaleGuard_TypedDocumentCloseClears(t *testing.T) {
+	g := newStaleGuard()
+	runStale(g, "pcb.component.attrs_backfill", "w1", true, nil)
+	runStaleResult(g, "document.close", "w1", true,
+		map[string]any{"uuid": "pcb-1", "tabId": "tab-1"},
+		map[string]any{"closed": true, "uuid": "pcb-1", "tabId": "tab-1"})
+	if resp := runStale(g, "pcb.components.list", "w1", true, nil); resp.StaleRisk != "" {
+		t.Errorf("read after typed document close: want no staleRisk, got %q", resp.StaleRisk)
+	}
+}
+
+func TestStaleGuard_FailedTypedDocumentClosePreservesRisk(t *testing.T) {
+	g := newStaleGuard()
+	runStale(g, "pcb.component.attrs_backfill", "w1", true, nil)
+	runStaleResult(g, "document.close", "w1", false,
+		map[string]any{"uuid": "pcb-1", "tabId": "tab-1"},
+		map[string]any{"closed": false})
+	if resp := runStale(g, "pcb.components.list", "w1", true, nil); resp.StaleRisk == "" {
+		t.Error("failed typed document close must preserve staleRisk")
+	}
+}
+
 func TestStaleGuard_FailedCloseDoesNotClear(t *testing.T) {
 	g := newStaleGuard()
 	runStale(g, "pcb.via.create", "w1", true, nil)
