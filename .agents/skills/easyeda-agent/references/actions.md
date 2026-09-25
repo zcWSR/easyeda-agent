@@ -26,9 +26,15 @@
 ### 原理图属性和本地器件身份
 
 `schematic.attribute.visibility.modify` 只改变页图框、器件或网络端口的 `Name` / `Description`
-显示标志。`schematic.attribute.geometry.modify` 只移动已有导线的可见 `Name` 文字，
-不改变导线、网络或文字内容。两者都要求新鲜读取的父对象与属性 ID、旧状态和目标值；
+显示标志。`schematic.attribute.geometry.modify` 可移动已有导线的可见 `Name` 文字，
+或器件自身的 `Designator` 位号属性；不改变父器件、导线、网络或文字内容。
+两者都要求新鲜读取的父对象与属性 ID、旧状态和目标值；
 写后回读若未证实，结果视为未知，不能重放旧请求。保存重开、属性回读和官方导图仍须独立验收。
+
+Pro 4.1.60 的一次现场回读中，`sch_PrimitiveAttribute.getAll(parentId)` 对 R2 位号的
+`getState_ValueVisible()` 返回了字符串 `R2`，而按准确属性 ID 调用 `get(attributeId)` 返回布尔值
+`true`。写入守卫应以后一种精确回读建立；遇到类型异常先拒绝并重新读取，不把字符串当可见性
+布尔值，也不放宽旧状态守卫。该差异目前只在这次宿主/属性上得到证实。
 
 排查属性动作时保留原始请求和响应、`easyeda health` 的三端版本、窗口/文档 ID，
 以及独立回读的 wire `primitiveId/net/line/style` 和属性

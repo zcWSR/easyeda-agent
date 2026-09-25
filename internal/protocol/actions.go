@@ -346,7 +346,7 @@ func AllActions() []ActionSpec {
 			Description: "Move or rotate a guarded native wire Name or part Designator attribute. For wire Name require the parent wire net/full line; for part Designator require the exact parent part and designator. Both require attribute id/key/value/old pose/visibility and verify unchanged parent state after write.",
 			Inputs:      []string{"parentPrimitiveId", "attributePrimitiveId", "expectedParentType", "expectedKey", "expectedNet/expectedLine for wire", "expectedValue", "expectedX", "expectedY", "expectedRotation", "expectedKeyVisible", "expectedValueVisible", "x optional", "y optional", "rotation optional"},
 			Outputs:     []string{"parentPrimitiveId", "attributePrimitiveId", "key", "value", "net", "line", "x", "y", "rotation", "verified"},
-			VerifyWith:  []string{"schematic.export.image", "schematic.primitive.get"},
+			VerifyWith:  []string{"schematic.components.list", "schematic.export.image"},
 		},
 		{
 			Name:        "schematic.pin.set_no_connect",
