@@ -1550,6 +1550,32 @@ test('schematic attribute geometry modify moves only a guarded wire Name', async
 	});
 });
 
+test('schematic attribute geometry modify moves a guarded part Designator without changing its parent', async (t) => {
+	const globals = globalThis as any;
+	const previousEda = globals.eda;
+	t.after(() => { if (previousEda === undefined) delete globals.eda; else globals.eda = previousEda; });
+	const state = { x: 245, y: 610, rotation: 0, value: 'R2', parentId: 'part-1', key: 'Designator', keyVisible: false, valueVisible: true };
+	let writes = 0;
+	const part = new Proxy({ getState_PrimitiveId: () => 'part-1', getState_ComponentType: () => 'part', getState_Designator: () => 'R2', getState_Name: () => 'Resistor', getState_X: () => 240, getState_Y: () => 600 }, { get: (target, key) => key === 'then' ? undefined : key in target ? (target as any)[key] : () => null });
+	const attr = {
+		getState_PrimitiveId: () => 'attr-1', getState_ParentPrimitiveId: () => state.parentId,
+		getState_Key: () => state.key, getState_Value: () => state.value,
+		getState_X: () => state.x, getState_Y: () => state.y, getState_Rotation: () => state.rotation,
+		getState_KeyVisible: () => state.keyVisible, getState_ValueVisible: () => state.valueVisible,
+	};
+	globals.eda = {
+		sch_PrimitiveComponent: { get: async () => part },
+		sch_PrimitiveAttribute: { get: async () => attr, modify: async (_id: string, patch: Record<string, number>) => { writes++; Object.assign(state, patch); return attr; } },
+		dmt_Project: { getCurrentProjectInfo: async () => undefined }, dmt_SelectControl: { getCurrentDocumentInfo: async () => undefined },
+	};
+	const base = { parentPrimitiveId: 'part-1', attributePrimitiveId: 'attr-1', expectedParentType: 'part', expectedKey: 'Designator', expectedValue: 'R2', expectedX: 245, expectedY: 610, expectedRotation: 0, expectedKeyVisible: false, expectedValueVisible: true };
+	await assert.rejects(() => runAction('schematic.attribute.geometry.modify', { ...base, expectedValue: 'R3', x: 250 }));
+	assert.equal(writes, 0);
+	const result: any = await runAction('schematic.attribute.geometry.modify', { ...base, x: 250, y: 620 });
+	assert.equal(result.result.verified, true);
+	assert.deepEqual([state.x, state.y, state.value, writes], [250, 620, 'R2', 1]);
+});
+
 test('connect_pin net_label creates only its stub and native attribute without rotation calibration', async (t) => {
 	const globals = globalThis as any;
 	const previousEda = globals.eda;

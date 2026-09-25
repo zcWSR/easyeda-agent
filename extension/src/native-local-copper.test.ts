@@ -99,7 +99,9 @@ test('native local BOM resolver proves exact procurement fields without online L
 test('native local DNP resolver keeps non-BOM assembly policy and proves procurement identity', async () => {
 	const inventory = projectNativeAssetSourceInventory(project, pageUuid);
 	const placed = { ...bomSnapshot, addIntoBom: false };
-	const official = { ...bomProperty, addIntoBom: false };
+	// The catalog Device is normally BOM-included; DNP is an instance-level
+	// assembly override and must not force a second catalog Device identity.
+	const official = { ...bomProperty, addIntoBom: true };
 	const result = await resolveNativeLocalDevice(placed, async () => ({ entries: inventory }), async () => ({ ...detail, property: official }));
 	assert.deepEqual(result.device, { uuid: asset.device, libraryUuid, via: 'native-local-dnp-source' });
 	assert.equal(result.lcsc, 'C55113741');
@@ -113,7 +115,6 @@ test('native local BOM resolver refuses missing or conflicting procurement and b
 		['placed C-number differs', { ...bomSnapshot, supplierId: 'C999' }, inventory, { ...detail, property: bomProperty }],
 		['placed manufacturer differs', { ...bomSnapshot, manufacturer: 'OTHER' }, inventory, { ...detail, property: bomProperty }],
 		['placed supplier differs', { ...bomSnapshot, supplier: 'OTHER' }, inventory, { ...detail, property: bomProperty }],
-		['placed BOM flag differs', { ...bomSnapshot, addIntoBom: false }, inventory, { ...detail, property: bomProperty }],
 		['official BOM flag differs', bomSnapshot, inventory, { ...detail, property: { ...bomProperty, addIntoBom: false } }],
 		['official MPN differs', bomSnapshot, inventory, { ...detail, property: { ...bomProperty, manufacturerId: 'OTHER' } }],
 		['official C-number differs', bomSnapshot, inventory, { ...detail, property: { ...bomProperty, supplierId: 'C999' } }],

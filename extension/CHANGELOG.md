@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.6] — 2026-09-26 (local fork candidate)
+
+- Accept an exact procured DNP instance when its source catalog Device is BOM-included. The placed non-BOM flag remains the assembly policy; native source, library association and procurement fields still require exact proof. This corrects the dev.5 resolver's live-readback rejection.
+
+## [1.6.0-dev.5] — 2026-09-26 (local fork candidate)
+
+- Reject PCB component layer strings that the host silently ignores; an unverified patch is no longer reported as verified.
+- Resolve procured DNP schematic parts from exact native Device/Symbol/Footprint provenance while preserving non-BOM assembly policy.
+- Move a part's native Designator attribute with exact parent, text, prior-pose and visibility guards plus fresh readback; no circuit geometry is moved.
+
 ## [1.6.0-dev.4] — 2026-09-25 (local fork candidate; live acceptance pending)
 
 - Click the schematic-to-PCB import confirmation once, then only observe whether the dialog closes. A delayed close previously re-ran the clicking probe, which could submit the same import more than once; report an unclosed dialog instead of calling it applied.

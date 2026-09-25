@@ -2875,6 +2875,42 @@ const schematicAttributeVisibilityModify: Handler = async (payload) => {
 // Move only the native Name attribute of an existing wire. The label remains
 // owned by the same wire; no wire path, network, or attribute text is patched.
 const schematicAttributeGeometryModify: Handler = async (payload) => {
+	if (payload.expectedParentType === 'part' && payload.expectedKey === 'Designator') {
+		const parentId = requireString(payload, 'parentPrimitiveId');
+		const attributeId = requireString(payload, 'attributePrimitiveId');
+		const expectedValue = requireString(payload, 'expectedValue');
+		const prior = ['expectedX', 'expectedY', 'expectedRotation'].map(key => {
+			const v = payload[key];
+			if (v === null || (typeof v === 'number' && Number.isFinite(v))) return v;
+			throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, `${key} must be a finite number or explicit null.`);
+		});
+		const patch: { x?: number; y?: number; rotation?: number } = {};
+		for (const key of ['x', 'y', 'rotation'] as const) {
+			const v = payload[key];
+			if (v === undefined) continue;
+			if (typeof v !== 'number' || !Number.isFinite(v)) throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, `${key} must be finite.`);
+			patch[key] = v;
+		}
+		if (!Object.keys(patch).length) throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'Provide x, y, and/or rotation.');
+		const target = [patch.x ?? prior[0], patch.y ?? prior[1], patch.rotation ?? prior[2]];
+		const [part, attr] = await Promise.all([eda.sch_PrimitiveComponent.get(parentId), eda.sch_PrimitiveAttribute.get(attributeId)]);
+		if (!part || part.getState_PrimitiveId() !== parentId || part.getState_ComponentType() !== 'part' || part.getState_Designator() !== expectedValue ||
+			!attr || attr.getState_PrimitiveId() !== attributeId || attr.getState_ParentPrimitiveId() !== parentId || attr.getState_Key() !== 'Designator' || attr.getState_Value() !== expectedValue ||
+			attr.getState_X() !== prior[0] || attr.getState_Y() !== prior[1] || attr.getState_Rotation() !== prior[2] ||
+			attr.getState_KeyVisible() !== payload.expectedKeyVisible || attr.getState_ValueVisible() !== payload.expectedValueVisible) {
+			throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Part Designator identity, text, visibility, or pose changed since readback.');
+		}
+		const before = serializeComponent(part);
+		const changed = await eda.sch_PrimitiveAttribute.modify(attributeId, { ...patch });
+		if (!changed) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'EasyEDA did not modify the part Designator geometry.');
+		const [actualPart, actual] = await Promise.all([eda.sch_PrimitiveComponent.get(parentId), eda.sch_PrimitiveAttribute.get(attributeId)]);
+		if (!actualPart || exactJSON(serializeComponent(actualPart)) !== exactJSON(before) || !actual || actual.getState_PrimitiveId() !== attributeId || actual.getState_ParentPrimitiveId() !== parentId || actual.getState_Key() !== 'Designator' || actual.getState_Value() !== expectedValue ||
+			actual.getState_KeyVisible() !== payload.expectedKeyVisible || actual.getState_ValueVisible() !== payload.expectedValueVisible ||
+			exactJSON([actual.getState_X(), actual.getState_Y(), actual.getState_Rotation()]) !== exactJSON(target)) {
+			throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Part Designator write was not fully verified; re-read before retrying.');
+		}
+		return { result: { parentPrimitiveId: parentId, attributePrimitiveId: attributeId, key: 'Designator', value: expectedValue, x: target[0], y: target[1], rotation: target[2], verified: true } };
+	}
 	const wireId = requireString(payload, 'parentPrimitiveId');
 	const attributeId = requireString(payload, 'attributePrimitiveId');
 	const expectedParentType = requireString(payload, 'expectedParentType');
@@ -6807,7 +6843,10 @@ export async function resolveNativeLocalDevice(
 	const associatedFootprint = readDeviceFootprint({ association });
 	if (detail.uuid !== nativeDevice.source.uuid || (identityText(detail.libraryUuid) && detail.libraryUuid !== libraryUuid)
 		|| detail.name !== name || (property.name && property.name !== name)
-		|| property.addIntoBom !== bom || property.addIntoPcb !== true
+		|| (bom === true && property.addIntoBom !== true)
+		|| (bom === false && !hasProcurementIdentity && property.addIntoBom !== false)
+		|| (bom === false && hasProcurementIdentity && typeof property.addIntoBom !== 'boolean')
+		|| property.addIntoPcb !== true
 		|| associatedSymbol.uuid !== nativeSymbol.source.uuid || associatedFootprint.uuid !== nativeFootprint.source.uuid
 		|| (identityText(associatedSymbol.libraryUuid) && associatedSymbol.libraryUuid !== libraryUuid)
 		|| (associatedFootprint.libraryUuid && associatedFootprint.libraryUuid !== libraryUuid)) {
