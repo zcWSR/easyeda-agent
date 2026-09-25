@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.3] — 2026-09-25 (local fork candidate; live acceptance pending)
+
+- Add a page-guarded typed action and CLI command to create one independent schematic text annotation. Return the new primitive ID and verify content, coordinates, rotation, and active page from fresh official reads; an uncertain write requires inventory before retry or exact-ID cleanup.
+- Keep the existing v1.6.0-dev.2 connector identity and behavior for other actions. This version distinguishes a changed bundle from the installed dev.2; installation and save/reopen acceptance are separate checks.
+
 ## [1.6.0-dev.2] — 2026-09-24 (local fork candidate; live acceptance pending)
 
 - Add guarded typed schematic actions for Name/Description visibility and existing wire Name geometry. Exact parent, attribute, network, path, prior pose and visibility must match before mutation; protected fields are re-read afterward. Geometry verification freezes the requested pose before handing a separate patch object to the SDK, avoiding a false failure when the SDK consumes its input object.
