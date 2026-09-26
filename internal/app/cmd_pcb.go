@@ -4436,6 +4436,77 @@ document reload shows the OLD orientation (stale render) — judge success by 'p
 		pcb.AddCommand(c)
 	}
 
+	// ── silk-art-list / silk-art-delete (自由丝印的受控枚举与删除) ──────────────
+	// pcb.silk.artwork_list — find the exact ids of free silk artwork. This closes
+	// the gap reported after `silk-zone-outline` had created POWER/LOGIC outlines
+	// that no typed path could enumerate or remove: the outline is one
+	// pcb_PrimitiveImage per zone (not a track, not a fill), and the label is a
+	// separate string. Neither `pcb fill list` nor `pcb silk-list` shows the image.
+	{
+		var layer int
+		c := &cobra.Command{
+			Use:   "silk-art-list",
+			Short: "List FREE silk artwork (image/fill/line/arc/polyline/string) with ids",
+			Long: `List every free silkscreen artwork primitive on the active PCB with its exact
+primitiveId, kind, silk layer and RENDERED bbox. This is the id source for
+'pcb silk-art-delete' and the way to tell overlapping generations of
+'silk-zone-outline' / 'silk-import-svg' artwork apart before deleting one.
+
+silk-zone-outline draws each zone as ONE filled image primitive (the label is a
+separate string) — that is why 'pcb fill list --layer 3' shows nothing for it.
+Component designator/value ATTRIBUTES are excluded here on purpose: they belong
+to their parent part and are not free artwork.
+
+Read-only; pair with 'pcb silk-art-delete' and 'pcb check'.`,
+			Args: cobra.NoArgs,
+			Example: `  easyeda pcb silk-art-list
+  easyeda pcb silk-art-list --layer 4`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				payload := map[string]any{}
+				if cmd.Flags().Changed("layer") {
+					payload["layer"] = layer
+				}
+				return dispatch(cfg, "pcb.silk.artwork_list", window, payload, stdout, stderr)
+			},
+		}
+		c.Flags().IntVar(&layer, "layer", 3, "silk layer filter: 3=TOP_SILKSCREEN, 4=BOTTOM_SILKSCREEN")
+		pcb.AddCommand(c)
+	}
+	// pcb.silk.artwork_delete — remove ONLY named free silk artwork ids.
+	{
+		var ids string
+		c := &cobra.Command{
+			Use:   "silk-art-delete",
+			Short: "Delete ONLY named free silk artwork (scoped undo for silk-zone-outline / silk-import-svg)",
+			Long: `Delete the exact FREE silkscreen artwork primitive ids given in --ids (CSV,
+from 'pcb silk-art-list'). This is the scoped counterpart of 'pcb clear --only
+silk', which erases EVERY unlocked silk primitive on the board.
+
+All-or-nothing preflight: every id must still exist as UNLOCKED free silk
+artwork on layer 3/4, otherwise nothing is deleted. Component designator/value
+attributes and non-silk ids are refused. The connector re-reads the inventory
+after the delete: survivors are reported (do not replay the batch) and a total
+no-op is an error. Save + reload the PCB afterwards and confirm with
+'pcb silk-art-list' / 'pcb check'.`,
+			Args: cobra.NoArgs,
+			Example: `  easyeda pcb silk-art-list --layer 3
+  easyeda pcb silk-art-delete --ids img-old-power,img-old-logic
+  easyeda pcb save && easyeda doc reload --project <name>`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if ids == "" {
+					return fmt.Errorf("--ids is required (CSV of free silk artwork primitiveIds from 'pcb silk-art-list')")
+				}
+				idList, err := parseIDList(ids)
+				if err != nil {
+					return err
+				}
+				return dispatch(cfg, "pcb.silk.artwork_delete", window, map[string]any{"primitiveIds": idList}, stdout, stderr)
+			},
+		}
+		c.Flags().StringVar(&ids, "ids", "", "free silk artwork primitiveIds to delete — CSV: id1,id2 (required)")
+		pcb.AddCommand(c)
+	}
+
 	// ── silk-netnames (网络名自动标注) ──────────────────────────────────────────
 	// pcb.silk.netnames — auto-generate silkscreen labels for net names in a zone.
 	{

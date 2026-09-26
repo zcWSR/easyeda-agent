@@ -157,6 +157,10 @@ Symbol/Footprint build 仅允许写入可证明为空的刚创建资产：Connec
 
 - Footprint JSON 的单位是 mil，pad/hole 使用官方 tuple；复杂弧线/区域优先用
   `lib footprint copy` 保留几何。层与制造规则见 [pcb.md](pcb.md)。
+- `lib footprint reload --uuid <fp> --library <lib>` 是库写入的持久化验收：只对**当前活动**的
+  封装库文档执行 save → close → reopen，并对比 pad/polyline/fill/region 的图元 ID 清单；
+  save 失败不会关页，重开后清单不一致返回 `verified=false` 而不冒充成功。项目级 `doc reload`
+  只认原理图/PCB 且会拒绝库文档，不要混用。
 - `lib symbol build` 从轮廓、引脚与可选圆形生成符号；引脚编号、Pin-1 和极性需验证。
 - 当前没有 Device rename typed action；实测官方 `lib_Device.modify` 改名返回 false 且不落地，
   不要用 `debug exec` 反复试探。需要新名称时新建并重新绑定 Device。

@@ -449,6 +449,7 @@ func fetchSilkZoneParts(cfg *appConfig, window string) (map[string]silkZonePart,
 
 func newPcbSilkZoneOutlineCmd(cfg *appConfig, window *string, stdout, stderr io.Writer) *cobra.Command {
 	var zoneFlags []string
+	var replaceIDs []string
 	var fromClaims, dryRun, avoidComponents bool
 	var margin, edgeMargin, obstacleClearance, lineWidth float64
 	var layer, maxAvoid int
@@ -459,8 +460,17 @@ func newPcbSilkZoneOutlineCmd(cfg *appConfig, window *string, stdout, stderr io.
 		Use:   "silk-zone-outline",
 		Short: "Auto-draw grouped orthogonal functional-zone outlines on silkscreen",
 		Args:  cobra.NoArgs,
+		Long: `Auto-draw grouped orthogonal functional-zone outlines as FILLED silkscreen
+IMAGE primitives (one per zone) plus optional zone-name strings.
+
+Redraw / undo: every outline is returned as an image primitiveId, but nothing in
+the command can find a previous generation later on its own — pass the old ids
+with --replace-ids to delete them AFTER the new outlines were created (a failed
+redraw therefore never leaves the board without zone markings), or inspect and
+delete free silk artwork with 'pcb silk-art-list' / 'pcb silk-art-delete'.`,
 		Example: `  easyeda pcb silk-zone-outline --zone "POWER=U1,U64,C2,C6,C7,C8" --margin 40 --dry-run
-  easyeda pcb silk-zone-outline --from-claims --margin 40`,
+  easyeda pcb silk-zone-outline --from-claims --margin 40
+  easyeda pcb silk-zone-outline --from-claims --margin 40 --replace-ids img-old-power,img-old-logic`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// ADR-0004 Decision 4: dry-run 必须纯计算 —— 机械保证,Mutates 派发直接被拒。
 			if dryRun {
@@ -469,6 +479,15 @@ func newPcbSilkZoneOutlineCmd(cfg *appConfig, window *string, stdout, stderr io.
 			groups, err := parseSilkZoneFlags(zoneFlags)
 			if err != nil {
 				return err
+			}
+			// Validate the replacement ids BEFORE any mutation: a typo must not
+			// create a new generation and only then fail to remove the old one.
+			replaceIDs, err = normalizeSilkReplaceIDs(replaceIDs)
+			if err != nil {
+				return err
+			}
+			if dryRun && len(replaceIDs) > 0 {
+				return fmt.Errorf("--dry-run cannot be combined with --replace-ids (a dry run must not delete anything)")
 			}
 			if fromClaims {
 				claims, _, err := loadZoneClaims(cfg, *window)
@@ -595,9 +614,29 @@ func newPcbSilkZoneOutlineCmd(cfg *appConfig, window *string, stdout, stderr io.
 				created = append(created, item)
 				fmt.Fprintf(stderr, "✓ %s: %d part(s), grouped silk outline%s created\n", p.Name, len(p.Parts), map[bool]string{true: " + label", false: ""}[addLabel])
 			}
+			// --replace-ids deletes the previous generation only AFTER every new
+			// outline (and label) was created, so an interrupted redraw leaves a
+			// duplicate — never a blank zone. The ids were validated above.
+			out := map[string]any{"created": created}
+			var replaceErr error
+			if len(replaceIDs) > 0 {
+				res, err := requestAction(cfg, "pcb.silk.artwork_delete", *window, map[string]any{"primitiveIds": replaceIDs})
+				if err != nil {
+					replaceErr = err
+					out["replace"] = map[string]any{"requested": replaceIDs, "deleted": false, "error": err.Error()}
+				} else {
+					out["replace"] = res.Result
+				}
+			}
 			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")
-			return enc.Encode(map[string]any{"created": created})
+			if err := enc.Encode(out); err != nil {
+				return err
+			}
+			if replaceErr != nil {
+				return fmt.Errorf("new zone outlines were created, but --replace-ids cleanup failed: %w", replaceErr)
+			}
+			return nil
 		},
 	}
 	c.Flags().StringArrayVar(&zoneFlags, "zone", nil, `functional group: NAME=U1,C1,C2 (repeatable)`)
@@ -614,7 +653,29 @@ func newPcbSilkZoneOutlineCmd(cfg *appConfig, window *string, stdout, stderr io.
 	c.Flags().Float64Var(&labelSize, "label-size", 32, "zone-label font height (mil)")
 	c.Flags().Float64Var(&labelLineWidth, "label-line-width", 5, "zone-label stroke width (mil)")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "compute hulls without modifying the PCB")
+	c.Flags().StringSliceVar(&replaceIDs, "replace-ids", nil, "previous free silk artwork ids to delete AFTER the new outlines are created (CSV or repeatable; from 'pcb silk-art-list')")
 	return c
+}
+
+// normalizeSilkReplaceIDs validates --replace-ids before any mutation: blank
+// entries are refused (a typo would otherwise create the new outlines and then
+// delete nothing) and duplicates collapse to first-seen order because the
+// connector rejects ambiguous duplicate ids.
+func normalizeSilkReplaceIDs(ids []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("--replace-ids contains an empty id — pass CSV: id1,id2")
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 func hullBBox(hull [][2]float64) cpRect {

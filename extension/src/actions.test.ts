@@ -1240,6 +1240,98 @@ test('library footprint build rejects duplicate pad numbers before opening/mutat
 	finally { delete (globalThis as any).eda; }
 });
 
+// ─── Library footprint reload (typed save → close → reopen) ─────────────
+
+/** Active-library-document fixture with an ordered call log, so the reload
+ * tests can prove save happens BEFORE close and that a refusal writes nothing. */
+function installLibraryFootprintReloadFixture(options: {
+	activeUuid?: string;
+	saveResult?: boolean;
+	closeResult?: boolean;
+	inventory?: () => Promise<Array<string>>;
+} = {}) {
+	const calls: Array<string> = [];
+	let current: Record<string, unknown> = {
+		uuid: options.activeUuid ?? 'FP-1', parentLibraryUuid: 'LIB-F', documentType: 4, tabId: 'TAB-1',
+	};
+	const padIds = options.inventory ?? (async () => ['pad-1']);
+	(globalThis as any).eda = {
+		lib_Footprint: { get: async (uuid: string, libraryUuid: string) => ({ uuid, libraryUuid, name: 'EA_AGENT__RTC_MX125' }) },
+		dmt_SelectControl: { getCurrentDocumentInfo: async () => current },
+		dmt_EditorControl: {
+			getSplitScreenIdByTabId: async () => 'split-1',
+			closeDocument: async (tabId: string) => { calls.push(`close:${tabId}`); if (options.closeResult === false) return false; current = { uuid: '', parentLibraryUuid: '', documentType: 0, tabId: '' }; return true; },
+			openLibraryDocument: async (libraryUuid: string, _type: unknown, uuid: string) => {
+				calls.push(`open:${uuid}`);
+				current = { uuid, parentLibraryUuid: libraryUuid, documentType: 4, tabId: 'TAB-2' };
+				return 'TAB-2';
+			},
+			activateDocument: async (tabId: string) => { calls.push(`activate:${tabId}`); return true; },
+		},
+		pcb_Document: { save: async () => { calls.push('save'); return options.saveResult !== false; } },
+		pcb_PrimitivePad: { getAllPrimitiveId: padIds },
+		pcb_PrimitivePolyline: { getAllPrimitiveId: async () => ['poly-1'] },
+		pcb_PrimitiveFill: { getAllPrimitiveId: async () => [] },
+		pcb_PrimitiveRegion: { getAllPrimitiveId: async () => [] },
+	};
+	return { calls };
+}
+
+test('library footprint reload saves, closes and reopens the exact asset and compares inventories', async () => {
+	const fixture = installLibraryFootprintReloadFixture();
+	try {
+		const res: any = await runAction('library.footprint.reload', { uuid: 'FP-1', libraryUuid: 'LIB-F' });
+		assert.equal(res.result.saved, true);
+		assert.equal(res.result.closed, true);
+		assert.equal(res.result.reopened, true);
+		assert.equal(res.result.verified, true);
+		assert.deepEqual(res.result.before, { pads: ['pad-1'], polylines: ['poly-1'], fills: [], regions: [] });
+		assert.deepEqual(res.result.after, res.result.before);
+		assert.deepEqual(fixture.calls, ['save', 'close:TAB-1', 'open:FP-1', 'activate:TAB-2']);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint reload refuses an active-document drift before saving or closing', async () => {
+	const fixture = installLibraryFootprintReloadFixture({ activeUuid: 'OTHER-FP' });
+	try {
+		await assert.rejects(
+			() => runAction('library.footprint.reload', { uuid: 'FP-1', libraryUuid: 'LIB-F' }),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /exact footprint library document must be active/.test(err.message),
+		);
+		assert.deepEqual(fixture.calls, []);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint reload never closes the tab when the save fails', async () => {
+	const fixture = installLibraryFootprintReloadFixture({ saveResult: false });
+	try {
+		await assert.rejects(
+			() => runAction('library.footprint.reload', { uuid: 'FP-1', libraryUuid: 'LIB-F' }),
+			(err: any) => err.code === 'EDA_CALL_FAILED' && /save failed; library tab was not closed/.test(err.message),
+		);
+		assert.deepEqual(fixture.calls, ['save']);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('library footprint reload reports a changed post-reopen inventory instead of claiming verification', async () => {
+	let reads = 0;
+	const fixture = installLibraryFootprintReloadFixture({
+		inventory: async () => (++reads === 1 ? ['pad-1'] : ['pad-1', 'pad-2']),
+	});
+	try {
+		const res: any = await runAction('library.footprint.reload', { uuid: 'FP-1', libraryUuid: 'LIB-F' });
+		assert.equal(res.result.reopened, true);
+		assert.equal(res.result.verified, false);
+		assert.deepEqual(res.result.before.pads, ['pad-1']);
+		assert.deepEqual(res.result.after.pads, ['pad-1', 'pad-2']);
+		assert.match(res.warnings[0], /inspect the asset/);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
 test('library Device create binds explicit symbol and footprint refs', async () => {
 	let createArgs: Array<unknown> = [];
 	(globalThis as any).eda = {
@@ -4240,6 +4332,158 @@ test('PCB silk creation supplies a registered font and legal top-left anchor', a
 		const res: any = await runAction('pcb.silk.add', { text: 'TEST', x: 100, y: 200 });
 		assert.equal(res.result.primitiveId, 'silk-regression');
 		assert.deepEqual(stored, [3, 100, 200, 'TEST', 'default', 40, 6, 1, 0, false, 0, false, false]);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+// ─── Scoped silk artwork inventory + delete (zone-outline undo) ─────────
+
+type SilkArtworkRow = { id: string; kind: string; layer: number; locked?: boolean; text?: string };
+
+/** Minimal silk artwork canvas: six primitive classes over one mutable row set.
+ * `keepIds` models a host that reports success but leaves a primitive behind;
+ * `refuseKinds` returns false; `failKinds` throws. */
+function installSilkArtworkFixture(rows: Array<SilkArtworkRow>, options: { keepIds?: Array<string>; refuseKinds?: Array<string>; failKinds?: Array<string> } = {}) {
+	const deletedCalls: Array<{ kind: string; ids: Array<string> }> = [];
+	const obj = (row: SilkArtworkRow) => ({
+		getState_PrimitiveId: () => row.id,
+		getState_Layer: () => row.layer,
+		getState_PrimitiveLock: () => row.locked === true,
+		getState_Text: () => row.text ?? '',
+	});
+	const klass = (kind: string) => ({
+		getAll: async () => rows.filter(row => row.kind === kind).map(obj),
+		delete: async (ids: Array<string>) => {
+			deletedCalls.push({ kind, ids: [...ids] });
+			if (options.failKinds?.includes(kind)) throw new Error(`${kind} delete failed`);
+			if (options.refuseKinds?.includes(kind)) return false;
+			for (const id of ids) {
+				if (options.keepIds?.includes(id)) continue;
+				const index = rows.findIndex(row => row.id === id);
+				if (index >= 0) rows.splice(index, 1);
+			}
+			return true;
+		},
+	});
+	(globalThis as any).eda = {
+		pcb_PrimitiveImage: klass('image'),
+		pcb_PrimitiveFill: klass('fill'),
+		pcb_PrimitiveLine: klass('line'),
+		pcb_PrimitiveArc: klass('arc'),
+		pcb_PrimitivePolyline: klass('polyline'),
+		pcb_PrimitiveString: klass('string'),
+		pcb_PrimitiveAttribute: {
+			getAll: async () => [{ getState_PrimitiveId: () => 'attr-desig', getState_Layer: () => 3 }],
+		},
+		pcb_Primitive: { getPrimitivesBBox: async (ids: Array<string>) => ({ minX: 0, minY: 0, maxX: ids.length, maxY: 1 }) },
+	};
+	return { rows, deletedCalls };
+}
+
+const silkArtworkRows = (): Array<SilkArtworkRow> => [
+	{ id: 'img-old', kind: 'image', layer: 3 },
+	{ id: 'img-new', kind: 'image', layer: 3 },
+	{ id: 'line-silk', kind: 'line', layer: 3 },
+	{ id: 'arc-bottom', kind: 'arc', layer: 4 },
+	{ id: 'poly-silk', kind: 'polyline', layer: 3 },
+	{ id: 'fill-silk', kind: 'fill', layer: 3 },
+	{ id: 'str-power', kind: 'string', layer: 3, text: 'POWER' },
+	{ id: 'line-copper', kind: 'line', layer: 1 },
+	{ id: 'str-copper', kind: 'string', layer: 1, text: 'COPPER' },
+];
+
+test('pcb.silk.artwork_list enumerates only free silk artwork with ids, kinds, layers and bbox', async () => {
+	installSilkArtworkFixture(silkArtworkRows());
+	try {
+		const res: any = await runAction('pcb.silk.artwork_list', {});
+		assert.equal(res.result.count, 7);
+		assert.deepEqual(res.result.items.map((i: any) => i.primitiveId).sort(), ['arc-bottom', 'fill-silk', 'img-new', 'img-old', 'line-silk', 'poly-silk', 'str-power']);
+		assert.equal(res.result.items.find((i: any) => i.primitiveId === 'str-power').text, 'POWER');
+		assert.equal(res.result.items.find((i: any) => i.primitiveId === 'str-power').kind, 'string');
+		assert.ok(res.result.items.every((i: any) => i.layer === 3 || i.layer === 4));
+		assert.ok(res.result.items.every((i: any) => i.bbox), 'every row carries the rendered bbox used to tell generations apart');
+
+		const bottom: any = await runAction('pcb.silk.artwork_list', { layer: 4 });
+		assert.deepEqual(bottom.result.items.map((i: any) => i.primitiveId), ['arc-bottom']);
+		await assert.rejects(() => runAction('pcb.silk.artwork_list', { layer: 1 }), /layer must be 3/);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.silk.artwork_delete refuses unknown, attribute and non-silk ids before any write', async () => {
+	const fixture = installSilkArtworkFixture(silkArtworkRows());
+	try {
+		for (const ids of [['line-copper'], ['attr-desig'], ['no-such-id']]) {
+			await assert.rejects(
+				() => runAction('pcb.silk.artwork_delete', { primitiveIds: ids }),
+				(err: any) => err.code === 'PRECONDITION_REFUSED' && /Nothing was deleted/.test(err.message),
+			);
+		}
+		assert.deepEqual(fixture.deletedCalls, []);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.silk.artwork_delete removes a mixed-kind batch grouped per kind and verifies absence', async () => {
+	const fixture = installSilkArtworkFixture(silkArtworkRows());
+	try {
+		const res: any = await runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-old', 'line-silk', 'str-power'] });
+		assert.equal(res.result.verified, true);
+		assert.deepEqual(res.result.deleted.sort(), ['img-old', 'line-silk', 'str-power']);
+		assert.deepEqual(fixture.deletedCalls.map(c => c.kind).sort(), ['image', 'line', 'string']);
+		assert.deepEqual(fixture.rows.map(r => r.id), ['img-new', 'arc-bottom', 'poly-silk', 'fill-silk', 'line-copper', 'str-copper']);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.silk.artwork_delete refuses locked ids and duplicate ids before mutation', async () => {
+	const rows = silkArtworkRows();
+	rows[0].locked = true;
+	const fixture = installSilkArtworkFixture(rows);
+	try {
+		await assert.rejects(
+			() => runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-old', 'img-new'] }),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /locked/.test(err.message),
+		);
+		await assert.rejects(
+			() => runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-new', 'img-new'] }),
+			(err: any) => err.code === 'PRECONDITION_REFUSED' && /Duplicate/.test(err.message),
+		);
+		assert.deepEqual(fixture.deletedCalls, []);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.silk.artwork_delete reports survivors instead of claiming success', async () => {
+	const fixture = installSilkArtworkFixture(silkArtworkRows(), { keepIds: ['img-new'] });
+	try {
+		const res: any = await runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-old', 'img-new'] });
+		assert.equal(res.result.partial, true);
+		assert.equal(res.result.verified, false);
+		assert.deepEqual(res.result.deleted, ['img-old']);
+		assert.deepEqual(res.result.survivors, ['img-new']);
+		assert.match(res.warnings[0], /do not replay the batch/);
+	}
+	finally { delete (globalThis as any).eda; }
+});
+
+test('pcb.silk.artwork_delete fails closed on a total no-op and on unreadable inventory', async () => {
+	const fixture = installSilkArtworkFixture(silkArtworkRows(), { keepIds: ['img-old'] });
+	try {
+		await assert.rejects(
+			() => runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-old'] }),
+			(err: any) => err.code === 'EDA_CALL_FAILED' && /canvas is unchanged/.test(err.message),
+		);
+	}
+	finally { delete (globalThis as any).eda; }
+
+	installSilkArtworkFixture(silkArtworkRows());
+	(globalThis as any).eda.pcb_PrimitiveArc.getAll = async () => { throw new Error('arc inventory unavailable'); };
+	try {
+		await assert.rejects(
+			() => runAction('pcb.silk.artwork_delete', { primitiveIds: ['img-old'] }),
+			(err: any) => err.code === 'EDA_CALL_FAILED' && /arc/.test(err.message),
+		);
 	}
 	finally { delete (globalThis as any).eda; }
 });

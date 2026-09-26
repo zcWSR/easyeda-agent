@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.6.0-dev.7] — 2026-09-27 (local fork candidate)
+
+- Add `pcb.silk.artwork_list` / `pcb silk-art-list`: enumerate every FREE silkscreen artwork primitive (image/fill/line/arc/polyline/string) with exact id, kind, layer, lock flag and rendered bbox. Closes the reported gap where `silk-zone-outline` created one filled image per zone that neither `pcb fill list` nor `pcb silk-list` could find, so the previous generation had no scoped undo.
+- Add `pcb.silk.artwork_delete` / `pcb silk-art-delete`: delete ONLY named free silk artwork ids after an all-or-nothing preflight (must still be unlocked silk on layer 3/4; component designator/value attributes and non-silk ids are refused). Re-reads the inventory afterwards, reports survivors structurally with a do-not-replay warning, and errors on a provable total no-op.
+- Add `silk-zone-outline --replace-ids`: idempotent redraw that creates every new outline first and only then deletes the previous-generation ids; refuses `--dry-run` with replacement and validates/normalizes the ids before any mutation.
+- Add `library.footprint.reload` / `lib footprint reload`: typed save → close → reopen of one exact active library footprint, comparing pad/polyline/fill/region primitive-ID inventories before and after. Saves before closing (a failed save never closes the tab) and reports a changed inventory as verified=false instead of claiming persistence.
+
 ## [1.6.0-dev.6] — 2026-09-26 (local fork candidate)
 
 - Accept an exact procured DNP instance when its source catalog Device is BOM-included. The placed non-BOM flag remains the assembly policy; native source, library association and procurement fields still require exact proof. This corrects the dev.5 resolver's live-readback rejection.

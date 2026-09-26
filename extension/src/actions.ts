@@ -5174,6 +5174,53 @@ const libraryFootprintBuild: Handler = async (payload) => {
 	}
 };
 
+/** Save and reopen an already authored footprint without replaying build.
+ * The caller must identify the exact active library asset. Closing happens
+ * only after a successful footprint save; any later uncertainty is returned
+ * as partial state so the caller can inspect the editor before retrying. */
+const libraryFootprintReload: Handler = async (payload) => {
+	const uuid = requireString(payload, 'uuid');
+	const libraryUuid = requireString(payload, 'libraryUuid');
+	const asset = await eda.lib_Footprint.get(uuid, libraryUuid);
+	if (!asset || asset.uuid !== uuid) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Exact footprint library asset could not be read.');
+	const current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+	if (!current || current.uuid !== uuid || current.documentType !== (4 as EDMT_EditorDocumentType.FOOTPRINT) || !current.tabId) {
+		throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'The exact footprint library document must be active before reload.');
+	}
+	const tabId = current.tabId;
+	const inventory = async () => {
+		const entries = await Promise.all([
+			eda.pcb_PrimitivePad.getAllPrimitiveId(), eda.pcb_PrimitivePolyline.getAllPrimitiveId(),
+			eda.pcb_PrimitiveFill.getAllPrimitiveId(), eda.pcb_PrimitiveRegion.getAllPrimitiveId(),
+		]);
+		if (entries.some(ids => !Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id))) {
+			throw new ActionError(ErrorCodes.INVALID_STATE, 'Footprint primitive inventory is incomplete.');
+		}
+		return Object.fromEntries(['pads', 'polylines', 'fills', 'regions'].map((key, i) => [key, [...entries[i]].sort()]));
+	};
+	const before = await inventory();
+	const saved = await libraryBuildPhase('footprint.reload.save', () => eda.pcb_Document.save());
+	if (saved !== true) throw new ActionError(ErrorCodes.EDA_CALL_FAILED, 'Footprint save failed; library tab was not closed.');
+	let closed = false;
+	try {
+		const now = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+		if (!now || now.uuid !== uuid || now.tabId !== tabId || now.documentType !== (4 as EDMT_EditorDocumentType.FOOTPRINT)) {
+			throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, 'Active footprint changed after save; no tab was closed.');
+		}
+		closed = await libraryBuildPhase('footprint.reload.close', () => eda.dmt_EditorControl.closeDocument(tabId));
+		if (!closed) throw new Error('closeDocument returned false');
+		const reopenedTabId = await activateLibraryDocument(uuid, libraryUuid, '4' as ELIB_LibraryType.FOOTPRINT, 4 as EDMT_EditorDocumentType.FOOTPRINT, 'footprint.reload');
+		const after = await inventory();
+		const verified = exactJSON(before) === exactJSON(after);
+		return { result: { uuid, libraryUuid, tabId: reopenedTabId, saved: true, closed: true, reopened: true, before, after, verified },
+			...(verified ? {} : { warnings: ['Footprint reopened, but primitive IDs differ; inspect the asset before any further write.'] }) };
+	}
+	catch (err) {
+		return { result: { uuid, libraryUuid, priorTabId: tabId, saved: true, closed, reopened: false, before, verified: false, error: describeThrown(err) },
+			warnings: ['Footprint reload did not complete; saved asset state must be inspected before retrying.'] };
+	}
+};
+
 const REGION_GEOMETRY_EPSILON = 1e-6;
 
 function sameRegionVertex(a: [number, number], b: [number, number]): boolean {
@@ -8840,6 +8887,168 @@ const pcbSilkImportSvg: Handler = async (payload) => {
 	try { bbox = await eda.pcb_Primitive.getPrimitivesBBox([id]); }
 	catch { /* bbox optional */ }
 	return { result: { primitiveId: id, layer: Number(layer), x, y, rotation, mirror, contours: raw.length, bbox } };
+};
+
+// ─── pcb.silk.artwork_list / pcb.silk.artwork_delete ─────────────────────
+// Free silkscreen ARTWORK (as opposed to component designator/value attributes)
+// is created by several typed paths — `pcb.silk.import_svg` and the
+// `pcb silk-zone-outline` wrapper (pcb_PrimitiveImage), `pcb.silk.add`
+// (pcb_PrimitiveString) and direct fills/lines/arcs/polylines. Until now the
+// only deletion available was the board-wide `pcb clear --only silk`, which
+// drops EVERY unlocked silk primitive, so a zoned redraw had no scoped undo:
+// the previous generation stayed on the board and could not be named or
+// removed. These two handlers close that gap. `artwork_list` reports the exact
+// primitiveId + kind + layer + rendered bbox of each free silk primitive so
+// overlapping generations can be told apart before deleting; `artwork_delete`
+// removes ONLY explicitly named ids, after proving from a FRESH enumeration
+// that every id is still free silk artwork on layer 3/4, and then re-reads the
+// inventory to report any survivor. Component attributes (designators/values)
+// are deliberately NOT part of this set: they are owned by their parent part
+// and must not be deleted as free artwork.
+type PcbSilkArtworkKind = {
+	kind: string;
+	getAll: () => Promise<Array<SchPrimitiveLike>>;
+	del: (ids: Array<string>) => Promise<boolean>;
+	text?: (p: SchPrimitiveLike) => string;
+};
+
+const PCB_SILK_ARTWORK_KINDS: Array<PcbSilkArtworkKind> = [
+	{ kind: 'image', getAll: () => eda.pcb_PrimitiveImage.getAll(), del: ids => eda.pcb_PrimitiveImage.delete(ids) },
+	{ kind: 'fill', getAll: () => eda.pcb_PrimitiveFill.getAll(), del: ids => eda.pcb_PrimitiveFill.delete(ids) },
+	{ kind: 'line', getAll: () => eda.pcb_PrimitiveLine.getAll(), del: ids => eda.pcb_PrimitiveLine.delete(ids) },
+	{ kind: 'arc', getAll: () => eda.pcb_PrimitiveArc.getAll(), del: ids => eda.pcb_PrimitiveArc.delete(ids) },
+	{ kind: 'polyline', getAll: () => eda.pcb_PrimitivePolyline.getAll(), del: ids => eda.pcb_PrimitivePolyline.delete(ids) },
+	{
+		kind: 'string',
+		getAll: () => eda.pcb_PrimitiveString.getAll(),
+		del: ids => eda.pcb_PrimitiveString.delete(ids),
+		text: p => String((p as { getState_Text?: () => unknown }).getState_Text?.() ?? ''),
+	},
+];
+
+/** One entry per free silk primitive, or a throw when any class is unreadable
+ * (a partially enumerated inventory must never authorize a delete). */
+async function enumeratePcbSilkArtwork(): Promise<Map<string, Record<string, unknown>>> {
+	const found = new Map<string, Record<string, unknown>>();
+	for (const cls of PCB_SILK_ARTWORK_KINDS) {
+		let primitives: Array<SchPrimitiveLike>;
+		try {
+			primitives = (await cls.getAll()) ?? [];
+		}
+		catch (err) {
+			throw edaError(err, `Failed to enumerate silkscreen ${cls.kind} primitives.`);
+		}
+		for (const p of primitives) {
+			const layer = pcbPrimLayer(p);
+			if (!isPcbSilkLayer(layer)) continue;
+			const primitiveId = String(p.getState_PrimitiveId?.() ?? '');
+			if (!primitiveId) continue;
+			found.set(primitiveId, {
+				primitiveId,
+				kind: cls.kind,
+				layer,
+				locked: pcbPrimLocked(p),
+				...(cls.text ? { text: cls.text(p) } : {}),
+			});
+		}
+	}
+	return found;
+}
+
+const pcbSilkArtworkList: Handler = async (payload) => {
+	const layerFilter = optionalNumber(payload, 'layer');
+	if (layerFilter !== undefined && !isPcbSilkLayer(layerFilter)) {
+		throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'layer must be 3 (TOP_SILKSCREEN) or 4 (BOTTOM_SILKSCREEN).');
+	}
+	const inventory = await enumeratePcbSilkArtwork();
+	const items: Array<Record<string, unknown>> = [];
+	for (const entry of inventory.values()) {
+		if (layerFilter !== undefined && entry.layer !== layerFilter) continue;
+		let bbox: unknown = null;
+		try {
+			bbox = (await eda.pcb_Primitive.getPrimitivesBBox([entry.primitiveId as string])) ?? null;
+		}
+		catch { /* bbox is optional evidence; the id/layer/kind above are authoritative */ }
+		items.push({ ...entry, bbox });
+	}
+	items.sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.primitiveId).localeCompare(String(b.primitiveId)));
+	return { result: { items, count: items.length, layers: layerFilter !== undefined ? [layerFilter] : [PCB_TOP_SILK, PCB_BOTTOM_SILK], scope: 'activePcb' } };
+};
+
+/** Delete ONLY the named free silk primitives. All-or-nothing preflight: every
+ * id must still be present as unlocked free silk artwork, otherwise NOTHING is
+ * deleted. After the per-kind delete calls the inventory is re-read: survivors
+ * are reported structurally (never silently treated as success), and a total
+ * no-op is a hard error because the canvas is provably unchanged. */
+const pcbSilkArtworkDelete: Handler = async (payload) => {
+	const raw = payload.primitiveIds;
+	if (!Array.isArray(raw) || raw.length === 0) {
+		throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'primitiveIds must be a non-empty array of silk artwork primitive ids from pcb.silk.artwork_list.');
+	}
+	const ids: Array<string> = [];
+	for (const value of raw) {
+		if (typeof value !== 'string' || !value.trim()) {
+			throw new ActionError(ErrorCodes.MISSING_PAYLOAD_FIELD, 'Every primitiveIds entry must be a non-empty string.');
+		}
+		const id = value.trim();
+		if (ids.includes(id)) throw new ActionError(ErrorCodes.PRECONDITION_REFUSED, `Duplicate primitive id "${id}" — refusing an ambiguous delete request.`);
+		ids.push(id);
+	}
+	const inventory = await enumeratePcbSilkArtwork();
+	const unknown = ids.filter(id => !inventory.has(id));
+	if (unknown.length) {
+		throw new ActionError(
+			ErrorCodes.PRECONDITION_REFUSED,
+			`Refusing to delete: ${unknown.length} id(s) are not free silkscreen artwork on this PCB (${unknown.join(', ')}). `
+			+ 'Nothing was deleted. Component designator/value attributes are owned by their parent part and are not deletable here; '
+			+ 'use pcb.silk.artwork_list for the current ids.',
+		);
+	}
+	const locked = ids.filter(id => inventory.get(id)?.locked === true);
+	if (locked.length) {
+		throw new ActionError(
+			ErrorCodes.PRECONDITION_REFUSED,
+			`Refusing to delete locked silkscreen primitive(s): ${locked.join(', ')}. Unlock them in the editor first; nothing was deleted.`,
+		);
+	}
+	const byKind = new Map<string, Array<string>>();
+	for (const id of ids) {
+		const kind = String(inventory.get(id)?.kind);
+		byKind.set(kind, [...(byKind.get(kind) ?? []), id]);
+	}
+	const errors: Record<string, string> = {};
+	for (const [kind, kindIds] of byKind) {
+		const cls = PCB_SILK_ARTWORK_KINDS.find(candidate => candidate.kind === kind);
+		if (!cls) { errors[kind] = 'no delete implementation for this primitive kind'; continue; }
+		try {
+			const ok = await cls.del(kindIds);
+			if (ok !== true) errors[kind] = 'delete returned no success';
+		}
+		catch (err) { errors[kind] = describeThrown(err); }
+	}
+	// The readback is the only trustworthy outcome: a delete call may report
+	// success for a primitive that is still on the canvas, or fail after
+	// removing part of the batch.
+	const after = await enumeratePcbSilkArtwork();
+	const survivors = ids.filter(id => after.has(id));
+	const deleted = ids.filter(id => !after.has(id));
+	if (survivors.length === ids.length) {
+		const detail = Object.entries(errors).map(([kind, message]) => `${kind}: ${message}`).join('; ') || 'delete reported no success';
+		throw new ActionError(
+			ErrorCodes.EDA_CALL_FAILED,
+			`Silk artwork delete did not remove any of the ${ids.length} requested primitive(s) (${detail}); the canvas is unchanged, re-read before retrying.`,
+		);
+	}
+	if (survivors.length) {
+		return {
+			result: { partial: true, requested: ids, deleted, survivors, errors, verified: false },
+			warnings: [
+				`${survivors.length} of ${ids.length} silk artwork primitive(s) survived the delete (${survivors.join(', ')}); `
+				+ 'do not replay the batch — delete the survivors individually after a fresh pcb.silk.artwork_list.',
+			],
+		};
+	}
+	return { result: { requested: ids, deleted, count: deleted.length, errors, verified: true } };
 };
 
 // pcb.silk.set — reconfigure existing silkscreen primitive(s) in one batch:
@@ -14125,6 +14334,7 @@ const HANDLERS: Record<string, Handler> = {
 	'library.footprint.copy': libraryFootprintCopy,
 	'library.footprint.delete': libraryFootprintDelete,
 	'library.footprint.build': libraryFootprintBuild,
+	'library.footprint.reload': libraryFootprintReload,
 	'library.footprint.region_create': libraryFootprintRegionCreate,
 	'library.symbol.create': librarySymbolCreate,
 	'library.symbol.build': librarySymbolBuild,
@@ -14156,6 +14366,8 @@ const HANDLERS: Record<string, Handler> = {
 	'pcb.silk.list': pcbSilkList,
 	'pcb.silk.add': pcbSilkAdd,
 	'pcb.silk.import_svg': pcbSilkImportSvg,
+	'pcb.silk.artwork_list': pcbSilkArtworkList,
+	'pcb.silk.artwork_delete': pcbSilkArtworkDelete,
 	'pcb.silk.set': pcbSilkSet,
 	'pcb.silk.netnames': pcbSilkNetnames,
 	'pcb.silk.label_pads': pcbSilkLabelPads,

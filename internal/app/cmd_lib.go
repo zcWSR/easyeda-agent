@@ -273,6 +273,34 @@ func newLibraryFootprintCmd(cfg *appConfig, stdout, stderr io.Writer, window *st
 		group.AddCommand(c)
 	}
 	{
+		var uuid, libraryUUID string
+		c := &cobra.Command{
+			Use:   "reload",
+			Short: "Save, close and reopen ONE active library footprint to prove persistence",
+			Args:  cobra.NoArgs,
+			Example: `  easyeda lib footprint reload --uuid <fp> --library <lib>`,
+			Long: `Save, close and reopen one exact library footprint — the persistence check for
+library authoring. The project-level 'doc reload' only knows schematic pages and
+PCBs, and refuses library documents, so it cannot verify a footprint edit; this
+command requires the target to be the ACTIVE library document, saves first
+(never closes when the save fails), reopens the same asset, and compares the
+pad/polyline/fill/region primitive-id inventories before and after.
+
+pair with 'easyeda lib footprint get' plus an official .elibu export for the
+final geometry evidence.`,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if uuid == "" || libraryUUID == "" {
+					return fmt.Errorf("--uuid and --library are required")
+				}
+				return dispatch(cfg, "library.footprint.reload", *window,
+					map[string]any{"uuid": uuid, "libraryUuid": libraryUUID}, stdout, stderr)
+			},
+		}
+		c.Flags().StringVar(&uuid, "uuid", "", "footprint UUID (required)")
+		c.Flags().StringVar(&libraryUUID, "library", "", "footprint library UUID (required)")
+		group.AddCommand(c)
+	}
+	{
 		var uuid, libraryUUID, pointsJSON, ruleType, name string
 		var layer int
 		var lineWidth float64
